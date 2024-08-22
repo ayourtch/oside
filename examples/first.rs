@@ -1,10 +1,10 @@
-use scarust::*;
+use oside::*;
 use std::any::Any;
 use std::any::TypeId;
 use std::boxed::Box;
 use std::convert::TryFrom;
 
-use scarust::protocols::all::*;
+use oside::protocols::all::*;
 
 /*
 macro_rules! IP {
@@ -45,8 +45,8 @@ macro_rules! IP {
 
 */
 
-use scarust::protocols::all::IpOption::*;
-use scarust::FromStringHashmap;
+use oside::protocols::all::IpOption::*;
+use oside::FromStringHashmap;
 use std::collections::HashMap;
 
 fn main() {

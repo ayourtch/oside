@@ -1,6 +1,6 @@
-# scarust
+# Oside
 
-ScaRust (pronounced "scar[i]est") is a packet parsing/creation framework heavily inspired by the venerable Scapy.
+Oside (Oxidize OSI model) is a packet parsing/creation framework heavily inspired by the venerable Scapy.
 
 The focus, much like the Scapy's, is a very flexible packet manipulation
 without too much of the paperwork. As a result, it is entirely possible to create
@@ -21,8 +21,8 @@ The construction of a stack is usually done two ways:
 1) by parsing binary data bytes
 
 ```rust
-use scarust::*;
-use scarust::protocols::all::*;
+use oside::*;
+use oside::protocols::all::*;
 
 let packetbytes = b"\0x00\x00";
 
@@ -36,8 +36,8 @@ if let Some((layers, plen)) = Ether!().decode(packetbytes) {
 2) by constructing the layerstack from logical layers.
 
 ```rust
-use scarust::*;
-use scarust::protocols::all::*;
+use oside::*;
+use oside::protocols::all::*;
 
 fn get_dst() -> MacAddr {
     MacAddr::from("22:22:22:22:22:22")
@@ -85,8 +85,8 @@ it has been created as a result of a fill or not - thus simply calling
 encode() will do the necessary actions behind the scenes:
 
 ```rust
-use scarust::*;
-use scarust::protocols::all::*;
+use oside::*;
+use oside::protocols::all::*;
 
 
 let layers = Ether!(src = "00:01:02:03:04:05")
@@ -99,8 +99,8 @@ let bytes: Vec<u8> = layers.encode();
 Let's assume we have a following layerstack:
 
 ```rust
-use scarust::*;
-use scarust::protocols::all::*;
+use oside::*;
+use oside::protocols::all::*;
 
 let layers = Ether!() / IP!() / UDP!() / Ether!() / IP!();
 ```
@@ -108,8 +108,8 @@ let layers = Ether!() / IP!() / UDP!() / Ether!() / IP!();
 A simple way to access the UDP layer would be:
 
 ```rust
-use scarust::*;
-use scarust::protocols::all::*;
+use oside::*;
+use oside::protocols::all::*;
 
 let layers = Ether!() / UDP!().dport(123);
 
@@ -127,8 +127,8 @@ that the given layer does exist.
 A more robust approach is to use *.get_layer(...)* method:
 
 ```rust
-use scarust::*;
-use scarust::protocols::all::*;
+use oside::*;
+use oside::protocols::all::*;
 
 let layers = Ether!() / UDP!().dport(123) / UDP!().dport(1000);
 
@@ -155,8 +155,8 @@ Below is an example of a simple ARP responder implementation which will
 respond to ARP request with any target with its own MAC address:
 
 ```rust
-use scarust::*;
-use scarust::protocols::all::*;
+use oside::*;
+use oside::protocols::all::*;
 
 // test data with ARP request to make the example work
 // This data would be a frame received from interface

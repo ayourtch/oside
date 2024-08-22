@@ -567,7 +567,7 @@ impl Distribution<Ipv4Address> for Standard {
 }
 
 #[macro_use]
-extern crate scarust_derive;
+extern crate oside_derive;
 
 pub trait FromStringHashmap<T>: Default {
     fn from_string_hashmap(hm: HashMap<String, String>) -> T;

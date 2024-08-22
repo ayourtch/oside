@@ -1,6 +1,6 @@
-use scarust::*;
+use oside::*;
 
-use scarust::protocols::all::*;
+use oside::protocols::all::*;
 
 #[test]
 fn decode_gre_first_test() {

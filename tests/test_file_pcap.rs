@@ -1,10 +1,10 @@
-use scarust::Value::Random;
-use scarust::*;
+use oside::Value::Random;
+use oside::*;
 #[macro_use]
-extern crate scarust_derive;
+extern crate oside_derive;
 
-use scarust::protocols::all::*;
-use scarust::protocols::pcap_file::*;
+use oside::protocols::all::*;
+use oside::protocols::pcap_file::*;
 
 extern crate pcap_parser;
 use std::fs::File;

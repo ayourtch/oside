@@ -1,11 +1,11 @@
-use scarust::Value::Random;
-use scarust::*;
+use oside::Value::Random;
+use oside::*;
 #[macro_use]
-extern crate scarust_derive;
+extern crate oside_derive;
 use serde::{Deserialize, Serialize};
 use serde_json;
 
-use scarust::protocols::all::*;
+use oside::protocols::all::*;
 
 #[derive(
     FromStringHashmap, NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize,
@@ -35,7 +35,7 @@ fn serialize_1() {
 
 #[test]
 fn it_works() {
-    use scarust::*;
+    use oside::*;
     let ip = Ip {
         ..Default::default()
     };
@@ -95,7 +95,7 @@ fn show_type_id() {
 
 #[test]
 fn custom_proto() {
-    use scarust::*;
+    use oside::*;
     let px = TestProto!().tos(2);
     println!("created: {:?}", &px);
     assert_eq!(px.version, Value::Set(4));

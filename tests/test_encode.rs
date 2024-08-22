@@ -1,8 +1,8 @@
-use scarust::Value::Random;
-use scarust::*;
+use oside::Value::Random;
+use oside::*;
 #[macro_use]
-extern crate scarust_derive;
-use scarust::protocols::all::*;
+extern crate oside_derive;
+use oside::protocols::all::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(
@@ -118,7 +118,7 @@ fn make_udp_checksum_payload() {
 
 #[test]
 fn make_geneve() {
-    use scarust::protocols::geneve::Geneve;
+    use oside::protocols::geneve::Geneve;
     let x = Ether!()
         / IP!(src = "192.168.1.1", dst = "192.168.2.2")
         / UDP!()

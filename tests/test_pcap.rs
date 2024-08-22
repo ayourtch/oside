@@ -1,9 +1,9 @@
-use scarust::Value::Random;
-use scarust::*;
+use oside::Value::Random;
+use oside::*;
 #[macro_use]
-extern crate scarust_derive;
+extern crate oside_derive;
 
-use scarust::protocols::all::*;
+use oside::protocols::all::*;
 
 extern crate pcap_parser;
 use std::fs::File;
@@ -169,7 +169,7 @@ pub fn test_pcap3_csum() {
 
 #[test]
 pub fn test_pcap_vxlan1() {
-    use scarust::protocols::vxlan::Vxlan;
+    use oside::protocols::vxlan::Vxlan;
 
     let packets = read_pcap("vxlan1.pcap");
     for d in packets {
@@ -183,7 +183,7 @@ pub fn test_pcap_vxlan1() {
 
 #[test]
 pub fn test_pcap_vxlan2() {
-    use scarust::protocols::vxlan::Vxlan;
+    use oside::protocols::vxlan::Vxlan;
 
     let packets = read_pcap("vxlan2.pcap");
     for d in packets {
@@ -197,7 +197,7 @@ pub fn test_pcap_vxlan2() {
 
 #[test]
 pub fn test_pcap_dhcp() {
-    use scarust::protocols::bootp::Bootp;
+    use oside::protocols::bootp::Bootp;
 
     let packets = read_pcap("dhcp.pcap");
     for d in packets {

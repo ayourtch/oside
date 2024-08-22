@@ -1,10 +1,10 @@
-use scarust::*;
+use oside::*;
 
-use scarust::protocols::all::*;
+use oside::protocols::all::*;
 
 #[test]
 fn decode_test_1() {
-    use scarust::*;
+    use oside::*;
 
     let x = Ether!()
         .decode("AAAAAABBBBBB\x08\x00\x4523456789\x111234567890123456789012a".as_bytes())
@@ -24,7 +24,7 @@ fn decode_test_1() {
 
 #[test]
 fn decode_test_icmp() {
-    use scarust::*;
+    use oside::*;
 
     let x = Ether!()
         .decode("AAAAAABBBBBB\x08\x00\x4523456789\x011234567890123456789012a".as_bytes())
@@ -106,7 +106,7 @@ fn decode_arp_strange() {
 
 #[test]
 fn decode_test_dot1q() {
-    use scarust::*;
+    use oside::*;
 
     let x = Ether!()
         .decode(b"AAAAAABBBBBB\x81\x00\x02\x21\x08\x00\x4523456789\x111234567890123456789012a")

@@ -1,5 +1,5 @@
 [package]
-name = "scarust-derive"
+name = "oside-derive"
 version = "0.1.0"
 authors = ["Andrew Yourtchenko <ayourtch@gmail.com>"]
 edition = "2018"

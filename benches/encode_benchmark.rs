@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use scarust::protocols::all::*;
-use scarust::*;
+use oside::protocols::all::*;
+use oside::*;
 
 fn test_encode() {
     let p = Ether!().set_src(Value::Random)
