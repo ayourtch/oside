@@ -189,7 +189,7 @@ if let Some(arp) = sca.get_layer(ARP!()) {
 
 The LayerStack struct types also implement Serialize/Deserialize, which rather easily allows to transform the parsed packets into other formats:
 
-```
+```text
 cargo run --example pcap2json -- pcap/pcap_3pkts.pcap
 
 [
