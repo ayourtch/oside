@@ -1007,6 +1007,24 @@ impl <'a> Eq for LayerStack<'a> {
 }
 */
 
+pub trait WritePcap {
+    fn write_pcap(&self, fname: &str) -> Result<(), std::io::Error>;
+}
+
+impl WritePcap for Vec<LayerStack> {
+    fn write_pcap(&self, fname: &str) -> Result<(), std::io::Error> {
+        use crate::protocols::pcap_file::*;
+
+        let mut pcap = PcapFile!();
+        for p in self {
+            let pp = PcapPacket!(data = p.clone().encode());
+            pcap.push(pp);
+        }
+
+        pcap.write(&fname)
+    }
+}
+
 pub mod encdec;
 pub mod protocols;
 pub mod typ;

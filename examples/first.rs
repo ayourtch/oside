@@ -93,6 +93,14 @@ fn main() {
         / IPV6!(src = "2001:db8:1::1", dst = "2001:db8:2::2")
         / UDP!();
 
+    {
+        use oside::WritePcap;
+
+        let mut packets = vec![];
+        packets.push(ipv6_test);
+        packets.write_pcap("ipv6.pcap");
+    }
+
     let ipv4_test =
         Ether!(src = "00:01:02:03:04:05") / IP!(src = "192.0.2.1", dst = "192.0.2.1") / UDP!();
 
