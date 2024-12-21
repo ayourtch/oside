@@ -102,7 +102,13 @@ fn main() {
         use oside::WritePcap;
 
         let mut packets = vec![];
+        let mut ipv6_clone = ipv6_test.clone();
         packets.push(ipv6_test);
+
+        if let Some((idx, ip6)) = ipv6_clone.find_layer(IPV6!()) {
+            ipv6_clone.layers[idx] = IP!(src = "192.0.2.22", dst = "192.0.2.23").embox();
+        }
+        packets.push(ipv6_clone);
         packets.write_pcap("ipv6.pcap");
     }
 

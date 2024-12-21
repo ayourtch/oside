@@ -793,6 +793,15 @@ impl LayerStack {
         self.layers[idx].downcast_ref()
     }
 
+    pub fn find_layer<T: Layer>(&self, item: T) -> Option<(usize, &T)> {
+        for (idx, ll) in (&self.layers).into_iter().enumerate() {
+            if ll.type_id_is(TypeId::of::<T>()) {
+                return Some((idx, ll.downcast_ref().unwrap()));
+            }
+        }
+        return None;
+    }
+
     pub fn get_layer<T: Layer>(&self, item: T) -> Option<&T> {
         for ll in &self.layers {
             if ll.type_id_is(TypeId::of::<T>()) {
