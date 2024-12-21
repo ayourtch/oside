@@ -18,70 +18,211 @@ enum VendorOptions {
 
 #[derive(FromRepr, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[repr(u8)]
+pub enum DhcpParameterOption {
+    SubnetMask = 1,
+    TimeOffset = 2,
+    Router = 3,
+    TimeServer = 4,
+    NameServer = 5,
+    DnsServer = 6,
+    LogServer = 7,
+    CookieServer = 8,
+    LprServer = 9,
+    ImpressServer = 10,
+    RlocServer = 11,
+    HostName = 12,
+    BootFileSize = 13,
+    MeritDumpFile = 14,
+    DomainName = 15,
+    SwapServer = 16,
+    RootPath = 17,
+    ExtensionsPath = 18,
+    IpForwarding = 19,
+    NonLocalSrcRouting = 20,
+    PolicyFilter = 21,
+    MaxReassemblySize = 22,
+    DefaultTTL = 23,
+    PmtudAgingTimeout = 24,
+    PmtudPlateauTable = 25,
+    InterfaceMtu = 26,
+    AllSubnetsAreLocal = 27,
+    BroadcastAddress = 28,
+    PerformMaskDiscovery = 29,
+    MaskSupplier = 30,
+    PerformRouterDiscovery = 31,
+    RouterSolicitationAddress = 32,
+    StaticRoute = 33,
+    TrailerEncapsulation = 34,
+    ArpCacheTimeout = 35,
+    EthernetEncapsulation = 36,
+    TcpDefaultTtl = 37,
+    TcpKeepaliveInterval = 38,
+    TcpKeepaliveGarbage = 39,
+    NisDomain = 40,
+    NisServers = 41,
+    NtpServers = 42,
+    VendorSpecific = 43,
+    NetBiosNameServer = 44,
+    NetBiosDatagramServer = 45,
+    NetBiosNodeType = 46,
+    NetBiosScope = 47,
+    XWindowsFontServer = 48,
+    XWindowsDisplayManager = 49,
+    RequestedIpAddress = 50,
+    AddressLeaseTime = 51,
+    OptionOverload = 52,
+    DhcpMessageType = 53,
+    ServerIdentifier = 54,
+    ParameterRequestList = 55,
+    NakMessage = 56,
+    MaxDhcpMessageSize = 57,
+    RenewalT1Value = 58,
+    RebindT2Value = 59,
+    ClientClass = 60,
+    ClientIdentifier = 61,
+    Unknown(u8),
+}
+
+impl DhcpParameterOption {
+    fn discriminant(&self) -> u8 {
+        // SAFETY: Because `Self` is marked `repr(u8)`, its layout is a `repr(C)` `union`
+        // between `repr(C)` structs, each of which has the `u8` discriminant as its first
+        // field, so we can read the discriminant without offsetting the pointer.
+        unsafe { *<*const _>::from(self).cast::<u8>() }
+    }
+
+    pub fn as_u8(&self) -> u8 {
+        match self {
+            DhcpParameterOption::Unknown(value) => *value,
+            _ => self.discriminant(),
+        }
+    }
+}
+
+impl Default for DhcpParameterOption {
+    fn default() -> Self {
+        DhcpParameterOption::SubnetMask
+    }
+}
+
+impl From<u8> for DhcpParameterOption {
+    fn from(value: u8) -> Self {
+        DhcpParameterOption::from_repr(value).unwrap_or(DhcpParameterOption::Unknown(value))
+    }
+}
+
+impl From<DhcpParameterOption> for u8 {
+    fn from(option: DhcpParameterOption) -> Self {
+        match option {
+            DhcpParameterOption::Unknown(value) => value,
+            _ => option.discriminant(),
+        }
+    }
+}
+
+// Function to decode the Parameter Request List option
+fn decode_parameter_request_list<D: Decoder>(
+    buf: &[u8],
+    length: u8,
+) -> Option<Vec<DhcpParameterOption>> {
+    let mut options = Vec::new();
+    let len = length as usize;
+
+    if buf.len() < len {
+        return None;
+    }
+
+    for i in 0..len {
+        options.push(DhcpParameterOption::from(buf[i]));
+    }
+
+    Some(options)
+}
+
+// Function to encode the Parameter Request List option
+fn encode_parameter_request_list<E: Encoder>(options: &Vec<DhcpParameterOption>) -> Vec<u8> {
+    let mut encoded = Vec::new();
+
+    // Option code for Parameter Request List
+    encoded.push(55);
+
+    // Length of the option data
+    encoded.push(options.len() as u8);
+
+    // Add each requested option
+    for option in options {
+        encoded.push(u8::from(option.clone()));
+    }
+
+    encoded
+}
+
+#[derive(FromRepr, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[repr(u8)]
 enum DhcpOption {
-    End = 255,                                     // 255 - no length
-    Pad = 0,                                       // 0 - no length
-    SubnetMask(Ipv4Address),                       // 1
-    TimeOffset(i32),                               // 2
-    Router(Vec<Ipv4Address>),                      // 3
-    TimeServer(Vec<Ipv4Address>),                  // 4
-    NameServer(Vec<Ipv4Address>),                  // 5
-    DnsServer(Vec<Ipv4Address>),                   // 6
-    LogServer(Vec<Ipv4Address>),                   // 7
-    CookieServer(Vec<Ipv4Address>),                // 8
-    LprServer(Vec<Ipv4Address>),                   // 9
-    ImpressServer(Vec<Ipv4Address>),               // 10
-    RlocServer(Vec<Ipv4Address>),                  // 11
-    HostName(String),                              // 12
-    BootFileSize(u16),                             // 13
-    MeritDumpFile(String),                         // 14
-    DomainName(String),                            // 15
-    SwapServer(Ipv4Address),                       // 16
-    RootPath(String),                              // 17
-    ExtensionsPath(String),                        // 18
-    IpForwarding(u8),                              // 19
-    NonLocalSrcRouting(u8),                        // 20
-    PolicyFilter(Vec<(Ipv4Address, Ipv4Address)>), // 21
-    MaxReassemblySize(u16),                        // 22
-    DefaultTTL(u8),                                // 23
-    PmtudAgingTimeout(u32),                        // 24
-    PmtudPlateauTable(Vec<u16>),                   // 25
-    InterfaceMtu(u16),                             // 26
-    AllSubnetsAreLocal(u8),                        // 27
-    BroadcastAddress(Ipv4Address),                 // 28
-    PerformMaskDiscovery(u8),                      // 29
-    MaskSupplier(u8),                              // 30
-    PerformRouterDiscovery(u8),                    // 31
-    RouterSolicitationAddress(Ipv4Address),        // 32
-    StaticRoute(Vec<(Ipv4Address, Ipv4Address)>),  // 33
-    TrailerEncapsulation(u8),                      // 34
-    ArpCacheTimeout(u32),                          // 35
-    EthernetEncapsulation(u8),                     // 36
-    TcpDefaultTtl(u8),                             // 37
-    TcpKeepaliveInterval(u32),                     // 38
-    TcpKeepaliveGarbage(u8),                       // 39
-    NisDomain(String),                             // 40
-    NisServers(Vec<Ipv4Address>),                  // 41
-    NtpServers(Vec<Ipv4Address>),                  // 42
-    VendorSpecific(Vec<VendorOptions>),            // 43
-    NetBiosNameServer(Vec<Ipv4Address>),           // 44
-    NetBiosDatagramServer(Vec<Ipv4Address>),       // 45
-    NetBiosNodeType(u8),                           // 46
-    NetBiosScope(String),                          // 47
-    XWindowsFontServer(Vec<Ipv4Address>),          // 48
-    XWindowsDisplayManager(Vec<Ipv4Address>),      // 49
-    RequestedIpAddress(Ipv4Address),               // 50
-    AddressLeaseTime(u32),                         // 51
-    OptionOverload(u8),                            // 52
-    DhcpMessageType(DhcpMessageType),              // 53
-    ServerIdentifier(Ipv4Address),                 // 54
-    ParameterRequestList(Vec<u8>),                 // 55
-    NakMessage(String),                            // 56
-    MaxDhcpMessageSize(u16),                       // 57
-    RenewalT1Value(u32),                           // 58
-    RebindT2Value(u32),                            // 59
-    ClientClass(Vec<u8>),                          // 60
-    ClientIdentifier((u8, Vec<u8>)),               // 61
+    End = 255,                                      // 255 - no length
+    Pad = 0,                                        // 0 - no length
+    SubnetMask(Ipv4Address),                        // 1
+    TimeOffset(i32),                                // 2
+    Router(Vec<Ipv4Address>),                       // 3
+    TimeServer(Vec<Ipv4Address>),                   // 4
+    NameServer(Vec<Ipv4Address>),                   // 5
+    DnsServer(Vec<Ipv4Address>),                    // 6
+    LogServer(Vec<Ipv4Address>),                    // 7
+    CookieServer(Vec<Ipv4Address>),                 // 8
+    LprServer(Vec<Ipv4Address>),                    // 9
+    ImpressServer(Vec<Ipv4Address>),                // 10
+    RlocServer(Vec<Ipv4Address>),                   // 11
+    HostName(String),                               // 12
+    BootFileSize(u16),                              // 13
+    MeritDumpFile(String),                          // 14
+    DomainName(String),                             // 15
+    SwapServer(Ipv4Address),                        // 16
+    RootPath(String),                               // 17
+    ExtensionsPath(String),                         // 18
+    IpForwarding(u8),                               // 19
+    NonLocalSrcRouting(u8),                         // 20
+    PolicyFilter(Vec<(Ipv4Address, Ipv4Address)>),  // 21
+    MaxReassemblySize(u16),                         // 22
+    DefaultTTL(u8),                                 // 23
+    PmtudAgingTimeout(u32),                         // 24
+    PmtudPlateauTable(Vec<u16>),                    // 25
+    InterfaceMtu(u16),                              // 26
+    AllSubnetsAreLocal(u8),                         // 27
+    BroadcastAddress(Ipv4Address),                  // 28
+    PerformMaskDiscovery(u8),                       // 29
+    MaskSupplier(u8),                               // 30
+    PerformRouterDiscovery(u8),                     // 31
+    RouterSolicitationAddress(Ipv4Address),         // 32
+    StaticRoute(Vec<(Ipv4Address, Ipv4Address)>),   // 33
+    TrailerEncapsulation(u8),                       // 34
+    ArpCacheTimeout(u32),                           // 35
+    EthernetEncapsulation(u8),                      // 36
+    TcpDefaultTtl(u8),                              // 37
+    TcpKeepaliveInterval(u32),                      // 38
+    TcpKeepaliveGarbage(u8),                        // 39
+    NisDomain(String),                              // 40
+    NisServers(Vec<Ipv4Address>),                   // 41
+    NtpServers(Vec<Ipv4Address>),                   // 42
+    VendorSpecific(Vec<VendorOptions>),             // 43
+    NetBiosNameServer(Vec<Ipv4Address>),            // 44
+    NetBiosDatagramServer(Vec<Ipv4Address>),        // 45
+    NetBiosNodeType(u8),                            // 46
+    NetBiosScope(String),                           // 47
+    XWindowsFontServer(Vec<Ipv4Address>),           // 48
+    XWindowsDisplayManager(Vec<Ipv4Address>),       // 49
+    RequestedIpAddress(Ipv4Address),                // 50
+    AddressLeaseTime(u32),                          // 51
+    OptionOverload(u8),                             // 52
+    DhcpMessageType(DhcpMessageType),               // 53
+    ServerIdentifier(Ipv4Address),                  // 54
+    ParameterRequestList(Vec<DhcpParameterOption>), // 55
+    NakMessage(String),                             // 56
+    MaxDhcpMessageSize(u16),                        // 57
+    RenewalT1Value(u32),                            // 58
+    RebindT2Value(u32),                             // 59
+    ClientClass(Vec<u8>),                           // 60
+    ClientIdentifier((u8, Vec<u8>)),                // 61
 }
 
 impl Default for DhcpOption {
@@ -362,7 +503,20 @@ fn decode_dhcp_opts<D: Decoder>(buf: &[u8], me: &mut Dhcp) -> Option<(Vec<DhcpOp
                     }
                     55 => {
                         // Parameter Request List
-                        Some(DhcpOption::ParameterRequestList(value_buf.to_vec()))
+                        // Some(DhcpOption::ParameterRequestList(value_buf.to_vec()));
+                        if value_buf.len() <= 1 {
+                            break;
+                        }
+                        if length as usize > buf.len() {
+                            break;
+                        }
+                        if let Some(params) =
+                            decode_parameter_request_list::<D>(value_buf, length as u8)
+                        {
+                            Some(DhcpOption::ParameterRequestList(params))
+                        } else {
+                            None
+                        }
                     }
                     60 => {
                         // Client Class
@@ -625,9 +779,12 @@ fn encode_dhcp_opts<E: Encoder>(
                 out.push((*msg_type).clone() as u8);
             }
             DhcpOption::ParameterRequestList(params) => {
+                /*
                 out.push(55);
                 out.push(params.len() as u8);
                 out.extend(params);
+                */
+                out.extend(encode_parameter_request_list::<E>(&params));
             }
             DhcpOption::ClientClass(data) => {
                 out.push(60);
