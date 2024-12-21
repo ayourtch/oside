@@ -115,43 +115,7 @@ pub struct Dhcp {
     pub options: Vec<DhcpOption>,
 }
 
-fn decode_dhcp_opts<D: Decoder>(buf: &[u8], me: &mut Dhcp) -> Option<(Vec<DhcpOption>, usize)> {
-    let mut ci = 0;
-    let mut out: Vec<DhcpOption> = vec![];
-    while ci < buf.len() {
-        match buf[ci] {
-            0 => {
-                out.push(DhcpOption::Pad);
-                ci += 1;
-            }
-            255 => {
-                out.push(DhcpOption::End);
-                ci += 1;
-                break;
-            }
-            x => {
-                // FIXME: this only fills with "default" value
-                if let Some(o) = DhcpOption::from_repr(x) {
-                    out.push(o);
-                    ci += 2 + buf[ci + 1] as usize;
-                } else {
-                    break;
-                }
-            }
-        }
-    }
-    Some((out, ci))
-}
-
-fn encode_dhcp_opts<E: Encoder>(
-    my_layer: &Dhcp,
-    stack: &LayerStack,
-    my_index: usize,
-    encoded_layers: &EncodingVecVec,
-) -> Vec<u8> {
-    // FIXME
-    vec![]
-}
+XXXX
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(UDP_DST_PORT_APPS, DstPort = 67))]
