@@ -13,6 +13,8 @@ pub mod raw;
 pub mod tcp;
 pub mod udp;
 pub mod vxlan;
+// misc
+pub mod pvti;
 
 pub mod all {
     pub use crate::encdec::binary_big_endian::BinaryBigEndian;
