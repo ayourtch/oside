@@ -90,8 +90,13 @@ fn main() {
     println!("{:#?}", &layers4);
 
     let ipv6_test = Ether!(src = "00:01:02:03:04:05")
-        / IPV6!(src = "2001:db8:1::1", dst = "2001:db8:2::2")
-        / UDP!();
+        / IPV6!(
+            src = "2001:db8:1::1",
+            dst = "2001:db8:2::2",
+            payload_length = 3
+        )
+        / UDP!()
+        / Raw!("testing1235".into());
 
     {
         use oside::WritePcap;

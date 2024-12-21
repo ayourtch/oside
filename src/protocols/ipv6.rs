@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(ETHERTYPE_LAYERS, Ethertype = 0x86DD))]
 pub struct Ipv6 {
-    #[nproto(default = 6)]
+    #[nproto(default = 0x60000000)]
     pub version_class: Value<u32>, // Version (4 bits) + Traffic Class (8 bits) + Flow Label (20 bits)
     #[nproto(encode = encode_ipv6_length, fill = fill_ipv6_length)]
     pub payload_length: Value<u16>, // Payload length
