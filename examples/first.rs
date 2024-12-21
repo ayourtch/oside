@@ -89,6 +89,13 @@ fn main() {
     println!("{:#?}", &layers3);
     println!("{:#?}", &layers4);
 
+    let ipv6_test = Ether!(src = "00:01:02:03:04:05")
+        / IPV6!(src = "2001:db8:1::1", dst = "2001:db8:2::2")
+        / UDP!();
+
+    let ipv4_test =
+        Ether!(src = "00:01:02:03:04:05") / IP!(src = "192.0.2.1", dst = "192.0.2.1") / UDP!();
+
     let ip_type = TypeId::of::<Ip>();
     let udp_type = TypeId::of::<Udp>();
     for node in &layers.layers {

@@ -7,6 +7,7 @@ pub mod geneve;
 pub mod gre;
 pub mod icmp;
 pub mod ip;
+pub mod ipv6;
 pub mod pcap_file;
 pub mod raw;
 pub mod tcp;
@@ -23,6 +24,7 @@ pub mod all {
     pub use crate::protocols::gre::*;
     pub use crate::protocols::icmp::*;
     pub use crate::protocols::ip::*;
+    pub use crate::protocols::ipv6::*;
     pub use crate::protocols::raw::*;
     pub use crate::protocols::tcp::*;
     pub use crate::protocols::udp::*;

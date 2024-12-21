@@ -49,6 +49,14 @@ let layers = Ether!(src = "00:01:02:03:04:05").dst(Value::Func(get_dst))
         / UDP!(sport = 1234).dport(22)
         / UDP!().dport(22).sport(222)
         / Raw!("Testing12345".into());
+
+
+let ipv6_layers = Ether!(src = "00:01:02:03:04:05")
+        / IPV6!(src = "2001:db8:1::1", dst = "2001:db8:2::2")
+        / UDP!().dport(22).sport(222)
+        / Raw!("Testing12345".into());
+
+
 ```
 
 That there are two ways of initalizing a layer, which can be combined - either

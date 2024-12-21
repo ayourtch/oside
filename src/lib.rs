@@ -469,6 +469,93 @@ impl Distribution<MacAddr> for Standard {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Ipv6Address([u8; 16]);
+
+impl Default for Ipv6Address {
+    fn default() -> Self {
+        Ipv6Address([0; 16])
+    }
+}
+
+impl Ipv6Address {
+    pub fn new(bytes: [u8; 16]) -> Self {
+        Ipv6Address(bytes)
+    }
+
+    // Create from string representation (e.g., "2001:db8::1")
+    pub fn from_str_addr(s: &str) -> Result<Self, ParseIpv6AddressError> {
+        match s.parse::<std::net::Ipv6Addr>() {
+            Ok(addr) => Ok(Ipv6Address(addr.octets())),
+            Err(_) => Err(ParseIpv6AddressError),
+        }
+    }
+}
+
+impl Serialize for Ipv6Address {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let s = format!("{}", std::net::Ipv6Addr::from(self.0));
+        serializer.serialize_str(&s)
+    }
+}
+
+impl<'de> Deserialize<'de> for Ipv6Address {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use serde::de::Error;
+        use serde::de::Visitor;
+        struct Ipv6Visitor {}
+        impl<'de> Visitor<'de> for Ipv6Visitor {
+            type Value = Ipv6Address;
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("Ipv6Address")
+            }
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: Error,
+            {
+                Ipv6Address::from_str_addr(v).map_err(|e| {
+                    E::custom(format!("Failed to parse '{}' as IPv6 address: {:?}", v, e))
+                })
+            }
+        }
+
+        deserializer.deserialize_str(Ipv6Visitor {})
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct ParseIpv6AddressError;
+
+impl FromStr for Ipv6Address {
+    type Err = ParseIpv6AddressError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_str_addr(s)
+    }
+}
+
+impl From<&str> for Ipv6Address {
+    fn from(s: &str) -> Self {
+        Self::from_str(s).unwrap()
+    }
+}
+
+impl Distribution<Ipv6Address> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Ipv6Address {
+        let mut bytes = [0u8; 16];
+        for b in &mut bytes {
+            *b = rng.gen();
+        }
+        Ipv6Address(bytes)
+    }
+}
+
 #[derive(PartialEq, Clone, Eq)]
 pub struct Ipv4Address(std::net::Ipv4Addr);
 
