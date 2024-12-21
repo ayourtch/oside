@@ -518,7 +518,9 @@ impl<'de> Deserialize<'de> for Ipv4Address {
             where
                 E: Error,
             {
-                panic!("TBD")
+                Ipv4Address::from_str(v).map_err(|e| {
+                    E::custom(format!("Failed to parse '{}' as IPv4 address: {:?}", v, e))
+                })
             }
         }
 
