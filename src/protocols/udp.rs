@@ -1,4 +1,5 @@
 use crate::protocols::ip::*;
+use crate::protocols::ipv6::*;
 use crate::*;
 use serde::Serialize;
 
@@ -94,6 +95,18 @@ fn encode_udp_chksum<E: Encoder>(
             }
             let sum = fold_u32(sum);
             // eprintln!("CHECKSUM: {:04x}", sum);
+            sum.encode::<E>()
+        } else if let Some(ip6) = stack.item_at(IPV6!(), my_index - 1) {
+            let sum = get_inet_sum(&ip6.src.value().encode::<E>());
+            let sum = update_inet_sum(sum, &ip6.dst.value().encode::<E>());
+            let sum = update_inet_sum(sum, &((ip6.next_header.value() as u16).encode::<E>()));
+            let sum = update_inet_sum(sum, &total_len.encode::<E>());
+
+            let mut sum = update_inet_sum(sum, &encoded_udp_header);
+            for i in my_index + 1..encoded_data.len() {
+                sum = update_inet_sum(sum, &encoded_data[i]);
+            }
+            let sum = fold_u32(sum);
             sum.encode::<E>()
         } else {
             vec![0xdd, 0xdd]
