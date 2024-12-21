@@ -45,7 +45,7 @@ fn get_dst() -> MacAddr {
 
 let layers = Ether!(src = "00:01:02:03:04:05").dst(Value::Func(get_dst))
         / ARP!(hwsrc = "00:02:03:04:05:06")
-        / IP!(src = "192.0.2.1", dst = "2.2.2.2")
+        / IP!(src = "192.0.2.1", dst = "2.2.2.2", flags="MF,offset=123")
         / UDP!(sport = 1234).dport(22)
         / UDP!().dport(22).sport(222)
         / Raw!("Testing12345".into());

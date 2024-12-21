@@ -72,7 +72,7 @@ fn main() {
 
     let layers3 = IP!() / udp.clone();
 
-    let layers = IP!()
+    let layers = IP!(flags = "MF,DF,offset=32")
         .version(5)
         .id(22)
         .ihl(123)

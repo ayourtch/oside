@@ -16,9 +16,10 @@ pub struct Ip {
     pub len: Value<u16>,
     #[nproto(default = Random)]
     pub id: Value<u16>,
-    #[nproto(decode = Skip)]
+    #[nproto(encode = encode_flags_frag, decode = decode_flags_frag)]
     pub flags: Value<IpFlags>,
-    pub frag: Value<u16>,
+    // #[nproto(decode = Skip)] // set above
+    // pub frag: Value<u16>, -- part of flags
     #[nproto(default = 64)]
     pub ttl: Value<u8>,
     #[nproto(next: IANA_LAYERS => Proto )]
@@ -35,39 +36,132 @@ pub struct Ip {
 
 use std::num::ParseIntError;
 
-#[derive(Clone, Debug, Eq, PartialEq, Default, Serialize, Deserialize)]
-pub struct IpFlags {
-    // FIXME
+fn encode_flags_frag<E: Encoder>(
+    me: &Ip,
+    stack: &LayerStack,
+    my_index: usize,
+    encoded_layers: &EncodingVecVec,
+) -> Vec<u8> {
+    me.flags.value().to_raw().encode::<E>()
 }
 
-impl Encode for Vec<IpOption> {
-    fn encode<E: Encoder>(&self) -> Vec<u8> {
-        vec![]
+fn decode_flags_frag<D: Decoder>(buf: &[u8], me: &mut Ip) -> Option<(IpFlags, usize)> {
+    let (raw_value, delta) = u16::decode::<D>(buf)?;
+    let flags = IpFlags::from_raw(raw_value);
+    Some((flags, delta))
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct IpFlags {
+    reserved: bool,       // Must be 0
+    dont_fragment: bool,  // Don't Fragment flag
+    more_fragments: bool, // More Fragments flag
+    fragment_offset: u16, // 13-bit fragment offset
+}
+
+impl IpFlags {
+    // Constructor for common cases
+    pub fn new(dont_fragment: bool, more_fragments: bool, fragment_offset: u16) -> Self {
+        IpFlags {
+            reserved: false,
+            dont_fragment,
+            more_fragments,
+            fragment_offset: fragment_offset & 0x1FFF, // Ensure 13-bit max
+        }
+    }
+
+    // Helper function to create unfragmented packet flags
+    pub fn unfragmented() -> Self {
+        IpFlags {
+            reserved: false,
+            dont_fragment: true,
+            more_fragments: false,
+            fragment_offset: 0,
+        }
+    }
+
+    // Helper function to create fragmented packet flags
+    pub fn fragment(offset: u16, more: bool) -> Self {
+        IpFlags {
+            reserved: false,
+            dont_fragment: false,
+            more_fragments: more,
+            fragment_offset: offset & 0x1FFF,
+        }
+    }
+
+    // Get the raw 16-bit value for encoding
+    pub fn to_raw(&self) -> u16 {
+        let mut flags: u16 = 0;
+        if self.reserved {
+            flags |= 0x8000;
+        }
+        if self.dont_fragment {
+            flags |= 0x4000;
+        }
+        if self.more_fragments {
+            flags |= 0x2000;
+        }
+        flags | (self.fragment_offset & 0x1FFF)
+    }
+
+    // Parse from raw 16-bit value for decoding
+    pub fn from_raw(value: u16) -> Self {
+        IpFlags {
+            reserved: (value & 0x8000) != 0,
+            dont_fragment: (value & 0x4000) != 0,
+            more_fragments: (value & 0x2000) != 0,
+            fragment_offset: value & 0x1FFF,
+        }
     }
 }
 
 impl Encode for IpFlags {
     fn encode<E: Encoder>(&self) -> Vec<u8> {
-        vec![]
+        self.to_raw().encode::<E>()
     }
 }
 
-impl From<u8> for IpFlags {
-    fn from(v: u8) -> Self {
-        IpFlags {}
+impl From<&str> for IpFlags {
+    fn from(v: &str) -> Self {
+        Self::from_str(v).unwrap()
     }
 }
+
 impl FromStr for IpFlags {
     type Err = ParseIntError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(IpFlags {})
+        // Parse string format like "DF" or "MF,offset=123"
+        let parts: Vec<&str> = s.split(',').collect();
+        let mut flags = IpFlags::default();
+
+        for part in parts {
+            let part = part.trim();
+            if part == "DF" {
+                flags.dont_fragment = true;
+            } else if part == "EVIL" {
+                flags.reserved = true;
+            } else if part == "MF" {
+                flags.more_fragments = true;
+            } else if part.starts_with("offset=") {
+                if let Ok(offset) = part[7..].parse::<u16>() {
+                    flags.fragment_offset = offset & 0x1FFF;
+                }
+            }
+        }
+        Ok(flags)
     }
 }
 
 impl Distribution<IpFlags> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> IpFlags {
-        IpFlags {}
+        IpFlags {
+            reserved: rng.gen(),
+            dont_fragment: rng.gen(),
+            more_fragments: rng.gen(),
+            fragment_offset: rng.gen::<u16>() & 0x1FFF,
+        }
     }
 }
 
@@ -75,6 +169,12 @@ impl Distribution<IpFlags> for Standard {
 pub enum IpOption {
     NOP(),
     SourceRoute(Vec<Ipv4Address>),
+}
+
+impl Encode for Vec<IpOption> {
+    fn encode<E: Encoder>(&self) -> Vec<u8> {
+        vec![]
+    }
 }
 
 impl FromStr for IpOption {
