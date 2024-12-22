@@ -394,7 +394,147 @@ fn decode_resource_records<D: Decoder>(
                     DnsRData::Unknown(buf[offset..offset + rdlength].to_vec())
                 }
             }
-            // FIXME: Add other record type decodings here
+            DnsType::NS => {
+                if let Some(name) = decoder.decode_name(&mut offset) {
+                    DnsRData::NS(name)
+                } else {
+                    DnsRData::Unknown(buf[offset..offset + rdlength].to_vec())
+                }
+            }
+            DnsType::CNAME => {
+                if let Some(name) = decoder.decode_name(&mut offset) {
+                    DnsRData::CNAME(name)
+                } else {
+                    DnsRData::Unknown(buf[offset..offset + rdlength].to_vec())
+                }
+            }
+            DnsType::SOA => {
+                if let Some(mname) = decoder.decode_name(&mut offset) {
+                    if let Some(rname) = decoder.decode_name(&mut offset) {
+                        if offset + 20 <= offset + rdlength {
+                            let serial = u32::from_be_bytes([
+                                buf[offset],
+                                buf[offset + 1],
+                                buf[offset + 2],
+                                buf[offset + 3],
+                            ]);
+                            let refresh = u32::from_be_bytes([
+                                buf[offset + 4],
+                                buf[offset + 5],
+                                buf[offset + 6],
+                                buf[offset + 7],
+                            ]);
+                            let retry = u32::from_be_bytes([
+                                buf[offset + 8],
+                                buf[offset + 9],
+                                buf[offset + 10],
+                                buf[offset + 11],
+                            ]);
+                            let expire = u32::from_be_bytes([
+                                buf[offset + 12],
+                                buf[offset + 13],
+                                buf[offset + 14],
+                                buf[offset + 15],
+                            ]);
+                            let minimum = u32::from_be_bytes([
+                                buf[offset + 16],
+                                buf[offset + 17],
+                                buf[offset + 18],
+                                buf[offset + 19],
+                            ]);
+                            DnsRData::SOA {
+                                mname,
+                                rname,
+                                serial,
+                                refresh,
+                                retry,
+                                expire,
+                                minimum,
+                            }
+                        } else {
+                            DnsRData::Unknown(buf[offset..offset + rdlength].to_vec())
+                        }
+                    } else {
+                        DnsRData::Unknown(buf[offset..offset + rdlength].to_vec())
+                    }
+                } else {
+                    DnsRData::Unknown(buf[offset..offset + rdlength].to_vec())
+                }
+            }
+            DnsType::PTR => {
+                if let Some(name) = decoder.decode_name(&mut offset) {
+                    DnsRData::PTR(name)
+                } else {
+                    DnsRData::Unknown(buf[offset..offset + rdlength].to_vec())
+                }
+            }
+            DnsType::MX => {
+                if offset + 2 <= offset + rdlength {
+                    let preference = u16::from_be_bytes([buf[offset], buf[offset + 1]]);
+                    offset += 2;
+                    if let Some(exchange) = decoder.decode_name(&mut offset) {
+                        DnsRData::MX {
+                            preference,
+                            exchange,
+                        }
+                    } else {
+                        DnsRData::Unknown(buf[offset..offset + rdlength].to_vec())
+                    }
+                } else {
+                    DnsRData::Unknown(buf[offset..offset + rdlength].to_vec())
+                }
+            }
+            DnsType::TXT => {
+                let mut strings = Vec::new();
+                let mut current_offset = offset;
+                while current_offset < offset + rdlength {
+                    let length = buf[current_offset] as usize;
+                    current_offset += 1;
+                    if current_offset + length <= offset + rdlength {
+                        if let Ok(s) =
+                            String::from_utf8(buf[current_offset..current_offset + length].to_vec())
+                        {
+                            strings.push(s);
+                        }
+                        current_offset += length;
+                    } else {
+                        break;
+                    }
+                }
+                if strings.is_empty() {
+                    DnsRData::Unknown(buf[offset..offset + rdlength].to_vec())
+                } else {
+                    DnsRData::TXT(strings)
+                }
+            }
+            DnsType::AAAA => {
+                if rdlength == 16 {
+                    DnsRData::AAAA(buf[offset..offset + 16].to_vec())
+                } else {
+                    DnsRData::Unknown(buf[offset..offset + rdlength].to_vec())
+                }
+            }
+            DnsType::SRV => {
+                if offset + 6 <= offset + rdlength {
+                    let priority = u16::from_be_bytes([buf[offset], buf[offset + 1]]);
+                    let weight = u16::from_be_bytes([buf[offset + 2], buf[offset + 3]]);
+                    let port = u16::from_be_bytes([buf[offset + 4], buf[offset + 5]]);
+                    offset += 6;
+                    if let Some(target) = decoder.decode_name(&mut offset) {
+                        DnsRData::SRV {
+                            priority,
+                            weight,
+                            port,
+                            target,
+                        }
+                    } else {
+                        DnsRData::Unknown(buf[offset..offset + rdlength].to_vec())
+                    }
+                } else {
+                    DnsRData::Unknown(buf[offset..offset + rdlength].to_vec())
+                }
+            }
+            DnsType::OPT => DnsRData::OPT(buf[offset..offset + rdlength].to_vec()),
             _ => DnsRData::Unknown(buf[offset..offset + rdlength].to_vec()),
         };
 
