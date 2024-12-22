@@ -235,6 +235,7 @@ impl ToTokens for ChainDecodeNetprotoStructField {
             );
             quote! {
                 if let Some(next) = (*#registry_lookup_name).get(&#varname) {
+                    println!("Lookup on {:?}, data: {:?}", &#varname, &buf[ci..]);
                     if let Some((decode, delta)) = (next.MakeLayer)().decode(&buf[ci..]) {
                         let mut down_layers = decode.layers;
                         layers.append(&mut down_layers);

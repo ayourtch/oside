@@ -146,10 +146,11 @@ impl DnsEncoder {
 
             let end = remaining.find('.').unwrap_or(remaining.len());
             let label = &remaining[..end];
-            
+
             if !label.is_empty() {
                 if self.next_offset < 0x3FFF {
-                    self.compression_map.insert(remaining.to_string(), self.next_offset);
+                    self.compression_map
+                        .insert(remaining.to_string(), self.next_offset);
                     self.next_offset += (label.len() + 1) as u16;
                 }
 
@@ -181,50 +182,54 @@ impl DnsDecoder {
     fn decode_name(&self, offset: &mut usize) -> Option<String> {
         let mut result = Vec::new();
         let mut curr_offset = *offset;
-        let mut last_offset = curr_offset; 
-        loop {
-            if curr_offset < last_offset {
-                println!("Loop res: {:?}, curr: {}, last: {}!", &result, &curr_offset, &last_offset);
-                if result.len() > 150 {
-                    panic!("Result implausibly long");
-                }
-            }
-            last_offset = curr_offset;
-            if curr_offset >= self.data.len() {
-                return None;
-            }
+        let mut last_offset = curr_offset;
+        let mut pointers = 0;
+        let mut remember: Option<usize> = None;
+        println!("decode name start");
 
-            let length = self.data[curr_offset];
-            if length == 0 {
-                *offset = curr_offset + 1;
-                break;
-            }
-
+        if curr_offset >= self.data.len() {
+            println!("offset beyond len0");
+            return None;
+        }
+        let mut length = self.data[curr_offset];
+        curr_offset += 1;
+        if length == 0 {
+            *offset = curr_offset;
+            return Some(".".to_string());
+        }
+        while length > 0 {
             if (length & 0xC0) == 0xC0 {
-                if curr_offset + 1 >= self.data.len() {
+                pointers += 1;
+                if pointers > 20 {
+                    println!("Too many pointers");
                     return None;
                 }
-                let pointer = ((length as u16 & 0x3F) << 8) | self.data[curr_offset + 1] as u16;
-                if *offset == curr_offset {
-                    *offset = curr_offset + 2;
+                println!(
+                    "setting pointer to {} / {}",
+                    (length as u16 & 0x3F),
+                    self.data[curr_offset]
+                );
+                let pointer = ((length as u16 & 0x3F) << 8) | self.data[curr_offset] as u16;
+                curr_offset += 1;
+                if remember.is_none() {
+                    remember = Some(curr_offset);
                 }
                 curr_offset = pointer as usize;
-                continue;
-            }
-
-            curr_offset += 1;
-            if curr_offset + length as usize > self.data.len() {
-                return None;
-            }
-
-            if !result.is_empty() {
+            } else {
+                println!("taking the data from offset {} len {}", curr_offset, length);
+                result.extend_from_slice(&self.data[curr_offset..curr_offset + length as usize]);
                 result.push(b'.');
+                println!("Result: {}", String::from_utf8(result.clone()).unwrap());
+                curr_offset += length as usize;
             }
-
-            result.extend_from_slice(&self.data[curr_offset..curr_offset + length as usize]);
-            curr_offset += length as usize;
+            length = self.data[curr_offset];
+            curr_offset += 1;
         }
-
+        *offset = remember.unwrap_or(curr_offset);
+        println!(
+            "Final Result: {}",
+            String::from_utf8(result.clone()).unwrap()
+        );
         String::from_utf8(result).ok()
     }
 }
@@ -318,7 +323,10 @@ fn encode_questions<E: Encoder>(
     result
 }
 
-fn decode_resource_records<D: Decoder>(buf: &[u8], me: &mut Dns) -> Option<(Vec<DnsResourceRecord>, usize)> {
+fn decode_resource_records<D: Decoder>(
+    buf: &[u8],
+    me: &mut Dns,
+) -> Option<(Vec<DnsResourceRecord>, usize)> {
     let decoder = DnsDecoder::new(buf.to_vec());
     let mut records = Vec::new();
     let mut offset = 0;
