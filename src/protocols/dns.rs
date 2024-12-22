@@ -53,13 +53,13 @@ pub struct Dns {
     pub nscount: Value<u16>,
     #[nproto(encode = encode_additional_count)]
     pub arcount: Value<u16>,
-    #[nproto(decode = decode_questions, encode = encode_questions)]
+    #[nproto(decode = decode_questions, encode = Skip)]
     pub questions: Vec<DnsQuestion>,
-    #[nproto(decode = decode_resource_records, encode = encode_resource_records)]
+    #[nproto(decode = decode_resource_records, encode = Skip)]
     pub answers: Vec<DnsResourceRecord>,
-    #[nproto(decode = decode_resource_records, encode = encode_resource_records)]
+    #[nproto(decode = decode_resource_records, encode = Skip)]
     pub authorities: Vec<DnsResourceRecord>,
-    #[nproto(decode = decode_resource_records, encode = encode_resource_records)]
+    #[nproto(decode = decode_resource_records, encode = encode_questions_and_rest)]
     pub additionals: Vec<DnsResourceRecord>,
 }
 
@@ -122,10 +122,10 @@ struct DnsEncoder {
 }
 
 impl DnsEncoder {
-    fn new() -> Self {
+    fn new(start_offset: u16) -> Self {
         DnsEncoder {
             compression_map: HashMap::new(),
-            next_offset: 0,
+            next_offset: start_offset,
         }
     }
 
@@ -136,6 +136,7 @@ impl DnsEncoder {
         while !remaining.is_empty() {
             if let Some(&offset) = self.compression_map.get(remaining) {
                 result.extend_from_slice(&((offset | 0xC000_u16).to_be_bytes()));
+                return result;
                 break;
             }
 
@@ -165,7 +166,7 @@ impl DnsEncoder {
             }
         }
 
-        result.push(0);
+        result.push(0x0);
         result
     }
 }
@@ -297,19 +298,34 @@ fn decode_questions<D: Decoder>(
     Some((questions, offset - ci))
 }
 
-fn encode_questions<E: Encoder>(
+fn encode_questions_and_rest<E: Encoder>(
     me: &Dns,
     _stack: &LayerStack,
     _my_index: usize,
     _encoded_layers: &EncodingVecVec,
 ) -> Vec<u8> {
-    let mut encoder = DnsEncoder::new();
+    let mut encoder = DnsEncoder::new(12); // offset of the start of questions section
     let mut result = Vec::new();
 
     for question in &me.questions {
         result.extend(encoder.encode_name(&question.qname));
         result.extend_from_slice(&(question.qtype.clone() as u16).to_be_bytes());
         result.extend_from_slice(&(question.qclass.clone() as u16).to_be_bytes());
+    }
+
+    // Encode answer records
+    for record in &me.answers {
+        result.extend(encode_resource_record::<E>(&mut encoder, record));
+    }
+
+    // Encode authority records
+    for record in &me.authorities {
+        result.extend(encode_resource_record::<E>(&mut encoder, record));
+    }
+
+    // Encode additional records
+    for record in &me.additionals {
+        result.extend(encode_resource_record::<E>(&mut encoder, record));
     }
 
     result
@@ -522,31 +538,97 @@ fn decode_resource_records<D: Decoder>(
     Some((records, offset - ci))
 }
 
-fn encode_resource_records<E: Encoder>(
-    me: &Dns,
-    _stack: &LayerStack,
-    _my_index: usize,
-    _encoded_layers: &EncodingVecVec,
+fn encode_rdata<E: Encoder>(encoder: &mut DnsEncoder, rdata: &DnsRData) -> Vec<u8> {
+    match rdata {
+        DnsRData::A(addr) => addr.encode::<E>(),
+        DnsRData::NS(name) => encoder.encode_name(name),
+        DnsRData::CNAME(name) => encoder.encode_name(name),
+        DnsRData::SOA {
+            mname,
+            rname,
+            serial,
+            refresh,
+            retry,
+            expire,
+            minimum,
+        } => {
+            let mut data = Vec::new();
+            data.extend(encoder.encode_name(mname));
+            data.extend(encoder.encode_name(rname));
+            data.extend_from_slice(&serial.to_be_bytes());
+            data.extend_from_slice(&refresh.to_be_bytes());
+            data.extend_from_slice(&retry.to_be_bytes());
+            data.extend_from_slice(&expire.to_be_bytes());
+            data.extend_from_slice(&minimum.to_be_bytes());
+            data
+        }
+        DnsRData::PTR(name) => encoder.encode_name(name),
+        DnsRData::MX {
+            preference,
+            exchange,
+        } => {
+            let mut data = Vec::new();
+            data.extend_from_slice(&preference.to_be_bytes());
+            data.extend(encoder.encode_name(exchange));
+            data
+        }
+        DnsRData::TXT(strings) => {
+            let mut data = Vec::new();
+            for s in strings {
+                let bytes = s.as_bytes();
+                if bytes.len() > 255 {
+                    continue;
+                }
+                data.push(bytes.len() as u8);
+                data.extend_from_slice(bytes);
+            }
+            data
+        }
+        DnsRData::AAAA(addr) => addr.encode::<E>(),
+        DnsRData::SRV {
+            priority,
+            weight,
+            port,
+            target,
+        } => {
+            let mut data = Vec::new();
+            data.extend_from_slice(&priority.to_be_bytes());
+            data.extend_from_slice(&weight.to_be_bytes());
+            data.extend_from_slice(&port.to_be_bytes());
+            data.extend(encoder.encode_name(target));
+            data
+        }
+        DnsRData::OPT(data) => data.clone(),
+        DnsRData::Unknown(data) => data.clone(),
+    }
+}
+
+fn encode_resource_record<E: Encoder>(
+    encoder: &mut DnsEncoder,
+    record: &DnsResourceRecord,
 ) -> Vec<u8> {
-    let mut encoder = DnsEncoder::new();
     let mut result = Vec::new();
 
-    for record in &me.answers {
-        result.extend(encoder.encode_name(&record.name));
-        result.extend_from_slice(&(record.type_.clone() as u16).to_be_bytes());
-        result.extend_from_slice(&(record.class.clone() as u16).to_be_bytes());
-        result.extend_from_slice(&record.ttl.clone().to_be_bytes());
+    // Encode name
+    result.extend(encoder.encode_name(&record.name));
 
-        let rdata = match &record.rdata {
-            DnsRData::A(addr) => addr.encode::<E>(),
-            DnsRData::Unknown(data) => data.clone(),
-            // Add other record type encodings here
-            _ => vec![],
-        };
+    // Encode type
+    result.extend_from_slice(&(record.type_.clone() as u16).to_be_bytes());
 
-        result.extend_from_slice(&(rdata.len() as u16).to_be_bytes());
-        result.extend(rdata);
-    }
+    // Encode class
+    result.extend_from_slice(&(record.class.clone() as u16).to_be_bytes());
+
+    // Encode TTL
+    result.extend_from_slice(&record.ttl.to_be_bytes());
+
+    // Encode RDATA
+    let rdata = encode_rdata::<E>(encoder, &record.rdata);
+
+    // Encode RDLENGTH
+    result.extend_from_slice(&(rdata.len() as u16).to_be_bytes());
+
+    // Append RDATA
+    result.extend(rdata);
 
     result
 }
