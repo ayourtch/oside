@@ -99,7 +99,7 @@ pub enum DnsRData {
         exchange: String,
     },
     TXT(Vec<String>),
-    AAAA(Vec<u8>),
+    AAAA(Ipv6Address),
     SRV {
         priority: u16,
         weight: u16,
@@ -475,8 +475,11 @@ fn decode_resource_records<D: Decoder>(
                 }
             }
             DnsType::AAAA => {
+                use std::convert::TryInto;
                 if rdlength == 16 {
-                    DnsRData::AAAA(buf[offset..offset + 16].to_vec())
+                    DnsRData::AAAA(Ipv6Address::new(
+                        buf[offset..offset + 16].try_into().unwrap(),
+                    ))
                 } else {
                     DnsRData::Unknown(buf[offset..offset + rdlength].to_vec())
                 }
