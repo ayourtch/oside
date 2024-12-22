@@ -66,7 +66,13 @@ fn encode_data<E: Encoder>(
     me.d.encode_with_encoder::<BinaryLittleEndian>(stack, my_index, encoded_layers)
 }
 
-fn decode_data<D: Decoder>(buf: &[u8], me: &mut pcapFile) -> Option<(pcapFileData, usize)> {
+fn decode_data<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut pcapFile,
+) -> Option<(pcapFileData, usize)> {
+    let buf = &buf[ci..];
+
     let mut vp: Vec<pcapPacket> = vec![];
     let mut ci = 0;
 
@@ -96,8 +102,11 @@ fn encode_packets<E: Encoder>(
 
 fn decode_packets<D: Decoder>(
     buf: &[u8],
+    ci: usize,
     me: &mut pcapFileData,
 ) -> Option<(Vec<pcapPacket>, usize)> {
+    let buf = &buf[ci..];
+
     let mut vp: Vec<pcapPacket> = vec![];
     let mut ci = 0;
     while ci < buf.len() {
@@ -129,7 +138,13 @@ fn fill_snaplen(layer: &pcapFileData, stack: &LayerStack, my_index: usize) -> Va
     Value::Set(0)
 }
 
-fn decode_packet_data<D: Decoder>(buf: &[u8], me: &mut pcapPacket) -> Option<(Vec<u8>, usize)> {
+fn decode_packet_data<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut pcapPacket,
+) -> Option<(Vec<u8>, usize)> {
+    let buf = &buf[ci..];
+
     let plen = me.incl_len.value() as usize;
     D::decode_vec(buf, plen)
 }

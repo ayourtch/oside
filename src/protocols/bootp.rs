@@ -258,7 +258,13 @@ pub struct Dhcp {
 use crate::*;
 use std::convert::TryFrom;
 
-fn decode_dhcp_opts<D: Decoder>(buf: &[u8], me: &mut Dhcp) -> Option<(Vec<DhcpOption>, usize)> {
+fn decode_dhcp_opts<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Dhcp,
+) -> Option<(Vec<DhcpOption>, usize)> {
+    let buf = &buf[ci..];
+
     let mut cursor = 0;
     let mut options: Vec<DhcpOption> = vec![];
 
@@ -871,7 +877,13 @@ impl FromStr for BootpVendorData {
     }
 }
 
-fn decode_vend<D: Decoder>(buf: &[u8], me: &mut Bootp) -> Option<(BootpVendorData, usize)> {
+fn decode_vend<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Bootp,
+) -> Option<(BootpVendorData, usize)> {
+    let buf = &buf[ci..];
+
     let mut ci = 0;
     if me.cookie == Value::Set(DHCP_COOKIE_VAL) {
         Some((BootpVendorData::Unset, 0))

@@ -44,7 +44,8 @@ pub struct PVTI {
     pub chunks: Vec<PVTIChunk>,
 }
 
-fn decode_pvti_pad<D: Decoder>(buf: &[u8], me: &mut PVTI) -> Option<(Vec<u8>, usize)> {
+fn decode_pvti_pad<D: Decoder>(buf: &[u8], ci: usize, me: &mut PVTI) -> Option<(Vec<u8>, usize)> {
+    let buf = &buf[ci..];
     let pad_length = me.pad_bytes.value() as usize;
     D::decode_vec(buf, pad_length)
 }
@@ -58,7 +59,12 @@ fn encode_pvti_pad<E: Encoder>(
     vec![0xca; my_layer.pad_bytes.value() as usize]
 }
 
-fn decode_pvti_chunks<D: Decoder>(buf: &[u8], me: &mut PVTI) -> Option<(Vec<PVTIChunk>, usize)> {
+fn decode_pvti_chunks<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut PVTI,
+) -> Option<(Vec<PVTIChunk>, usize)> {
+    let buf = &buf[ci..];
     let mut chunks = Vec::new();
     let mut offset = 0;
     let chunk_count = me.chunk_count.value() as usize;

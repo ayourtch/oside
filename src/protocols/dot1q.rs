@@ -28,8 +28,10 @@ fn encode_dot1q_tci<E: Encoder>(
     E::encode_u16(vlan | dei | pcp)
 }
 
-fn decode_dot1q_tci<D: Decoder>(buf: &[u8], me: &mut dot1Q) -> Option<(u16, usize)> {
+fn decode_dot1q_tci<D: Decoder>(buf: &[u8], ci: usize, me: &mut dot1Q) -> Option<(u16, usize)> {
     use std::convert::TryInto;
+
+    let buf = &buf[ci..];
 
     let (tci, delta) = u16::decode::<D>(buf)?;
     let vlan: u16 = tci & 0xfff;

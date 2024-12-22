@@ -38,8 +38,11 @@ fn encode_vni_and_ru82<E: Encoder>(
  * decode the vni and "reserved_u8_2".
  * It returns "u8" because it is formally decoding the "reserved_u8_2" field which is u8.
  */
-fn decode_vni_and_ru82<D: Decoder>(buf: &[u8], me: &mut Vxlan) -> Option<(u8, usize)> {
+fn decode_vni_and_ru82<D: Decoder>(buf: &[u8], ci: usize, me: &mut Vxlan) -> Option<(u8, usize)> {
     use crate::Value::Set;
+
+    let buf = &buf[ci..];
+
     let mut ci = 0;
     let (the_u8, _) = D::decode_vec(buf, 4)?;
     me.vni = Set(((the_u8[0] as u32) << 16) | ((the_u8[1] as u32) << 8) | (the_u8[2] as u32));

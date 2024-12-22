@@ -87,8 +87,11 @@ fn encode_first_u16_fields<E: Encoder>(
  * decode the first u16 and set the flags.
  * It returns "u8" because it is also decoding the "version" field which is u8.
  */
-fn decode_first_u16_fields<D: Decoder>(buf: &[u8], me: &mut Gre) -> Option<(u8, usize)> {
+fn decode_first_u16_fields<D: Decoder>(buf: &[u8], ci: usize, me: &mut Gre) -> Option<(u8, usize)> {
     use crate::Value::Set;
+
+    let buf = &buf[ci..];
+
     let mut ci = 0;
     let (the_u16, _) = D::decode_u16(buf)?;
 

@@ -26,8 +26,14 @@ pub struct Arp {
     pub pdst: Value<ArpProtocolAddress>,
 }
 
-fn decode_arp_hwaddr<D: Decoder>(buf: &[u8], me: &mut Arp) -> Option<(ArpHardwareAddress, usize)> {
+fn decode_arp_hwaddr<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Arp,
+) -> Option<(ArpHardwareAddress, usize)> {
     use std::convert::TryInto;
+
+    let buf = &buf[ci..];
 
     let (v, delta) = D::decode_vec(buf, me.hwlen.value() as usize)?;
     let vlen = v.len();
@@ -37,8 +43,14 @@ fn decode_arp_hwaddr<D: Decoder>(buf: &[u8], me: &mut Arp) -> Option<(ArpHardwar
     }
 }
 
-fn decode_arp_paddr<D: Decoder>(buf: &[u8], me: &mut Arp) -> Option<(ArpProtocolAddress, usize)> {
+fn decode_arp_paddr<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Arp,
+) -> Option<(ArpProtocolAddress, usize)> {
     use std::convert::TryInto;
+
+    let buf = &buf[ci..];
 
     let (v, delta) = D::decode_vec(buf, me.plen.value() as usize)?;
     let vlen = v.len();

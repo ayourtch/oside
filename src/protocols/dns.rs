@@ -279,10 +279,16 @@ fn encode_additional_count<E: Encoder>(
     (me.additionals.len() as u16).encode::<E>()
 }
 
-fn decode_questions<D: Decoder>(buf: &[u8], me: &mut Dns) -> Option<(Vec<DnsQuestion>, usize)> {
+fn decode_questions<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Dns,
+) -> Option<(Vec<DnsQuestion>, usize)> {
+    // let buf = &buf[ci..];
+
     let decoder = DnsDecoder::new(buf.to_vec());
     let mut questions = Vec::new();
-    let mut offset = 0;
+    let mut offset = ci;
 
     for _ in 0..me.qdcount.value() {
         let qname = decoder.decode_name(&mut offset)?;
@@ -325,11 +331,14 @@ fn encode_questions<E: Encoder>(
 
 fn decode_resource_records<D: Decoder>(
     buf: &[u8],
+    ci: usize,
     me: &mut Dns,
 ) -> Option<(Vec<DnsResourceRecord>, usize)> {
+    // let buf = &buf[ci..];
+
     let decoder = DnsDecoder::new(buf.to_vec());
     let mut records = Vec::new();
-    let mut offset = 0;
+    let mut offset = ci;
 
     while offset < buf.len() {
         let name = decoder.decode_name(&mut offset)?;

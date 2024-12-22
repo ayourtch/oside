@@ -95,7 +95,13 @@ fn encode_second_u16_fields<E: Encoder>(
 /*
  * decode the second u16 and set the flags.
  */
-fn decode_second_u16_fields<D: Decoder>(buf: &[u8], me: &mut erspan) -> Option<(u16, usize)> {
+fn decode_second_u16_fields<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut erspan,
+) -> Option<(u16, usize)> {
+    let buf = &buf[ci..];
+
     let mut ci = 0;
     let (the_u16, _) = D::decode_u16(buf)?;
 
@@ -107,7 +113,13 @@ fn decode_second_u16_fields<D: Decoder>(buf: &[u8], me: &mut erspan) -> Option<(
     Some((session_id, 2))
 }
 
-fn decode_version_and_vlan<D: Decoder>(buf: &[u8], me: &mut erspan) -> Option<(u16, usize)> {
+fn decode_version_and_vlan<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut erspan,
+) -> Option<(u16, usize)> {
+    let buf = &buf[ci..];
+
     let (the_u16, _) = D::decode_u16(buf)?;
     me.version = Value::Set(ErspanType::from((0xf & (the_u16 >> 12)) as u8));
     let vlan = the_u16 & 0xfff;
@@ -125,7 +137,13 @@ fn encode_version_and_vlan<E: Encoder>(
     E::encode_u16(the_u16)
 }
 
-fn decode_u32_reserved1<D: Decoder>(buf: &[u8], me: &mut erspan) -> Option<(u32, usize)> {
+fn decode_u32_reserved1<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut erspan,
+) -> Option<(u32, usize)> {
+    let buf = &buf[ci..];
+
     let (the_u32, delta) = D::decode_u32(buf)?;
     me.port_index = Value::Set(0xfffff & the_u32);
     let reserved1: u32 = (the_u32 >> 20) & 0xfff;

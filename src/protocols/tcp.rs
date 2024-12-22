@@ -49,8 +49,10 @@ fn encode_tcp_reserved<E: Encoder>(
     E::encode_u8((dataofs << 4) | reserved)
 }
 
-fn decode_tcp_reserved<D: Decoder>(buf: &[u8], me: &mut Tcp) -> Option<(u8, usize)> {
+fn decode_tcp_reserved<D: Decoder>(buf: &[u8], ci: usize, me: &mut Tcp) -> Option<(u8, usize)> {
     use std::convert::TryInto;
+
+    let buf = &buf[ci..];
 
     let (x, delta) = u8::decode::<D>(buf)?;
     let dataofs: u8 = x >> 4;

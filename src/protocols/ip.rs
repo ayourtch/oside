@@ -45,7 +45,9 @@ fn encode_flags_frag<E: Encoder>(
     me.flags.value().to_raw().encode::<E>()
 }
 
-fn decode_flags_frag<D: Decoder>(buf: &[u8], me: &mut Ip) -> Option<(IpFlags, usize)> {
+fn decode_flags_frag<D: Decoder>(buf: &[u8], ci: usize, me: &mut Ip) -> Option<(IpFlags, usize)> {
+    let buf = &buf[ci..];
+
     let (raw_value, delta) = u16::decode::<D>(buf)?;
     let flags = IpFlags::from_raw(raw_value);
     Some((flags, delta))
@@ -201,7 +203,9 @@ fn encode_ver_ihl<E: Encoder>(
     E::encode_u8(ver << 4 | ihl)
 }
 
-fn decode_ver_ihl<D: Decoder>(buf: &[u8], me: &mut Ip) -> Option<(u8, usize)> {
+fn decode_ver_ihl<D: Decoder>(buf: &[u8], ci: usize, me: &mut Ip) -> Option<(u8, usize)> {
+    let buf = &buf[ci..];
+
     let (v_ihl, delta) = u8::decode::<D>(buf)?;
     let ihl = v_ihl & 0xf;
     me.version = Value::Set(v_ihl >> 4);

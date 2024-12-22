@@ -194,7 +194,7 @@ impl ToTokens for DecodeNetprotoStructField {
             } else {
                 quote! {
                     let (#varname, delta) = if (#encdec_condition) {
-                        let (#varname, delta) = #decode_expr::<DDD>(&buf[ci..], &mut layer)?;
+                        let (#varname, delta) = #decode_expr::<DDD>(&buf[..], ci, &mut layer)?;
                         ci += delta;
                         (#varname, delta)
                     } else {
