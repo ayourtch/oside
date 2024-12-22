@@ -185,10 +185,8 @@ impl DnsDecoder {
         let mut last_offset = curr_offset;
         let mut pointers = 0;
         let mut remember: Option<usize> = None;
-        println!("decode name start at offset {}", curr_offset);
 
         if curr_offset >= self.data.len() {
-            println!("offset beyond len0");
             return None;
         }
         let mut length = self.data[curr_offset];
@@ -201,15 +199,8 @@ impl DnsDecoder {
             if (length & 0xC0) == 0xC0 {
                 pointers += 1;
                 if pointers > 20 {
-                    println!("Too many pointers");
                     return None;
                 }
-                println!(
-                    "offset: {} setting pointer to {} / {}",
-                    curr_offset,
-                    (length as u16 & 0x3F),
-                    self.data[curr_offset]
-                );
                 let pointer = ((length as u16 & 0x3F) << 8) | self.data[curr_offset] as u16;
                 curr_offset += 1;
                 if remember.is_none() {
@@ -217,27 +208,14 @@ impl DnsDecoder {
                 }
                 curr_offset = pointer as usize;
             } else {
-                println!("taking the data from offset {} len {}", curr_offset, length);
                 result.extend_from_slice(&self.data[curr_offset..curr_offset + length as usize]);
                 result.push(b'.');
-                println!("Result: {}", String::from_utf8(result.clone()).unwrap());
                 curr_offset += length as usize;
             }
             length = self.data[curr_offset];
             curr_offset += 1;
         }
-        if let Some(old) = remember {
-            println!("Setting to remembered offset {}", old);
-            *offset = old;
-        } else {
-            *offset = curr_offset;
-        }
-        // *offset = remember.unwrap_or(curr_offset);
-        println!(
-            "Final offset: {} Result: {}",
-            *offset,
-            String::from_utf8(result.clone()).unwrap()
-        );
+        *offset = remember.unwrap_or(curr_offset);
         String::from_utf8(result).ok()
     }
 }
@@ -364,20 +342,9 @@ fn decode_resource_records<D: Decoder>(
         ]);
         let rdlength = u16::from_be_bytes([buf[offset + 8], buf[offset + 9]]) as usize;
 
-        println!(
-            "Type: {:x} class {:x} ttl {:x} rdlength {:x}",
-            type_, class, ttl, rdlength
-        );
-
         offset += 10;
 
         if offset + rdlength > buf.len() {
-            println!(
-                "ERR - {} + {} is outside buf len {}!",
-                offset,
-                rdlength,
-                buf.len()
-            );
             break;
         }
 
@@ -548,8 +515,6 @@ fn decode_resource_records<D: Decoder>(
 
         offset += rdlength;
     }
-
-    println!("RECORDS: {:?}", &records);
 
     Some((records, offset - ci))
 }
