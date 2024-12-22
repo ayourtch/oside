@@ -55,11 +55,11 @@ pub struct Dns {
     pub arcount: Value<u16>,
     #[nproto(decode = decode_questions, encode = Skip)]
     pub questions: Vec<DnsQuestion>,
-    #[nproto(decode = decode_resource_records, encode = Skip)]
+    #[nproto(decode = decode_answers_resource_records, encode = Skip)]
     pub answers: Vec<DnsResourceRecord>,
-    #[nproto(decode = decode_resource_records, encode = Skip)]
+    #[nproto(decode = decode_authorities_resource_records, encode = Skip)]
     pub authorities: Vec<DnsResourceRecord>,
-    #[nproto(decode = decode_resource_records, encode = encode_questions_and_rest)]
+    #[nproto(decode = decode_additionals_resource_records, encode = encode_questions_and_rest)]
     pub additionals: Vec<DnsResourceRecord>,
 }
 
@@ -331,10 +331,35 @@ fn encode_questions_and_rest<E: Encoder>(
     result
 }
 
+fn decode_answers_resource_records<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Dns,
+) -> Option<(Vec<DnsResourceRecord>, usize)> {
+    decode_resource_records::<D>(buf, ci, me, me.ancount.value() as usize)
+}
+
+fn decode_authorities_resource_records<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Dns,
+) -> Option<(Vec<DnsResourceRecord>, usize)> {
+    decode_resource_records::<D>(buf, ci, me, me.nscount.value() as usize)
+}
+
+fn decode_additionals_resource_records<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Dns,
+) -> Option<(Vec<DnsResourceRecord>, usize)> {
+    decode_resource_records::<D>(buf, ci, me, me.arcount.value() as usize)
+}
+
 fn decode_resource_records<D: Decoder>(
     buf: &[u8],
     ci: usize,
     me: &mut Dns,
+    max_records: usize,
 ) -> Option<(Vec<DnsResourceRecord>, usize)> {
     // let buf = &buf[ci..];
 
@@ -342,7 +367,7 @@ fn decode_resource_records<D: Decoder>(
     let mut records = Vec::new();
     let mut offset = ci;
 
-    while offset < buf.len() {
+    while offset < buf.len() && records.len() < max_records {
         let name = decoder.decode_name(&mut offset)?;
         if offset + 10 > buf.len() {
             break;
