@@ -185,7 +185,7 @@ impl DnsDecoder {
         let mut last_offset = curr_offset;
         let mut pointers = 0;
         let mut remember: Option<usize> = None;
-        println!("decode name start");
+        println!("decode name start at offset {}", curr_offset);
 
         if curr_offset >= self.data.len() {
             println!("offset beyond len0");
@@ -205,7 +205,8 @@ impl DnsDecoder {
                     return None;
                 }
                 println!(
-                    "setting pointer to {} / {}",
+                    "offset: {} setting pointer to {} / {}",
+                    curr_offset,
                     (length as u16 & 0x3F),
                     self.data[curr_offset]
                 );
@@ -225,9 +226,16 @@ impl DnsDecoder {
             length = self.data[curr_offset];
             curr_offset += 1;
         }
-        *offset = remember.unwrap_or(curr_offset);
+        if let Some(old) = remember {
+            println!("Setting to remembered offset {}", old);
+            *offset = old;
+        } else {
+            *offset = curr_offset;
+        }
+        // *offset = remember.unwrap_or(curr_offset);
         println!(
-            "Final Result: {}",
+            "Final offset: {} Result: {}",
+            *offset,
             String::from_utf8(result.clone()).unwrap()
         );
         String::from_utf8(result).ok()
@@ -308,7 +316,7 @@ fn decode_questions<D: Decoder>(
         offset += 4;
     }
 
-    Some((questions, offset))
+    Some((questions, offset - ci))
 }
 
 fn encode_questions<E: Encoder>(
@@ -356,9 +364,20 @@ fn decode_resource_records<D: Decoder>(
         ]);
         let rdlength = u16::from_be_bytes([buf[offset + 8], buf[offset + 9]]) as usize;
 
+        println!(
+            "Type: {:x} class {:x} ttl {:x} rdlength {:x}",
+            type_, class, ttl, rdlength
+        );
+
         offset += 10;
 
         if offset + rdlength > buf.len() {
+            println!(
+                "ERR - {} + {} is outside buf len {}!",
+                offset,
+                rdlength,
+                buf.len()
+            );
             break;
         }
 
@@ -375,7 +394,7 @@ fn decode_resource_records<D: Decoder>(
                     DnsRData::Unknown(buf[offset..offset + rdlength].to_vec())
                 }
             }
-            // Add other record type decodings here
+            // FIXME: Add other record type decodings here
             _ => DnsRData::Unknown(buf[offset..offset + rdlength].to_vec()),
         };
 
@@ -390,7 +409,9 @@ fn decode_resource_records<D: Decoder>(
         offset += rdlength;
     }
 
-    Some((records, offset))
+    println!("RECORDS: {:?}", &records);
+
+    Some((records, offset - ci))
 }
 
 fn encode_resource_records<E: Encoder>(
