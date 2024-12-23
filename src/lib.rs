@@ -492,6 +492,12 @@ impl Ipv6Address {
     }
 }
 
+impl fmt::Display for Ipv6Address {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&format!("FIXME {:?}", &self.0))
+    }
+}
+
 impl Serialize for Ipv6Address {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where

@@ -25,6 +25,64 @@ impl Default for Dhcpv6MessageType {
     }
 }
 
+use crate::*;
+use std::str::FromStr;
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct ParseDhcpv6MessageTypeError;
+
+impl FromStr for Dhcpv6MessageType {
+    type Err = ParseDhcpv6MessageTypeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "solicit" => Ok(Dhcpv6MessageType::Solicit),
+            "advertise" => Ok(Dhcpv6MessageType::Advertise),
+            "request" => Ok(Dhcpv6MessageType::Request),
+            "confirm" => Ok(Dhcpv6MessageType::Confirm),
+            "renew" => Ok(Dhcpv6MessageType::Renew),
+            "rebind" => Ok(Dhcpv6MessageType::Rebind),
+            "reply" => Ok(Dhcpv6MessageType::Reply),
+            "release" => Ok(Dhcpv6MessageType::Release),
+            "decline" => Ok(Dhcpv6MessageType::Decline),
+            "reconfigure" => Ok(Dhcpv6MessageType::Reconfigure),
+            "information-request" | "informationrequest" => {
+                Ok(Dhcpv6MessageType::InformationRequest)
+            }
+            "relay-forw" | "relayforw" => Ok(Dhcpv6MessageType::RelayForw),
+            "relay-repl" | "relayrepl" => Ok(Dhcpv6MessageType::RelayRepl),
+            // Also support parsing numeric values
+            s => {
+                if let Ok(num) = s.parse::<u8>() {
+                    Dhcpv6MessageType::from_repr(num).ok_or(ParseDhcpv6MessageTypeError)
+                } else {
+                    Err(ParseDhcpv6MessageTypeError)
+                }
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for Dhcpv6MessageType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Dhcpv6MessageType::Solicit => write!(f, "Solicit"),
+            Dhcpv6MessageType::Advertise => write!(f, "Advertise"),
+            Dhcpv6MessageType::Request => write!(f, "Request"),
+            Dhcpv6MessageType::Confirm => write!(f, "Confirm"),
+            Dhcpv6MessageType::Renew => write!(f, "Renew"),
+            Dhcpv6MessageType::Rebind => write!(f, "Rebind"),
+            Dhcpv6MessageType::Reply => write!(f, "Reply"),
+            Dhcpv6MessageType::Release => write!(f, "Release"),
+            Dhcpv6MessageType::Decline => write!(f, "Decline"),
+            Dhcpv6MessageType::Reconfigure => write!(f, "Reconfigure"),
+            Dhcpv6MessageType::InformationRequest => write!(f, "Information-Request"),
+            Dhcpv6MessageType::RelayForw => write!(f, "Relay-Forward"),
+            Dhcpv6MessageType::RelayRepl => write!(f, "Relay-Reply"),
+        }
+    }
+}
+
 #[derive(FromRepr, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[repr(u16)]
 pub enum Dhcpv6OptionCode {
@@ -1029,5 +1087,470 @@ impl Dhcpv6Option {
                 ocode.as_u16()
             }
         }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Dhcpv6RelayMessage {
+    pub hop_count: u8,
+    pub link_address: Ipv6Address,
+    pub peer_address: Ipv6Address,
+    pub options: Vec<Dhcpv6Option>,
+}
+
+impl Default for Dhcpv6RelayMessage {
+    fn default() -> Self {
+        Self {
+            hop_count: 0,
+            link_address: Ipv6Address::default(),
+            peer_address: Ipv6Address::default(),
+            options: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum Dhcpv6MessageContent {
+    Normal {
+        transaction_id: [u8; 3],
+        options: Vec<Dhcpv6Option>,
+    },
+    Relay(Dhcpv6RelayMessage),
+}
+
+impl Default for Dhcpv6MessageContent {
+    fn default() -> Self {
+        Self::Normal {
+            transaction_id: [0, 0, 0],
+            options: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct ParseDhcpv6MessageContentError;
+
+impl FromStr for Dhcpv6MessageContent {
+    type Err = ParseDhcpv6MessageContentError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // For simple string representation, we'll accept hexadecimal transaction ID
+        // for normal messages and IPv6 addresses for relay messages
+        let s = s.trim();
+        if s.starts_with("xid:") {
+            // Parse as normal message with transaction ID
+            let xid_str = &s[4..].trim();
+            if xid_str.len() != 6 {
+                // Need 6 hex chars for 3 bytes
+                return Err(ParseDhcpv6MessageContentError);
+            }
+
+            // Try to parse the hex string into 3 bytes
+            let mut transaction_id = [0u8; 3];
+            for i in 0..3 {
+                let byte_str = &xid_str[i * 2..(i + 1) * 2];
+                transaction_id[i] =
+                    u8::from_str_radix(byte_str, 16).map_err(|_| ParseDhcpv6MessageContentError)?;
+            }
+
+            Ok(Dhcpv6MessageContent::Normal {
+                transaction_id,
+                options: Vec::new(),
+            })
+        } else if s.starts_with("relay:") {
+            // Parse as relay message with link and peer addresses
+            let parts: Vec<&str> = s[6..].split(',').collect();
+            if parts.len() != 2 {
+                return Err(ParseDhcpv6MessageContentError);
+            }
+
+            let link_address = Ipv6Address::from_str(parts[0].trim())
+                .map_err(|_| ParseDhcpv6MessageContentError)?;
+            let peer_address = Ipv6Address::from_str(parts[1].trim())
+                .map_err(|_| ParseDhcpv6MessageContentError)?;
+
+            Ok(Dhcpv6MessageContent::Relay(Dhcpv6RelayMessage {
+                hop_count: 0,
+                link_address,
+                peer_address,
+                options: Vec::new(),
+            }))
+        } else {
+            // Default to normal message with zero transaction ID
+            Ok(Dhcpv6MessageContent::Normal {
+                transaction_id: [0, 0, 0],
+                options: Vec::new(),
+            })
+        }
+    }
+}
+
+impl std::fmt::Display for Dhcpv6MessageContent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Dhcpv6MessageContent::Normal {
+                transaction_id,
+                options,
+            } => {
+                write!(
+                    f,
+                    "xid:{:02x}{:02x}{:02x}",
+                    transaction_id[0], transaction_id[1], transaction_id[2]
+                )?;
+                if !options.is_empty() {
+                    write!(f, " ({} options)", options.len())?;
+                }
+                Ok(())
+            }
+            Dhcpv6MessageContent::Relay(relay) => {
+                write!(f, "relay:{},{}", relay.link_address, relay.peer_address)?;
+                if !relay.options.is_empty() {
+                    write!(f, " ({} options)", relay.options.len())?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(register(UDP_SRC_PORT_APPS, SrcPort = 546))]
+#[nproto(register(UDP_DST_PORT_APPS, DstPort = 546))]
+#[nproto(register(UDP_SRC_PORT_APPS, SrcPort = 547))]
+#[nproto(register(UDP_DST_PORT_APPS, DstPort = 547))]
+pub struct Dhcpv6 {
+    pub msg_type: Value<Dhcpv6MessageType>,
+    #[nproto(decode = decode_dhcpv6_content, encode = encode_dhcpv6_content)]
+    pub content: Value<Dhcpv6MessageContent>,
+}
+
+fn encode_dhcpv6_content<E: Encoder>(
+    me: &Dhcpv6,
+    stack: &LayerStack,
+    my_index: usize,
+    encoded_data: &EncodingVecVec,
+) -> Vec<u8> {
+    let mut out = Vec::new();
+
+    match me.content.value() {
+        Dhcpv6MessageContent::Normal {
+            transaction_id,
+            options,
+        } => {
+            out.extend_from_slice(&transaction_id);
+            for option in options {
+                out.extend(option.encode::<E>());
+            }
+        }
+        Dhcpv6MessageContent::Relay(relay) => {
+            out.push(relay.hop_count);
+            out.extend(relay.link_address.encode::<E>());
+            out.extend(relay.peer_address.encode::<E>());
+            for option in &relay.options {
+                out.extend(option.encode::<E>());
+            }
+        }
+    }
+    out
+}
+
+fn decode_dhcpv6_content<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Dhcpv6,
+) -> Option<(Dhcpv6MessageContent, usize)> {
+    let buf = &buf[ci..];
+    let mut offset = 0;
+
+    match me.msg_type.value() {
+        Dhcpv6MessageType::RelayForw | Dhcpv6MessageType::RelayRepl => {
+            // Decode relay message
+            if buf.len() < 34 {
+                // 1 byte hop count + 16 bytes link-addr + 16 bytes peer-addr + at least 1 option
+                return None;
+            }
+
+            let hop_count = buf[0];
+            offset += 1;
+
+            let (link_address, link_addr_len) = Ipv6Address::decode::<D>(&buf[offset..])?;
+            offset += link_addr_len;
+
+            let (peer_address, peer_addr_len) = Ipv6Address::decode::<D>(&buf[offset..])?;
+            offset += peer_addr_len;
+
+            let mut options = Vec::new();
+            while offset < buf.len() {
+                if let Some((option, option_len)) = Dhcpv6Option::decode::<D>(&buf[offset..]) {
+                    options.push(option);
+                    offset += option_len;
+                } else {
+                    break;
+                }
+            }
+
+            Some((
+                Dhcpv6MessageContent::Relay(Dhcpv6RelayMessage {
+                    hop_count,
+                    link_address,
+                    peer_address,
+                    options,
+                }),
+                offset,
+            ))
+        }
+        _ => {
+            // Decode normal message
+            if buf.len() < 3 {
+                // 3 bytes transaction ID
+                return None;
+            }
+
+            let mut transaction_id = [0u8; 3];
+            transaction_id.copy_from_slice(&buf[..3]);
+            offset += 3;
+
+            let mut options = Vec::new();
+            while offset < buf.len() {
+                if let Some((option, option_len)) = Dhcpv6Option::decode::<D>(&buf[offset..]) {
+                    options.push(option);
+                    offset += option_len;
+                } else {
+                    break;
+                }
+            }
+
+            Some((
+                Dhcpv6MessageContent::Normal {
+                    transaction_id,
+                    options,
+                },
+                offset,
+            ))
+        }
+    }
+}
+
+impl Dhcpv6 {
+    // Helper method to create a new client message
+    pub fn new_client_message(msg_type: Dhcpv6MessageType, transaction_id: [u8; 3]) -> Self {
+        Dhcpv6 {
+            msg_type: Value::Set(msg_type),
+            content: Value::Set(Dhcpv6MessageContent::Normal {
+                transaction_id,
+                options: Vec::new(),
+            }),
+        }
+    }
+
+    // Helper method to create a new relay message
+    pub fn new_relay_message(
+        msg_type: Dhcpv6MessageType,
+        hop_count: u8,
+        link_address: Ipv6Address,
+        peer_address: Ipv6Address,
+    ) -> Self {
+        Dhcpv6 {
+            msg_type: Value::Set(msg_type),
+            content: Value::Set(Dhcpv6MessageContent::Relay(Dhcpv6RelayMessage {
+                hop_count,
+                link_address,
+                peer_address,
+                options: Vec::new(),
+            })),
+        }
+    }
+
+    // Helper method to add an option to a message
+    pub fn add_option(&mut self, option: Dhcpv6Option) {
+        match &mut self.content {
+            Value::Set(Dhcpv6MessageContent::Normal { options, .. }) => {
+                options.push(option);
+            }
+            Value::Set(Dhcpv6MessageContent::Relay(relay)) => {
+                relay.options.push(option);
+            }
+            _ => {} // Handle Auto/Random cases if needed
+        }
+    }
+
+    // Helper method to get all options of a specific type
+    pub fn get_options_of_type<T>(&self, option_code: Dhcpv6OptionCode) -> Vec<&Dhcpv6Option> {
+        match &self.content {
+            Value::Set(Dhcpv6MessageContent::Normal { options, .. }) => options
+                .iter()
+                .filter(|opt| opt.get_option_code() == option_code.as_u16())
+                .collect(),
+            Value::Set(Dhcpv6MessageContent::Relay(relay)) => relay
+                .options
+                .iter()
+                .filter(|opt| opt.get_option_code() == option_code.as_u16())
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    // Helper method to validate message according to RFC 8415 rules
+    pub fn validate(&self) -> bool {
+        match &self.content {
+            Value::Set(Dhcpv6MessageContent::Normal { options, .. }) => {
+                match self.msg_type.value() {
+                    Dhcpv6MessageType::Solicit => {
+                        // Must include Client ID and ORO
+                        let has_client_id = options
+                            .iter()
+                            .any(|opt| matches!(opt, Dhcpv6Option::ClientId(_)));
+                        let has_oro = options
+                            .iter()
+                            .any(|opt| matches!(opt, Dhcpv6Option::OptionRequest(_)));
+                        has_client_id && has_oro
+                    }
+                    Dhcpv6MessageType::Advertise | Dhcpv6MessageType::Reply => {
+                        // Must include Client ID and Server ID
+                        let has_client_id = options
+                            .iter()
+                            .any(|opt| matches!(opt, Dhcpv6Option::ClientId(_)));
+                        let has_server_id = options
+                            .iter()
+                            .any(|opt| matches!(opt, Dhcpv6Option::ServerId(_)));
+                        has_client_id && has_server_id
+                    }
+                    // Add validation for other message types
+                    _ => true,
+                }
+            }
+            Value::Set(Dhcpv6MessageContent::Relay(relay)) => {
+                match self.msg_type.value() {
+                    Dhcpv6MessageType::RelayForw | Dhcpv6MessageType::RelayRepl => {
+                        // Must have relay message option
+                        relay
+                            .options
+                            .iter()
+                            .any(|opt| matches!(opt, Dhcpv6Option::RelayMessage(_)))
+                            && relay.hop_count <= DHCPV6_HOP_COUNT_LIMIT
+                    }
+                    _ => false,
+                }
+            }
+            _ => false,
+        }
+    }
+}
+
+use crate::*;
+use rand::distributions::{Distribution, Standard};
+use rand::Rng;
+
+// Implement random value generation for Dhcpv6MessageType
+impl Distribution<Dhcpv6MessageType> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Dhcpv6MessageType {
+        // Generate a random value between 1 and 13 (inclusive)
+        // as these are the valid message types defined in the standard
+        match rng.gen_range(1..=13) {
+            1 => Dhcpv6MessageType::Solicit,
+            2 => Dhcpv6MessageType::Advertise,
+            3 => Dhcpv6MessageType::Request,
+            4 => Dhcpv6MessageType::Confirm,
+            5 => Dhcpv6MessageType::Renew,
+            6 => Dhcpv6MessageType::Rebind,
+            7 => Dhcpv6MessageType::Reply,
+            8 => Dhcpv6MessageType::Release,
+            9 => Dhcpv6MessageType::Decline,
+            10 => Dhcpv6MessageType::Reconfigure,
+            11 => Dhcpv6MessageType::InformationRequest,
+            12 => Dhcpv6MessageType::RelayForw,
+            13 => Dhcpv6MessageType::RelayRepl,
+            _ => unreachable!(), // This can't happen due to the range constraint
+        }
+    }
+}
+
+// Implement random value generation for Dhcpv6MessageContent
+impl Distribution<Dhcpv6MessageContent> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Dhcpv6MessageContent {
+        if rng.gen_bool(0.8) {
+            // 80% chance of normal message, 20% chance of relay
+            let mut transaction_id = [0u8; 3];
+            rng.fill_bytes(&mut transaction_id);
+            Dhcpv6MessageContent::Normal {
+                transaction_id,
+                options: Vec::new(), // Start with empty options
+            }
+        } else {
+            Dhcpv6MessageContent::Relay(Dhcpv6RelayMessage {
+                hop_count: rng.gen_range(0..=DHCPV6_HOP_COUNT_LIMIT),
+                link_address: rng.gen(), // Uses the Distribution impl for Ipv6Address
+                peer_address: rng.gen(), // Uses the Distribution impl for Ipv6Address
+                options: Vec::new(),     // Start with empty options
+            })
+        }
+    }
+}
+
+// Implement encoding for Dhcpv6MessageType
+impl Encode for Dhcpv6MessageType {
+    fn encode<E: Encoder>(&self) -> Vec<u8> {
+        vec![self.clone() as u8]
+    }
+}
+
+// Implement decoding for Dhcpv6MessageType
+impl Decode for Dhcpv6MessageType {
+    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
+        if buf.is_empty() {
+            return None;
+        }
+
+        // Try to convert the first byte into a message type
+        Dhcpv6MessageType::from_repr(buf[0]).map(|msg_type| (msg_type, 1))
+    }
+}
+
+// Implement encoding for Dhcpv6MessageContent
+impl Encode for Dhcpv6MessageContent {
+    fn encode<E: Encoder>(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        match self {
+            Dhcpv6MessageContent::Normal {
+                transaction_id,
+                options,
+            } => {
+                out.extend_from_slice(transaction_id);
+                for option in options {
+                    out.extend(option.encode::<E>());
+                }
+            }
+            Dhcpv6MessageContent::Relay(relay) => {
+                out.push(relay.hop_count);
+                out.extend(relay.link_address.encode::<E>());
+                out.extend(relay.peer_address.encode::<E>());
+                for option in &relay.options {
+                    out.extend(option.encode::<E>());
+                }
+            }
+        }
+        out
+    }
+}
+
+// Implement decoding for Dhcpv6MessageContent
+impl Decode for Dhcpv6MessageContent {
+    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
+        if buf.len() < 3 {
+            return None;
+        }
+
+        // For simplicity, assume normal message - actual decoding will be handled by the
+        // specific decode_dhcpv6_content function which has access to the message type
+        let mut transaction_id = [0u8; 3];
+        transaction_id.copy_from_slice(&buf[..3]);
+
+        Some((
+            Dhcpv6MessageContent::Normal {
+                transaction_id,
+                options: Vec::new(),
+            },
+            3,
+        ))
     }
 }
