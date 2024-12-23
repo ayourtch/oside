@@ -1016,11 +1016,186 @@ impl Dhcpv6Option {
                 content.extend(prefix.encode::<E>());
                 Dhcpv6OptionCode::IaPrefix
             }
-            // Add remaining option encodings here following the same pattern
-            _ => {
-                // For options that haven't been fully implemented yet or unknown options
-                Dhcpv6OptionCode::Unknown(0)
+            Dhcpv6Option::NisServers(addrs)
+            | Dhcpv6Option::NisPlusServers(addrs)
+            | Dhcpv6Option::SntpServers(addrs) => {
+                content.extend(Self::encode_ipv6_addresses::<E>(addrs));
+                match self {
+                    Dhcpv6Option::NisServers(_) => Dhcpv6OptionCode::NisServers,
+                    Dhcpv6Option::NisPlusServers(_) => Dhcpv6OptionCode::NisPlusServers,
+                    Dhcpv6Option::SntpServers(_) => Dhcpv6OptionCode::SntpServers,
+                    _ => unreachable!(),
+                }
             }
+            Dhcpv6Option::NisDomainName(domain) | Dhcpv6Option::NisPlusDomainName(domain) => {
+                content.extend(domain.as_bytes());
+                match self {
+                    Dhcpv6Option::NisDomainName(_) => Dhcpv6OptionCode::NisDomainName,
+                    Dhcpv6Option::NisPlusDomainName(_) => Dhcpv6OptionCode::NisPlusDomainName,
+                    _ => unreachable!(),
+                }
+            }
+            Dhcpv6Option::InformationRefreshTime(time)
+            | Dhcpv6Option::SolMaxRt(time)
+            | Dhcpv6Option::InfMaxRt(time)
+            | Dhcpv6Option::CltTime(time) => {
+                content.extend_from_slice(&time.to_be_bytes());
+                match self {
+                    Dhcpv6Option::InformationRefreshTime(_) => {
+                        Dhcpv6OptionCode::InformationRefreshTime
+                    }
+                    Dhcpv6Option::SolMaxRt(_) => Dhcpv6OptionCode::SolMaxRt,
+                    Dhcpv6Option::InfMaxRt(_) => Dhcpv6OptionCode::InfMaxRt,
+                    Dhcpv6Option::CltTime(_) => Dhcpv6OptionCode::CltTime,
+                    _ => unreachable!(),
+                }
+            }
+            Dhcpv6Option::ClientFqdn { flags, fqdn } => {
+                content.push(*flags);
+                content.extend(fqdn.as_bytes());
+                Dhcpv6OptionCode::ClientFqdn
+            }
+            Dhcpv6Option::LqQuery {
+                query_type,
+                link_address,
+                query_options,
+            } => {
+                content.push(*query_type);
+                content.extend(link_address.encode::<E>());
+                for option in query_options {
+                    content.extend(option.encode::<E>());
+                }
+                Dhcpv6OptionCode::LqQuery
+            }
+            Dhcpv6Option::LqClientLink(addrs) => {
+                content.extend(Self::encode_ipv6_addresses::<E>(addrs));
+                Dhcpv6OptionCode::LqClientLink
+            }
+            Dhcpv6Option::LqRelayData {
+                peer_address,
+                relay_data,
+            } => {
+                content.extend(peer_address.encode::<E>());
+                content.extend(relay_data);
+                Dhcpv6OptionCode::LqRelayData
+            }
+            Dhcpv6Option::BootfileUrl(url) => {
+                content.extend(url.as_bytes());
+                Dhcpv6OptionCode::BootfileUrl
+            }
+            Dhcpv6Option::BootfileParam(params) => {
+                for param in params {
+                    content.extend_from_slice(&(param.len() as u16).to_be_bytes());
+                    content.extend(param.as_bytes());
+                }
+                Dhcpv6OptionCode::BootfileParam
+            }
+            Dhcpv6Option::ClientArchType(types) => {
+                for arch_type in types {
+                    content.extend_from_slice(&arch_type.to_be_bytes());
+                }
+                Dhcpv6OptionCode::ClientArchType
+            }
+            Dhcpv6Option::Nii {
+                undi_type,
+                arch_type,
+                undi_major,
+                undi_minor,
+            } => {
+                content.push(*undi_type);
+                content.push(*arch_type);
+                content.push(*undi_major);
+                content.push(*undi_minor);
+                Dhcpv6OptionCode::Nii
+            }
+            Dhcpv6Option::AftrName(name) => {
+                content.extend(name.as_bytes());
+                Dhcpv6OptionCode::AftrName
+            }
+            Dhcpv6Option::EapMessage(data) => {
+                content.extend(data);
+                Dhcpv6OptionCode::EapMessage
+            }
+            Dhcpv6Option::RelaySuppliedOptions(options) => {
+                for option in options {
+                    content.extend(option.encode::<E>());
+                }
+                Dhcpv6OptionCode::RelaySuppliedOptions
+            }
+            Dhcpv6Option::PrefixExclude(data) => {
+                content.extend(data);
+                Dhcpv6OptionCode::PrefixExclude
+            }
+            Dhcpv6Option::PcpServer(addrs) => {
+                content.extend(Self::encode_ipv6_addresses::<E>(addrs));
+                Dhcpv6OptionCode::PcpServer
+            }
+            Dhcpv6Option::S46Rule(data)
+            | Dhcpv6Option::S46Br(data)
+            | Dhcpv6Option::S46Dmr(data)
+            | Dhcpv6Option::S46V4V6Bind(data)
+            | Dhcpv6Option::S46PortParams(data)
+            | Dhcpv6Option::S46ContMape(data)
+            | Dhcpv6Option::S46ContMapt(data)
+            | Dhcpv6Option::S46ContLw(data)
+            | Dhcpv6Option::Ipv4Address(data)
+            | Dhcpv6Option::Dhcpv6ActiveLeasequery(data)
+            | Dhcpv6Option::DhcpFailoverEndpoint(data) => {
+                content.extend(data);
+                match self {
+                    Dhcpv6Option::S46Rule(_) => Dhcpv6OptionCode::S46Rule,
+                    Dhcpv6Option::S46Br(_) => Dhcpv6OptionCode::S46Br,
+                    Dhcpv6Option::S46Dmr(_) => Dhcpv6OptionCode::S46Dmr,
+                    Dhcpv6Option::S46V4V6Bind(_) => Dhcpv6OptionCode::S46V4V6Bind,
+                    Dhcpv6Option::S46PortParams(_) => Dhcpv6OptionCode::S46PortParams,
+                    Dhcpv6Option::S46ContMape(_) => Dhcpv6OptionCode::S46ContMape,
+                    Dhcpv6Option::S46ContMapt(_) => Dhcpv6OptionCode::S46ContMapt,
+                    Dhcpv6Option::S46ContLw(_) => Dhcpv6OptionCode::S46ContLw,
+                    Dhcpv6Option::Ipv4Address(_) => Dhcpv6OptionCode::Ipv4Address,
+                    Dhcpv6Option::Dhcpv6ActiveLeasequery(_) => {
+                        Dhcpv6OptionCode::Dhcpv6ActiveLeasequery
+                    }
+                    Dhcpv6Option::DhcpFailoverEndpoint(_) => Dhcpv6OptionCode::DhcpFailoverEndpoint,
+                    _ => unreachable!(),
+                }
+            }
+            Dhcpv6Option::BcmcsControllerDomainList(domains) => {
+                content.extend(Self::encode_domain_list(domains));
+                Dhcpv6OptionCode::BcmcsControllerDomainList
+            }
+            Dhcpv6Option::BcmcsControllerIpv6AddressList(addrs) => {
+                content.extend(Self::encode_ipv6_addresses::<E>(addrs));
+                Dhcpv6OptionCode::BcmcsControllerIpv6AddressList
+            }
+            Dhcpv6Option::ClientDataOption(data) => {
+                content.extend(data);
+                Dhcpv6OptionCode::ClientDataOption
+            }
+            Dhcpv6Option::UnknownOption { option_code, data } => {
+                content.extend(data);
+                Dhcpv6OptionCode::Unknown(*option_code)
+            }
+            Dhcpv6Option::GeoconfCivic {
+                what,
+                country_code,
+                civic_address_elements,
+            } => {
+                content.push(*what);
+                content.push(country_code.len() as u8);
+                content.extend(country_code.as_bytes());
+                for (ca_type, ca_data) in civic_address_elements {
+                    content.push(*ca_type);
+                    content.push(ca_data.len() as u8);
+                    content.extend(ca_data);
+                }
+                Dhcpv6OptionCode::GeoconfCivic
+            } // Add remaining option encodings here following the same pattern
+              /*
+              _ => {
+                  // For options that haven't been fully implemented yet or unknown options
+                  Dhcpv6OptionCode::Unknown(0)
+              }
+              */
         };
 
         // Construct the complete option with header
