@@ -149,6 +149,22 @@ impl Default for Dhcpv6OptionCode {
     }
 }
 
+impl Dhcpv6OptionCode {
+    fn discriminant(&self) -> u16 {
+        // SAFETY: Because `Self` is marked `repr(u16)`, its layout is a `repr(C)` `union`
+        // between `repr(C)` structs, each of which has the `u16` discriminant as its first
+        // field, so we can read the discriminant without offsetting the pointer.
+        unsafe { *<*const _>::from(self).cast::<u16>() }
+    }
+
+    pub fn as_u16(&self) -> u16 {
+        match self {
+            Dhcpv6OptionCode::Unknown(value) => *value,
+            _ => self.discriminant(),
+        }
+    }
+}
+
 #[derive(FromRepr, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[repr(u16)]
 pub enum Dhcpv6StatusCode {
@@ -187,10 +203,10 @@ impl Default for Dhcpv6StatusCode {
 #[derive(FromRepr, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[repr(u16)]
 pub enum DuidType {
-    LinkLayerTimePlusTime = 1,  // DUID-LLT
-    VendorAssigned = 2,         // DUID-EN
-    LinkLayer = 3,              // DUID-LL
-    Uuid = 4,                   // DUID-UUID
+    LinkLayerTimePlusTime = 1, // DUID-LLT
+    VendorAssigned = 2,        // DUID-EN
+    LinkLayer = 3,             // DUID-LL
+    Uuid = 4,                  // DUID-UUID
 }
 
 impl Default for DuidType {
@@ -277,9 +293,6 @@ pub const DHCPV6_REC_TIMEOUT: u32 = 2;
 pub const DHCPV6_REC_MAX_RC: u32 = 8;
 pub const DHCPV6_HOP_COUNT_LIMIT: u8 = 32;
 
-
-
-
 use crate::*;
 // use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
@@ -289,7 +302,7 @@ use std::convert::TryFrom;
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DuidLlt {
     pub hardware_type: HardwareType,
-    pub time: u32,  // Time value in seconds since January 1, 2000
+    pub time: u32, // Time value in seconds since January 1, 2000
     pub link_layer_addr: Vec<u8>,
 }
 
@@ -490,5 +503,531 @@ pub enum Dhcpv6Option {
 impl Default for Dhcpv6Option {
     fn default() -> Self {
         Dhcpv6Option::ClientId(Duid::default())
+    }
+}
+
+use crate::*;
+
+impl Duid {
+    fn encode<E: Encoder>(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        match self {
+            Duid::Llt(duid) => {
+                out.extend_from_slice(&(DuidType::LinkLayerTimePlusTime as u16).to_be_bytes());
+                out.extend_from_slice(&(duid.hardware_type.clone() as u16).to_be_bytes());
+                out.extend_from_slice(&duid.time.to_be_bytes());
+                out.extend_from_slice(&duid.link_layer_addr);
+            }
+            Duid::En(duid) => {
+                out.extend_from_slice(&(DuidType::VendorAssigned as u16).to_be_bytes());
+                out.extend_from_slice(&duid.enterprise_number.to_be_bytes());
+                out.extend_from_slice(&duid.identifier);
+            }
+            Duid::Ll(duid) => {
+                out.extend_from_slice(&(DuidType::LinkLayer as u16).to_be_bytes());
+                out.extend_from_slice(&(duid.hardware_type.clone() as u16).to_be_bytes());
+                out.extend_from_slice(&duid.link_layer_addr);
+            }
+            Duid::Uuid(duid) => {
+                out.extend_from_slice(&(DuidType::Uuid as u16).to_be_bytes());
+                out.extend_from_slice(&duid.uuid);
+            }
+        }
+        out
+    }
+
+    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
+        if buf.len() < 2 {
+            return None;
+        }
+        let duid_type = u16::from_be_bytes([buf[0], buf[1]]);
+        let mut offset = 2;
+
+        match DuidType::from_repr(duid_type)? {
+            DuidType::LinkLayerTimePlusTime => {
+                if buf.len() < offset + 6 {
+                    return None;
+                }
+                let hardware_type =
+                    HardwareType::from_repr(u16::from_be_bytes([buf[offset], buf[offset + 1]]))?;
+                offset += 2;
+                let time = u32::from_be_bytes([
+                    buf[offset],
+                    buf[offset + 1],
+                    buf[offset + 2],
+                    buf[offset + 3],
+                ]);
+                offset += 4;
+                let link_layer_addr = buf[offset..].to_vec();
+                Some((
+                    Duid::Llt(DuidLlt {
+                        hardware_type,
+                        time,
+                        link_layer_addr,
+                    }),
+                    buf.len(),
+                ))
+            }
+            DuidType::VendorAssigned => {
+                if buf.len() < offset + 4 {
+                    return None;
+                }
+                let enterprise_number = u32::from_be_bytes([
+                    buf[offset],
+                    buf[offset + 1],
+                    buf[offset + 2],
+                    buf[offset + 3],
+                ]);
+                offset += 4;
+                let identifier = buf[offset..].to_vec();
+                Some((
+                    Duid::En(DuidEn {
+                        enterprise_number,
+                        identifier,
+                    }),
+                    buf.len(),
+                ))
+            }
+            DuidType::LinkLayer => {
+                if buf.len() < offset + 2 {
+                    return None;
+                }
+                let hardware_type =
+                    HardwareType::from_repr(u16::from_be_bytes([buf[offset], buf[offset + 1]]))?;
+                offset += 2;
+                let link_layer_addr = buf[offset..].to_vec();
+                Some((
+                    Duid::Ll(DuidLl {
+                        hardware_type,
+                        link_layer_addr,
+                    }),
+                    buf.len(),
+                ))
+            }
+            DuidType::Uuid => {
+                if buf.len() < offset + 16 {
+                    return None;
+                }
+                let mut uuid = [0u8; 16];
+                uuid.copy_from_slice(&buf[offset..offset + 16]);
+                Some((Duid::Uuid(DuidUuid { uuid }), offset + 16))
+            }
+        }
+    }
+}
+
+impl IaAddr {
+    fn encode<E: Encoder>(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend(self.ipv6_addr.encode::<E>());
+        out.extend_from_slice(&self.preferred_lifetime.to_be_bytes());
+        out.extend_from_slice(&self.valid_lifetime.to_be_bytes());
+
+        // Encode all sub-options
+        for option in &self.options {
+            let encoded = option.encode::<E>();
+            out.extend_from_slice(&encoded);
+        }
+        out
+    }
+
+    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
+        if buf.len() < 24 {
+            // IPv6 (16) + preferred lifetime (4) + valid lifetime (4)
+            return None;
+        }
+
+        let mut offset = 0;
+
+        // Decode IPv6 address
+        let (ipv6_addr, addr_len) = Ipv6Address::decode::<D>(&buf[offset..])?;
+        offset += addr_len;
+
+        // Decode lifetimes
+        let preferred_lifetime = u32::from_be_bytes([
+            buf[offset],
+            buf[offset + 1],
+            buf[offset + 2],
+            buf[offset + 3],
+        ]);
+        offset += 4;
+
+        let valid_lifetime = u32::from_be_bytes([
+            buf[offset],
+            buf[offset + 1],
+            buf[offset + 2],
+            buf[offset + 3],
+        ]);
+        offset += 4;
+
+        // Decode any remaining options
+        let mut options = Vec::new();
+        while offset < buf.len() {
+            if let Some((option, option_len)) = Dhcpv6Option::decode::<D>(&buf[offset..]) {
+                options.push(option);
+                offset += option_len;
+            } else {
+                break;
+            }
+        }
+
+        Some((
+            IaAddr {
+                ipv6_addr,
+                preferred_lifetime,
+                valid_lifetime,
+                options,
+            },
+            offset,
+        ))
+    }
+}
+
+impl IaPrefix {
+    fn encode<E: Encoder>(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&self.preferred_lifetime.to_be_bytes());
+        out.extend_from_slice(&self.valid_lifetime.to_be_bytes());
+        out.push(self.prefix_length);
+        out.extend(self.prefix.encode::<E>());
+
+        // Encode all sub-options
+        for option in &self.options {
+            let encoded = option.encode::<E>();
+            out.extend_from_slice(&encoded);
+        }
+        out
+    }
+
+    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
+        if buf.len() < 25 {
+            // preferred lifetime (4) + valid lifetime (4) + prefix length (1) + IPv6 (16)
+            return None;
+        }
+
+        let mut offset = 0;
+
+        let preferred_lifetime = u32::from_be_bytes([
+            buf[offset],
+            buf[offset + 1],
+            buf[offset + 2],
+            buf[offset + 3],
+        ]);
+        offset += 4;
+
+        let valid_lifetime = u32::from_be_bytes([
+            buf[offset],
+            buf[offset + 1],
+            buf[offset + 2],
+            buf[offset + 3],
+        ]);
+        offset += 4;
+
+        let prefix_length = buf[offset];
+        offset += 1;
+
+        let (prefix, prefix_len) = Ipv6Address::decode::<D>(&buf[offset..])?;
+        offset += prefix_len;
+
+        // Decode any remaining options
+        let mut options = Vec::new();
+        while offset < buf.len() {
+            if let Some((option, option_len)) = Dhcpv6Option::decode::<D>(&buf[offset..]) {
+                options.push(option);
+                offset += option_len;
+            } else {
+                break;
+            }
+        }
+
+        Some((
+            IaPrefix {
+                preferred_lifetime,
+                valid_lifetime,
+                prefix_length,
+                prefix,
+                options,
+            },
+            offset,
+        ))
+    }
+}
+
+impl StatusCode {
+    fn encode<E: Encoder>(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&(self.status.clone() as u16).to_be_bytes());
+        out.extend(self.message.as_bytes());
+        out
+    }
+
+    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
+        if buf.len() < 2 {
+            return None;
+        }
+
+        let status = Dhcpv6StatusCode::from_repr(u16::from_be_bytes([buf[0], buf[1]]))?;
+        let message = String::from_utf8_lossy(&buf[2..]).to_string();
+
+        Some((StatusCode { status, message }, buf.len()))
+    }
+}
+
+use crate::*;
+
+impl Dhcpv6Option {
+    // Helper function to encode a vector of IPv6 addresses
+    fn encode_ipv6_addresses<E: Encoder>(addrs: &[Ipv6Address]) -> Vec<u8> {
+        let mut content = Vec::new();
+        for addr in addrs {
+            content.extend(addr.encode::<E>());
+        }
+        content
+    }
+
+    // Helper function to encode a vector of domain names
+    fn encode_domain_list(domains: &[String]) -> Vec<u8> {
+        let mut content = Vec::new();
+        for domain in domains {
+            // DNS name encoding: length byte followed by name components
+            for component in domain.split('.') {
+                content.push(component.len() as u8);
+                content.extend(component.as_bytes());
+            }
+            content.push(0); // Terminating zero
+        }
+        content
+    }
+
+    pub fn encode<E: Encoder>(&self) -> Vec<u8> {
+        let mut content = Vec::new();
+        let option_code = match self {
+            Dhcpv6Option::ClientId(duid) => {
+                content.extend(duid.encode::<E>());
+                Dhcpv6OptionCode::ClientId
+            }
+            Dhcpv6Option::ServerId(duid) => {
+                content.extend(duid.encode::<E>());
+                Dhcpv6OptionCode::ServerId
+            }
+            Dhcpv6Option::IaNa {
+                iaid,
+                t1,
+                t2,
+                options,
+            } => {
+                content.extend_from_slice(&iaid.to_be_bytes());
+                content.extend_from_slice(&t1.to_be_bytes());
+                content.extend_from_slice(&t2.to_be_bytes());
+                for option in options {
+                    let encoded = option.encode::<E>();
+                    content.extend_from_slice(&(option.get_option_code() as u16).to_be_bytes());
+                    content.extend_from_slice(&(encoded.len() as u16).to_be_bytes());
+                    content.extend(encoded);
+                }
+                Dhcpv6OptionCode::IaNa
+            }
+            Dhcpv6Option::IaTa { iaid, options } => {
+                content.extend_from_slice(&iaid.to_be_bytes());
+                for option in options {
+                    let encoded = option.encode::<E>();
+                    content.extend_from_slice(&(option.get_option_code() as u16).to_be_bytes());
+                    content.extend_from_slice(&(encoded.len() as u16).to_be_bytes());
+                    content.extend(encoded);
+                }
+                Dhcpv6OptionCode::IaTa
+            }
+            Dhcpv6Option::IaAddr(addr) => {
+                content.extend(addr.encode::<E>());
+                Dhcpv6OptionCode::IaAddr
+            }
+            Dhcpv6Option::OptionRequest(options) => {
+                for option in options {
+                    content.extend_from_slice(&(option.as_u16()).to_be_bytes());
+                }
+                Dhcpv6OptionCode::OptionRequest
+            }
+            Dhcpv6Option::Preference(pref) => {
+                content.push(*pref);
+                Dhcpv6OptionCode::Preference
+            }
+            Dhcpv6Option::ElapsedTime(time) => {
+                content.extend_from_slice(&time.to_be_bytes());
+                Dhcpv6OptionCode::ElapsedTime
+            }
+            Dhcpv6Option::RelayMessage(msg) => {
+                content.extend(msg);
+                Dhcpv6OptionCode::RelayMessage
+            }
+            Dhcpv6Option::Auth {
+                protocol,
+                algorithm,
+                rdm,
+                replay_detection,
+                auth_info,
+            } => {
+                content.push(*protocol);
+                content.push(*algorithm);
+                content.push(*rdm);
+                content.extend(replay_detection);
+                content.extend(auth_info);
+                Dhcpv6OptionCode::Auth
+            }
+            Dhcpv6Option::ServerUnicast(addr) => {
+                content.extend(addr.encode::<E>());
+                Dhcpv6OptionCode::ServerUnicast
+            }
+            Dhcpv6Option::StatusCode(status) => {
+                content.extend(status.encode::<E>());
+                Dhcpv6OptionCode::StatusCode
+            }
+            Dhcpv6Option::RapidCommit => Dhcpv6OptionCode::RapidCommit,
+            Dhcpv6Option::UserClass(classes) => {
+                for class in classes {
+                    content.extend_from_slice(&(class.len() as u16).to_be_bytes());
+                    content.extend(class);
+                }
+                Dhcpv6OptionCode::UserClass
+            }
+            Dhcpv6Option::VendorClass {
+                enterprise_number,
+                vendor_classes,
+            } => {
+                content.extend_from_slice(&enterprise_number.to_be_bytes());
+                for class in vendor_classes {
+                    content.extend_from_slice(&(class.len() as u16).to_be_bytes());
+                    content.extend(class);
+                }
+                Dhcpv6OptionCode::VendorClass
+            }
+            Dhcpv6Option::VendorOpts {
+                enterprise_number,
+                options,
+            } => {
+                content.extend_from_slice(&enterprise_number.to_be_bytes());
+                for (code, data) in options {
+                    content.extend_from_slice(&code.to_be_bytes());
+                    content.extend_from_slice(&(data.len() as u16).to_be_bytes());
+                    content.extend(data);
+                }
+                Dhcpv6OptionCode::VendorOpts
+            }
+            Dhcpv6Option::InterfaceId(id) => {
+                content.extend(id);
+                Dhcpv6OptionCode::InterfaceId
+            }
+            Dhcpv6Option::ReconfMessage(msg_type) => {
+                content.push(msg_type.clone() as u8);
+                Dhcpv6OptionCode::ReconfMessage
+            }
+            Dhcpv6Option::ReconfAccept => Dhcpv6OptionCode::ReconfAccept,
+            Dhcpv6Option::SipServersDomainList(domains) => {
+                content.extend(Self::encode_domain_list(domains));
+                Dhcpv6OptionCode::SipServersDomainList
+            }
+            Dhcpv6Option::SipServersAddressList(addrs) => {
+                content.extend(Self::encode_ipv6_addresses::<E>(addrs));
+                Dhcpv6OptionCode::SipServersAddressList
+            }
+            Dhcpv6Option::DnsServers(addrs) => {
+                content.extend(Self::encode_ipv6_addresses::<E>(addrs));
+                Dhcpv6OptionCode::DnsServers
+            }
+            Dhcpv6Option::DomainSearchList(domains) => {
+                content.extend(Self::encode_domain_list(domains));
+                Dhcpv6OptionCode::DomainSearchList
+            }
+            Dhcpv6Option::IaPd {
+                iaid,
+                t1,
+                t2,
+                options,
+            } => {
+                content.extend_from_slice(&iaid.to_be_bytes());
+                content.extend_from_slice(&t1.to_be_bytes());
+                content.extend_from_slice(&t2.to_be_bytes());
+                for option in options {
+                    let encoded = option.encode::<E>();
+                    content.extend_from_slice(&(option.get_option_code() as u16).to_be_bytes());
+                    content.extend_from_slice(&(encoded.len() as u16).to_be_bytes());
+                    content.extend(encoded);
+                }
+                Dhcpv6OptionCode::IaPd
+            }
+            Dhcpv6Option::IaPrefix(prefix) => {
+                content.extend(prefix.encode::<E>());
+                Dhcpv6OptionCode::IaPrefix
+            }
+            // Add remaining option encodings here following the same pattern
+            _ => {
+                // For options that haven't been fully implemented yet or unknown options
+                Dhcpv6OptionCode::Unknown(0)
+            }
+        };
+
+        // Construct the complete option with header
+        let mut option = Vec::new();
+        option.extend_from_slice(&(option_code.as_u16()).to_be_bytes());
+        option.extend_from_slice(&(content.len() as u16).to_be_bytes());
+        option.extend(content);
+        option
+    }
+
+    pub fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
+        if buf.len() < 4 {
+            return None;
+        }
+
+        let option_code = u16::from_be_bytes([buf[0], buf[1]]);
+        let length = u16::from_be_bytes([buf[2], buf[3]]) as usize;
+        let mut offset = 4;
+
+        if buf.len() < offset + length {
+            return None;
+        }
+
+        let option_data = &buf[offset..offset + length];
+        let option = match Dhcpv6OptionCode::from_repr(option_code)
+            .unwrap_or(Dhcpv6OptionCode::Unknown(option_code))
+        {
+            Dhcpv6OptionCode::ClientId => {
+                if let Some((duid, _)) = Duid::decode::<D>(option_data) {
+                    Some(Dhcpv6Option::ClientId(duid))
+                } else {
+                    None
+                }
+            }
+            Dhcpv6OptionCode::ServerId => {
+                if let Some((duid, _)) = Duid::decode::<D>(option_data) {
+                    Some(Dhcpv6Option::ServerId(duid))
+                } else {
+                    None
+                }
+            }
+            // Add remaining option decodings here
+            _ => Some(Dhcpv6Option::UnknownOption {
+                option_code,
+                data: option_data.to_vec(),
+            }),
+        }?;
+
+        Some((option, offset + length))
+    }
+
+    // Helper method to get the option code for a given option
+    pub fn get_option_code(&self) -> u16 {
+        match self {
+            Dhcpv6Option::UnknownOption { option_code, .. } => *option_code,
+            other => {
+                let ocode = match other {
+                    Dhcpv6Option::ClientId(_) => Dhcpv6OptionCode::ClientId,
+                    Dhcpv6Option::ServerId(_) => Dhcpv6OptionCode::ServerId,
+                    Dhcpv6Option::IaNa { .. } => Dhcpv6OptionCode::IaNa,
+                    // Add remaining option codes here
+                    _ => panic!("FIXME - implement the rest"), // Default for unimplemented options
+                };
+                ocode.as_u16()
+            }
+        }
     }
 }
