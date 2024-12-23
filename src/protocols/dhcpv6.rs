@@ -1073,21 +1073,80 @@ impl Dhcpv6Option {
     }
 
     // Helper method to get the option code for a given option
-    pub fn get_option_code(&self) -> u16 {
-        match self {
-            Dhcpv6Option::UnknownOption { option_code, .. } => *option_code,
-            other => {
-                let ocode = match other {
-                    Dhcpv6Option::ClientId(_) => Dhcpv6OptionCode::ClientId,
-                    Dhcpv6Option::ServerId(_) => Dhcpv6OptionCode::ServerId,
-                    Dhcpv6Option::IaNa { .. } => Dhcpv6OptionCode::IaNa,
-                    // Add remaining option codes here
-                    _ => panic!("FIXME - implement the rest"), // Default for unimplemented options
-                };
-                ocode.as_u16()
-            }
+  // Replace the existing get_option_code implementation in the Dhcpv6Option impl block
+pub fn get_option_code(&self) -> u16 {
+    match self {
+        Dhcpv6Option::UnknownOption { option_code, .. } => *option_code,
+        other => {
+            let ocode = match other {
+                Dhcpv6Option::UnknownOption { option_code, .. } => panic!("covered already"),
+                Dhcpv6Option::ClientId(_) => Dhcpv6OptionCode::ClientId,
+                Dhcpv6Option::ServerId(_) => Dhcpv6OptionCode::ServerId,
+                Dhcpv6Option::IaNa { .. } => Dhcpv6OptionCode::IaNa,
+                Dhcpv6Option::IaTa { .. } => Dhcpv6OptionCode::IaTa,
+                Dhcpv6Option::IaAddr(_) => Dhcpv6OptionCode::IaAddr,
+                Dhcpv6Option::OptionRequest(_) => Dhcpv6OptionCode::OptionRequest,
+                Dhcpv6Option::Preference(_) => Dhcpv6OptionCode::Preference,
+                Dhcpv6Option::ElapsedTime(_) => Dhcpv6OptionCode::ElapsedTime,
+                Dhcpv6Option::RelayMessage(_) => Dhcpv6OptionCode::RelayMessage,
+                Dhcpv6Option::Auth { .. } => Dhcpv6OptionCode::Auth,
+                Dhcpv6Option::ServerUnicast(_) => Dhcpv6OptionCode::ServerUnicast,
+                Dhcpv6Option::StatusCode(_) => Dhcpv6OptionCode::StatusCode,
+                Dhcpv6Option::RapidCommit => Dhcpv6OptionCode::RapidCommit,
+                Dhcpv6Option::UserClass(_) => Dhcpv6OptionCode::UserClass,
+                Dhcpv6Option::VendorClass { .. } => Dhcpv6OptionCode::VendorClass,
+                Dhcpv6Option::VendorOpts { .. } => Dhcpv6OptionCode::VendorOpts,
+                Dhcpv6Option::InterfaceId(_) => Dhcpv6OptionCode::InterfaceId,
+                Dhcpv6Option::ReconfMessage(_) => Dhcpv6OptionCode::ReconfMessage,
+                Dhcpv6Option::ReconfAccept => Dhcpv6OptionCode::ReconfAccept,
+                Dhcpv6Option::SipServersDomainList(_) => Dhcpv6OptionCode::SipServersDomainList,
+                Dhcpv6Option::SipServersAddressList(_) => Dhcpv6OptionCode::SipServersAddressList,
+                Dhcpv6Option::DnsServers(_) => Dhcpv6OptionCode::DnsServers,
+                Dhcpv6Option::DomainSearchList(_) => Dhcpv6OptionCode::DomainSearchList,
+                Dhcpv6Option::IaPd { .. } => Dhcpv6OptionCode::IaPd,
+                Dhcpv6Option::IaPrefix(_) => Dhcpv6OptionCode::IaPrefix,
+                Dhcpv6Option::NisServers(_) => Dhcpv6OptionCode::NisServers,
+                Dhcpv6Option::NisPlusServers(_) => Dhcpv6OptionCode::NisPlusServers,
+                Dhcpv6Option::NisDomainName(_) => Dhcpv6OptionCode::NisDomainName,
+                Dhcpv6Option::NisPlusDomainName(_) => Dhcpv6OptionCode::NisPlusDomainName,
+                Dhcpv6Option::SntpServers(_) => Dhcpv6OptionCode::SntpServers,
+                Dhcpv6Option::InformationRefreshTime(_) => Dhcpv6OptionCode::InformationRefreshTime,
+                Dhcpv6Option::BcmcsControllerDomainList(_) => Dhcpv6OptionCode::BcmcsControllerDomainList,
+                Dhcpv6Option::BcmcsControllerIpv6AddressList(_) => Dhcpv6OptionCode::BcmcsControllerIpv6AddressList,
+                Dhcpv6Option::ClientFqdn { .. } => Dhcpv6OptionCode::ClientFqdn,
+                Dhcpv6Option::ClientDataOption(_) => Dhcpv6OptionCode::ClientDataOption,
+                Dhcpv6Option::CltTime(_) => Dhcpv6OptionCode::CltTime,
+                Dhcpv6Option::LqQuery { .. } => Dhcpv6OptionCode::LqQuery,
+                Dhcpv6Option::LqClientLink(_) => Dhcpv6OptionCode::LqClientLink,
+                Dhcpv6Option::LqRelayData { .. } => Dhcpv6OptionCode::LqRelayData,
+                Dhcpv6Option::BootfileUrl(_) => Dhcpv6OptionCode::BootfileUrl,
+                Dhcpv6Option::BootfileParam(_) => Dhcpv6OptionCode::BootfileParam,
+                Dhcpv6Option::ClientArchType(_) => Dhcpv6OptionCode::ClientArchType,
+                Dhcpv6Option::Nii { .. } => Dhcpv6OptionCode::Nii,
+                Dhcpv6Option::GeoconfCivic { .. } => Dhcpv6OptionCode::GeoconfCivic,
+                Dhcpv6Option::AftrName(_) => Dhcpv6OptionCode::AftrName,
+                Dhcpv6Option::EapMessage(_) => Dhcpv6OptionCode::EapMessage,
+                Dhcpv6Option::RelaySuppliedOptions(_) => Dhcpv6OptionCode::RelaySuppliedOptions,
+                Dhcpv6Option::PrefixExclude(_) => Dhcpv6OptionCode::PrefixExclude,
+                Dhcpv6Option::SolMaxRt(_) => Dhcpv6OptionCode::SolMaxRt,
+                Dhcpv6Option::InfMaxRt(_) => Dhcpv6OptionCode::InfMaxRt,
+                Dhcpv6Option::PcpServer(_) => Dhcpv6OptionCode::PcpServer,
+                Dhcpv6Option::S46Rule(_) => Dhcpv6OptionCode::S46Rule,
+                Dhcpv6Option::S46Br(_) => Dhcpv6OptionCode::S46Br,
+                Dhcpv6Option::S46Dmr(_) => Dhcpv6OptionCode::S46Dmr,
+                Dhcpv6Option::S46V4V6Bind(_) => Dhcpv6OptionCode::S46V4V6Bind,
+                Dhcpv6Option::S46PortParams(_) => Dhcpv6OptionCode::S46PortParams,
+                Dhcpv6Option::S46ContMape(_) => Dhcpv6OptionCode::S46ContMape,
+                Dhcpv6Option::S46ContMapt(_) => Dhcpv6OptionCode::S46ContMapt,
+                Dhcpv6Option::S46ContLw(_) => Dhcpv6OptionCode::S46ContLw,
+                Dhcpv6Option::Ipv4Address(_) => Dhcpv6OptionCode::Ipv4Address,
+                Dhcpv6Option::Dhcpv6ActiveLeasequery(_) => Dhcpv6OptionCode::Dhcpv6ActiveLeasequery,
+                Dhcpv6Option::DhcpFailoverEndpoint(_) => Dhcpv6OptionCode::DhcpFailoverEndpoint,
+            };
+            ocode.as_u16()
         }
     }
+} 
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
