@@ -1053,7 +1053,16 @@ impl Dhcpv6Option {
             }
             Dhcpv6Option::ClientFqdn { flags, fqdn } => {
                 content.push(*flags);
-                content.extend(fqdn.as_bytes());
+                for part in fqdn.split(".") {
+                    let len = part.len();
+                    let (len, part) = if len <= 255 {
+                        (len as u8, &part[..])
+                    } else {
+                        (255u8, &part[..255])
+                    };
+                    content.push(len);
+                    content.extend(part.as_bytes());
+                }
                 Dhcpv6OptionCode::ClientFqdn
             }
             Dhcpv6Option::LqQuery {
@@ -1603,10 +1612,21 @@ impl Dhcpv6Option {
                     return None;
                 }
                 let flags = option_data[0];
-                match String::from_utf8(option_data[1..].to_vec()) {
-                    Ok(fqdn) => Some(Dhcpv6Option::ClientFqdn { flags, fqdn }),
-                    Err(_) => None,
+                let mut ofs = 1;
+                let mut components: Vec<String> = vec![];
+                while ofs + 1 < option_data.len() {
+                    let len = option_data[ofs] as usize;
+                    let val = &option_data[ofs + 1..ofs + 1 + len];
+                    match String::from_utf8(val.to_vec()) {
+                        Ok(component) => {
+                            components.push(component.into());
+                        }
+                        Err(_) => return None,
+                    }
+                    ofs += 1 + len;
                 }
+                let fqdn = components.join(".");
+                Some(Dhcpv6Option::ClientFqdn { flags, fqdn })
             }
             Dhcpv6OptionCode::BootfileParam => {
                 let mut params = Vec::new();
