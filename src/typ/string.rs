@@ -36,7 +36,7 @@ pub struct FixedSizeString<N: ArrayLength>(GenericArray<u8, N>);
 
 impl<N: ArrayLength> Encode for FixedSizeString<N> {
     fn encode<E: Encoder>(&self) -> Vec<u8> {
-        let mut out: GenericArray<u8, N> = Default::default();
+        let mut out: GenericArray<u8, N> = self.0.clone();
         out.to_vec()
     }
 }
