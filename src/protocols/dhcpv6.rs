@@ -879,8 +879,9 @@ impl Dhcpv6Option {
                 content.extend_from_slice(&t2.to_be_bytes());
                 for option in options {
                     let encoded = option.encode::<E>();
-                    content.extend_from_slice(&(option.get_option_code() as u16).to_be_bytes());
-                    content.extend_from_slice(&(encoded.len() as u16).to_be_bytes());
+                    // This is extraneous.
+                    // content.extend_from_slice(&(option.get_option_code() as u16).to_be_bytes());
+                    // content.extend_from_slice(&(encoded.len() as u16).to_be_bytes());
                     content.extend(encoded);
                 }
                 Dhcpv6OptionCode::IaNa
