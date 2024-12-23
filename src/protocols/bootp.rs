@@ -11,9 +11,87 @@ const DHCP_COOKIE_VAL: u32 = 0x63825363;
 
 #[derive(FromRepr, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[repr(u8)]
-enum VendorOptions {
-    Pad = 0,
+enum VendorSuboption {
     End = 255,
+    Pad = 0,
+    Unknown(u8, Vec<u8>),
+}
+
+fn decode_vendor_dhcp_opts<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Dhcp,
+) -> Option<(Vec<VendorSuboption>, usize)> {
+    let buf = &buf[ci..];
+
+    let mut cursor = 0;
+    let mut options: Vec<VendorSuboption> = vec![];
+
+    while cursor < buf.len() {
+        match buf[cursor] {
+            0 => {
+                // Pad option
+                options.push(VendorSuboption::Pad);
+                cursor += 1;
+            }
+            255 => {
+                // End option
+                options.push(VendorSuboption::End);
+                cursor += 1;
+                break;
+            }
+            option_code => {
+                if cursor + 1 >= buf.len() {
+                    break; // Not enough bytes for length
+                }
+
+                let length = buf[cursor + 1] as usize;
+                if cursor + 2 + length > buf.len() {
+                    break; // Not enough bytes for value
+                }
+
+                let value_start = cursor + 2;
+                let value_end = value_start + length;
+                let value_buf = &buf[value_start..value_end];
+
+                let option = match option_code {
+                    x => Some(VendorSuboption::Unknown(x, value_buf.to_vec())),
+                };
+                if let Some(opt) = option {
+                    options.push(opt);
+                }
+
+                cursor = value_end;
+            }
+        }
+    }
+    Some((options, cursor))
+}
+
+fn encode_vendor_dhcp_opts<E: Encoder>(
+    opts: &Vec<VendorSuboption>,
+    stack: &LayerStack,
+    my_index: usize,
+    encoded_layers: &EncodingVecVec,
+) -> Vec<u8> {
+    let mut out: Vec<u8> = Vec::new();
+
+    for option in opts {
+        match option {
+            VendorSuboption::End => {
+                out.push(255); // Option code for End
+            }
+            VendorSuboption::Pad => {
+                out.push(0); // Option code for Pad
+            }
+            VendorSuboption::Unknown(code, data) => {
+                out.push(*code);
+                out.push(data.len() as u8);
+                out.extend(data);
+            }
+        }
+    }
+    out
 }
 
 #[derive(FromRepr, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -204,7 +282,7 @@ enum DhcpOption {
     NisDomain(String),                              // 40
     NisServers(Vec<Ipv4Address>),                   // 41
     NtpServers(Vec<Ipv4Address>),                   // 42
-    VendorSpecific(Vec<VendorOptions>),             // 43
+    VendorSpecific(Vec<VendorSuboption>),          // 43
     NetBiosNameServer(Vec<Ipv4Address>),            // 44
     NetBiosDatagramServer(Vec<Ipv4Address>),        // 45
     NetBiosNodeType(u8),                            // 46
@@ -488,13 +566,13 @@ fn decode_dhcp_opts<D: Decoder>(
                     }
                     43 => {
                         // Vendor specific
-                        let mut vendor_opts = Vec::new();
-                        for b in value_buf {
-                            if let Some(opt) = VendorOptions::from_repr(*b) {
-                                vendor_opts.push(opt);
-                            }
+                        if let Some((vendor_opts, sz)) =
+                            decode_vendor_dhcp_opts::<D>(value_buf, 0, me)
+                        {
+                            Some(DhcpOption::VendorSpecific(vendor_opts))
+                        } else {
+                            None
                         }
-                        Some(DhcpOption::VendorSpecific(vendor_opts))
                     }
                     53 => {
                         // DHCP Message Type
@@ -774,11 +852,9 @@ fn encode_dhcp_opts<E: Encoder>(
             }
             DhcpOption::VendorSpecific(options) => {
                 out.push(43);
-                out.push(options.len() as u8);
-                for opt in options {
-                    out.push(0 as u8);
-                }
-                panic!("FIXME");
+                let val = encode_vendor_dhcp_opts::<E>(&options, stack, my_index, encoded_layers);
+                out.push(val.len() as u8);
+                out.extend(val);
             }
             DhcpOption::OptionOverload(val) => {
                 out.push(52);
