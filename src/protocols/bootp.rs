@@ -223,6 +223,7 @@ enum DhcpOption {
     RebindT2Value(u32),                             // 59
     ClientClass(Vec<u8>),                           // 60
     ClientIdentifier((u8, Vec<u8>)),                // 61
+    Unknown(u8, Vec<u8>),
 }
 
 impl Default for DhcpOption {
@@ -538,7 +539,7 @@ fn decode_dhcp_opts<D: Decoder>(
                             None
                         }
                     }
-                    _ => None,
+                    x => Some(DhcpOption::Unknown(x, value_buf.to_vec())),
                 };
 
                 if let Some(opt) = option {
@@ -559,7 +560,7 @@ fn encode_dhcp_opts<E: Encoder>(
     my_index: usize,
     encoded_layers: &EncodingVecVec,
 ) -> Vec<u8> {
-    let mut out = Vec::new();
+    let mut out: Vec<u8> = Vec::new();
 
     for option in &my_layer.options {
         match option {
@@ -568,6 +569,11 @@ fn encode_dhcp_opts<E: Encoder>(
             }
             DhcpOption::Pad => {
                 out.push(0); // Option code for Pad
+            }
+            DhcpOption::Unknown(code, data) => {
+                out.push(*code);
+                out.push(data.len() as u8);
+                out.extend(data);
             }
             DhcpOption::SubnetMask(addr) => {
                 out.push(1); // Option code
