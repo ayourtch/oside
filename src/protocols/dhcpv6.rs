@@ -1062,7 +1062,572 @@ impl Dhcpv6Option {
                     None
                 }
             }
-            // Add remaining option decodings here
+            Dhcpv6OptionCode::IaNa => {
+                if option_data.len() < 12 {
+                    return None;
+                }
+                let iaid = u32::from_be_bytes([
+                    option_data[0],
+                    option_data[1],
+                    option_data[2],
+                    option_data[3],
+                ]);
+                let t1 = u32::from_be_bytes([
+                    option_data[4],
+                    option_data[5],
+                    option_data[6],
+                    option_data[7],
+                ]);
+                let t2 = u32::from_be_bytes([
+                    option_data[8],
+                    option_data[9],
+                    option_data[10],
+                    option_data[11],
+                ]);
+                let mut suboptions = Vec::new();
+                let mut suboffset = 12;
+                while suboffset < option_data.len() {
+                    if let Some((option, option_len)) = Self::decode::<D>(&option_data[suboffset..])
+                    {
+                        suboptions.push(option);
+                        suboffset += option_len;
+                    } else {
+                        break;
+                    }
+                }
+                Some(Dhcpv6Option::IaNa {
+                    iaid,
+                    t1,
+                    t2,
+                    options: suboptions,
+                })
+            }
+            Dhcpv6OptionCode::IaTa => {
+                if option_data.len() < 4 {
+                    return None;
+                }
+                let iaid = u32::from_be_bytes([
+                    option_data[0],
+                    option_data[1],
+                    option_data[2],
+                    option_data[3],
+                ]);
+                let mut suboptions = Vec::new();
+                let mut suboffset = 4;
+                while suboffset < option_data.len() {
+                    if let Some((option, option_len)) = Self::decode::<D>(&option_data[suboffset..])
+                    {
+                        suboptions.push(option);
+                        suboffset += option_len;
+                    } else {
+                        break;
+                    }
+                }
+                Some(Dhcpv6Option::IaTa {
+                    iaid,
+                    options: suboptions,
+                })
+            }
+            Dhcpv6OptionCode::IaAddr => {
+                if let Some((addr, _)) = IaAddr::decode::<D>(option_data) {
+                    Some(Dhcpv6Option::IaAddr(addr))
+                } else {
+                    None
+                }
+            }
+            Dhcpv6OptionCode::OptionRequest => {
+                let mut codes = Vec::new();
+                let mut suboffset = 0;
+                while suboffset + 2 <= option_data.len() {
+                    let code =
+                        u16::from_be_bytes([option_data[suboffset], option_data[suboffset + 1]]);
+                    codes.push(
+                        Dhcpv6OptionCode::from_repr(code)
+                            .unwrap_or(Dhcpv6OptionCode::Unknown(code)),
+                    );
+                    suboffset += 2;
+                }
+                Some(Dhcpv6Option::OptionRequest(codes))
+            }
+            Dhcpv6OptionCode::Preference => {
+                if option_data.len() >= 1 {
+                    Some(Dhcpv6Option::Preference(option_data[0]))
+                } else {
+                    None
+                }
+            }
+            Dhcpv6OptionCode::ElapsedTime => {
+                if option_data.len() >= 2 {
+                    Some(Dhcpv6Option::ElapsedTime(u16::from_be_bytes([
+                        option_data[0],
+                        option_data[1],
+                    ])))
+                } else {
+                    None
+                }
+            }
+            Dhcpv6OptionCode::RelayMessage => {
+                Some(Dhcpv6Option::RelayMessage(option_data.to_vec()))
+            }
+            Dhcpv6OptionCode::Auth => {
+                if option_data.len() < 3 {
+                    return None;
+                }
+                let protocol = option_data[0];
+                let algorithm = option_data[1];
+                let rdm = option_data[2];
+                let replay_detection = option_data[3..11].to_vec();
+                let auth_info = option_data[11..].to_vec();
+                Some(Dhcpv6Option::Auth {
+                    protocol,
+                    algorithm,
+                    rdm,
+                    replay_detection,
+                    auth_info,
+                })
+            }
+            Dhcpv6OptionCode::ServerUnicast => {
+                if let Some((addr, _)) = Ipv6Address::decode::<D>(option_data) {
+                    Some(Dhcpv6Option::ServerUnicast(addr))
+                } else {
+                    None
+                }
+            }
+            Dhcpv6OptionCode::StatusCode => {
+                if let Some((status, _)) = StatusCode::decode::<D>(option_data) {
+                    Some(Dhcpv6Option::StatusCode(status))
+                } else {
+                    None
+                }
+            }
+            Dhcpv6OptionCode::RapidCommit => Some(Dhcpv6Option::RapidCommit),
+            Dhcpv6OptionCode::UserClass => {
+                let mut classes = Vec::new();
+                let mut suboffset = 0;
+                while suboffset + 2 <= option_data.len() {
+                    let len =
+                        u16::from_be_bytes([option_data[suboffset], option_data[suboffset + 1]])
+                            as usize;
+                    suboffset += 2;
+                    if suboffset + len > option_data.len() {
+                        break;
+                    }
+                    classes.push(option_data[suboffset..suboffset + len].to_vec());
+                    suboffset += len;
+                }
+                Some(Dhcpv6Option::UserClass(classes))
+            }
+            Dhcpv6OptionCode::VendorClass => {
+                if option_data.len() < 4 {
+                    return None;
+                }
+                let enterprise_number = u32::from_be_bytes([
+                    option_data[0],
+                    option_data[1],
+                    option_data[2],
+                    option_data[3],
+                ]);
+                let mut classes = Vec::new();
+                let mut suboffset = 4;
+                while suboffset + 2 <= option_data.len() {
+                    let len =
+                        u16::from_be_bytes([option_data[suboffset], option_data[suboffset + 1]])
+                            as usize;
+                    suboffset += 2;
+                    if suboffset + len > option_data.len() {
+                        break;
+                    }
+                    classes.push(option_data[suboffset..suboffset + len].to_vec());
+                    suboffset += len;
+                }
+                Some(Dhcpv6Option::VendorClass {
+                    enterprise_number,
+                    vendor_classes: classes,
+                })
+            }
+            Dhcpv6OptionCode::VendorOpts => {
+                if option_data.len() < 4 {
+                    return None;
+                }
+                let enterprise_number = u32::from_be_bytes([
+                    option_data[0],
+                    option_data[1],
+                    option_data[2],
+                    option_data[3],
+                ]);
+                let mut options = Vec::new();
+                let mut suboffset = 4;
+                while suboffset + 4 <= option_data.len() {
+                    let code =
+                        u16::from_be_bytes([option_data[suboffset], option_data[suboffset + 1]]);
+                    let len = u16::from_be_bytes([
+                        option_data[suboffset + 2],
+                        option_data[suboffset + 3],
+                    ]) as usize;
+                    suboffset += 4;
+                    if suboffset + len > option_data.len() {
+                        break;
+                    }
+                    options.push((code, option_data[suboffset..suboffset + len].to_vec()));
+                    suboffset += len;
+                }
+                Some(Dhcpv6Option::VendorOpts {
+                    enterprise_number,
+                    options,
+                })
+            }
+            Dhcpv6OptionCode::InterfaceId => Some(Dhcpv6Option::InterfaceId(option_data.to_vec())),
+            Dhcpv6OptionCode::ReconfMessage => {
+                if option_data.len() >= 1 {
+                    if let Some(msg_type) = Dhcpv6MessageType::from_repr(option_data[0]) {
+                        Some(Dhcpv6Option::ReconfMessage(msg_type))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            Dhcpv6OptionCode::ReconfAccept => Some(Dhcpv6Option::ReconfAccept),
+            Dhcpv6OptionCode::SipServersDomainList
+            | Dhcpv6OptionCode::DomainSearchList
+            | Dhcpv6OptionCode::BcmcsControllerDomainList => {
+                let mut domains = Vec::new();
+                let mut suboffset = 0;
+                while suboffset < option_data.len() {
+                    let mut labels = Vec::new();
+                    while suboffset < option_data.len() {
+                        let len = option_data[suboffset] as usize;
+                        if len == 0 {
+                            break;
+                        }
+                        suboffset += 1;
+                        if suboffset + len > option_data.len() {
+                            return None;
+                        }
+                        labels.push(
+                            String::from_utf8_lossy(&option_data[suboffset..suboffset + len])
+                                .to_string(),
+                        );
+                        suboffset += len;
+                    }
+                    if !labels.is_empty() {
+                        domains.push(labels.join("."));
+                    }
+                    suboffset += 1; // Skip the terminating zero
+                }
+                match option_code {
+                    21 => Some(Dhcpv6Option::SipServersDomainList(domains)),
+                    24 => Some(Dhcpv6Option::DomainSearchList(domains)),
+                    33 => Some(Dhcpv6Option::BcmcsControllerDomainList(domains)),
+                    _ => None,
+                }
+            }
+            Dhcpv6OptionCode::SipServersAddressList
+            | Dhcpv6OptionCode::DnsServers
+            | Dhcpv6OptionCode::NisServers
+            | Dhcpv6OptionCode::NisPlusServers
+            | Dhcpv6OptionCode::BcmcsControllerIpv6AddressList
+            | Dhcpv6OptionCode::PcpServer => {
+                let mut addrs = Vec::new();
+                let mut suboffset = 0;
+                while suboffset + 16 <= option_data.len() {
+                    if let Some((addr, len)) = Ipv6Address::decode::<D>(&option_data[suboffset..]) {
+                        addrs.push(addr);
+                        suboffset += len;
+                    } else {
+                        break;
+                    }
+                }
+                match option_code {
+                    22 => Some(Dhcpv6Option::SipServersAddressList(addrs)),
+                    23 => Some(Dhcpv6Option::DnsServers(addrs)),
+                    27 => Some(Dhcpv6Option::NisServers(addrs)),
+                    28 => Some(Dhcpv6Option::NisPlusServers(addrs)),
+                    34 => Some(Dhcpv6Option::BcmcsControllerIpv6AddressList(addrs)),
+                    86 => Some(Dhcpv6Option::PcpServer(addrs)),
+                    _ => None,
+                }
+            }
+            Dhcpv6OptionCode::IaPd => {
+                if option_data.len() < 12 {
+                    return None;
+                }
+                let iaid = u32::from_be_bytes([
+                    option_data[0],
+                    option_data[1],
+                    option_data[2],
+                    option_data[3],
+                ]);
+                let t1 = u32::from_be_bytes([
+                    option_data[4],
+                    option_data[5],
+                    option_data[6],
+                    option_data[7],
+                ]);
+                let t2 = u32::from_be_bytes([
+                    option_data[8],
+                    option_data[9],
+                    option_data[10],
+                    option_data[11],
+                ]);
+                let mut suboptions = Vec::new();
+                let mut suboffset = 12;
+                while suboffset < option_data.len() {
+                    if let Some((option, option_len)) = Self::decode::<D>(&option_data[suboffset..])
+                    {
+                        suboptions.push(option);
+                        suboffset += option_len;
+                    } else {
+                        break;
+                    }
+                }
+                Some(Dhcpv6Option::IaPd {
+                    iaid,
+                    t1,
+                    t2,
+                    options: suboptions,
+                })
+            }
+            Dhcpv6OptionCode::IaPrefix => {
+                if let Some((prefix, _)) = IaPrefix::decode::<D>(option_data) {
+                    Some(Dhcpv6Option::IaPrefix(prefix))
+                } else {
+                    None
+                }
+            }
+            Dhcpv6OptionCode::NisDomainName
+            | Dhcpv6OptionCode::NisPlusDomainName
+            | Dhcpv6OptionCode::BootfileUrl
+            | Dhcpv6OptionCode::AftrName => match String::from_utf8(option_data.to_vec()) {
+                Ok(s) => match option_code {
+                    29 => Some(Dhcpv6Option::NisDomainName(s)),
+                    30 => Some(Dhcpv6Option::NisPlusDomainName(s)),
+                    59 => Some(Dhcpv6Option::BootfileUrl(s)),
+                    64 => Some(Dhcpv6Option::AftrName(s)),
+                    _ => None,
+                },
+                Err(_) => None,
+            },
+
+            Dhcpv6OptionCode::InformationRefreshTime => {
+                if option_data.len() >= 4 {
+                    Some(Dhcpv6Option::InformationRefreshTime(u32::from_be_bytes([
+                        option_data[0],
+                        option_data[1],
+                        option_data[2],
+                        option_data[3],
+                    ])))
+                } else {
+                    None
+                }
+            }
+            Dhcpv6OptionCode::ClientFqdn => {
+                if option_data.len() < 1 {
+                    return None;
+                }
+                let flags = option_data[0];
+                match String::from_utf8(option_data[1..].to_vec()) {
+                    Ok(fqdn) => Some(Dhcpv6Option::ClientFqdn { flags, fqdn }),
+                    Err(_) => None,
+                }
+            }
+            Dhcpv6OptionCode::BootfileParam => {
+                let mut params = Vec::new();
+                let mut suboffset = 0;
+                while suboffset + 2 <= option_data.len() {
+                    let len =
+                        u16::from_be_bytes([option_data[suboffset], option_data[suboffset + 1]])
+                            as usize;
+                    suboffset += 2;
+                    if suboffset + len > option_data.len() {
+                        break;
+                    }
+                    if let Ok(param) =
+                        String::from_utf8(option_data[suboffset..suboffset + len].to_vec())
+                    {
+                        params.push(param);
+                    }
+                    suboffset += len;
+                }
+                Some(Dhcpv6Option::BootfileParam(params))
+            }
+            Dhcpv6OptionCode::ClientDataOption
+            | Dhcpv6OptionCode::EapMessage
+            | Dhcpv6OptionCode::PrefixExclude
+            | Dhcpv6OptionCode::S46Rule
+            | Dhcpv6OptionCode::S46Br
+            | Dhcpv6OptionCode::S46Dmr
+            | Dhcpv6OptionCode::S46V4V6Bind
+            | Dhcpv6OptionCode::S46PortParams
+            | Dhcpv6OptionCode::S46ContMape
+            | Dhcpv6OptionCode::S46ContMapt
+            | Dhcpv6OptionCode::S46ContLw
+            | Dhcpv6OptionCode::Ipv4Address
+            | Dhcpv6OptionCode::Dhcpv6ActiveLeasequery
+            | Dhcpv6OptionCode::DhcpFailoverEndpoint => {
+                let data = option_data.to_vec();
+                match option_code {
+                    45 => Some(Dhcpv6Option::ClientDataOption(data)),
+                    65 => Some(Dhcpv6Option::EapMessage(data)),
+                    67 => Some(Dhcpv6Option::PrefixExclude(data)),
+                    89 => Some(Dhcpv6Option::S46Rule(data)),
+                    90 => Some(Dhcpv6Option::S46Br(data)),
+                    91 => Some(Dhcpv6Option::S46Dmr(data)),
+                    92 => Some(Dhcpv6Option::S46V4V6Bind(data)),
+                    93 => Some(Dhcpv6Option::S46PortParams(data)),
+                    94 => Some(Dhcpv6Option::S46ContMape(data)),
+                    95 => Some(Dhcpv6Option::S46ContMapt(data)),
+                    96 => Some(Dhcpv6Option::S46ContLw(data)),
+                    97 => Some(Dhcpv6Option::Ipv4Address(data)),
+                    100 => Some(Dhcpv6Option::Dhcpv6ActiveLeasequery(data)),
+                    114 => Some(Dhcpv6Option::DhcpFailoverEndpoint(data)),
+                    _ => None,
+                }
+            }
+            Dhcpv6OptionCode::ClientArchType => {
+                let mut types = Vec::new();
+                let mut suboffset = 0;
+                while suboffset + 2 <= option_data.len() {
+                    types.push(u16::from_be_bytes([
+                        option_data[suboffset],
+                        option_data[suboffset + 1],
+                    ]));
+                    suboffset += 2;
+                }
+                Some(Dhcpv6Option::ClientArchType(types))
+            }
+            Dhcpv6OptionCode::Nii => {
+                if option_data.len() >= 4 {
+                    Some(Dhcpv6Option::Nii {
+                        undi_type: option_data[0],
+                        arch_type: option_data[1],
+                        undi_major: option_data[2],
+                        undi_minor: option_data[3],
+                    })
+                } else {
+                    None
+                }
+            }
+            Dhcpv6OptionCode::GeoconfCivic => {
+                if option_data.len() < 3 {
+                    return None;
+                }
+                let what = option_data[0];
+                let cc_len = option_data[1] as usize;
+                if 2 + cc_len > option_data.len() {
+                    return None;
+                }
+                if let Ok(country_code) = String::from_utf8(option_data[2..2 + cc_len].to_vec()) {
+                    let mut elements = Vec::new();
+                    let mut suboffset = 2 + cc_len;
+                    while suboffset + 2 <= option_data.len() {
+                        let ca_type = option_data[suboffset];
+                        let ca_len = option_data[suboffset + 1] as usize;
+                        suboffset += 2;
+                        if suboffset + ca_len > option_data.len() {
+                            break;
+                        }
+                        elements
+                            .push((ca_type, option_data[suboffset..suboffset + ca_len].to_vec()));
+                        suboffset += ca_len;
+                    }
+                    Some(Dhcpv6Option::GeoconfCivic {
+                        what,
+                        country_code,
+                        civic_address_elements: elements,
+                    })
+                } else {
+                    None
+                }
+            }
+            Dhcpv6OptionCode::CltTime => {
+                if option_data.len() >= 4 {
+                    Some(Dhcpv6Option::CltTime(u32::from_be_bytes([
+                        option_data[0],
+                        option_data[1],
+                        option_data[2],
+                        option_data[3],
+                    ])))
+                } else {
+                    None
+                }
+            }
+            Dhcpv6OptionCode::LqQuery => {
+                if option_data.len() < 17 {
+                    // query_type(1) + link_address(16)
+                    return None;
+                }
+                let query_type = option_data[0];
+                let mut offset = 1;
+                if let Some((link_address, addr_len)) =
+                    Ipv6Address::decode::<D>(&option_data[offset..])
+                {
+                    offset += addr_len;
+                    let mut query_options = Vec::new();
+                    while offset < option_data.len() {
+                        if let Some((option, option_len)) =
+                            Self::decode::<D>(&option_data[offset..])
+                        {
+                            query_options.push(option);
+                            offset += option_len;
+                        } else {
+                            break;
+                        }
+                    }
+                    Some(Dhcpv6Option::LqQuery {
+                        query_type,
+                        link_address,
+                        query_options,
+                    })
+                } else {
+                    None
+                }
+            }
+            Dhcpv6OptionCode::LqRelayData => {
+                if option_data.len() < 16 {
+                    return None;
+                }
+                if let Some((peer_address, addr_len)) = Ipv6Address::decode::<D>(option_data) {
+                    Some(Dhcpv6Option::LqRelayData {
+                        peer_address,
+                        relay_data: option_data[addr_len..].to_vec(),
+                    })
+                } else {
+                    None
+                }
+            }
+            Dhcpv6OptionCode::LqClientLink => {
+                let mut addrs = Vec::new();
+                let mut offset = 0;
+                while offset + 16 <= option_data.len() {
+                    if let Some((addr, len)) = Ipv6Address::decode::<D>(&option_data[offset..]) {
+                        addrs.push(addr);
+                        offset += len;
+                    } else {
+                        break;
+                    }
+                }
+                Some(Dhcpv6Option::LqClientLink(addrs))
+            }
+            Dhcpv6OptionCode::SolMaxRt | Dhcpv6OptionCode::InfMaxRt => {
+                if option_data.len() >= 4 {
+                    let value = u32::from_be_bytes([
+                        option_data[0],
+                        option_data[1],
+                        option_data[2],
+                        option_data[3],
+                    ]);
+                    match option_code {
+                        82 => Some(Dhcpv6Option::SolMaxRt(value)),
+                        83 => Some(Dhcpv6Option::InfMaxRt(value)),
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            }
+            // Catch all for unknown options
             _ => Some(Dhcpv6Option::UnknownOption {
                 option_code,
                 data: option_data.to_vec(),
@@ -1073,80 +1638,90 @@ impl Dhcpv6Option {
     }
 
     // Helper method to get the option code for a given option
-  // Replace the existing get_option_code implementation in the Dhcpv6Option impl block
-pub fn get_option_code(&self) -> u16 {
-    match self {
-        Dhcpv6Option::UnknownOption { option_code, .. } => *option_code,
-        other => {
-            let ocode = match other {
-                Dhcpv6Option::UnknownOption { option_code, .. } => panic!("covered already"),
-                Dhcpv6Option::ClientId(_) => Dhcpv6OptionCode::ClientId,
-                Dhcpv6Option::ServerId(_) => Dhcpv6OptionCode::ServerId,
-                Dhcpv6Option::IaNa { .. } => Dhcpv6OptionCode::IaNa,
-                Dhcpv6Option::IaTa { .. } => Dhcpv6OptionCode::IaTa,
-                Dhcpv6Option::IaAddr(_) => Dhcpv6OptionCode::IaAddr,
-                Dhcpv6Option::OptionRequest(_) => Dhcpv6OptionCode::OptionRequest,
-                Dhcpv6Option::Preference(_) => Dhcpv6OptionCode::Preference,
-                Dhcpv6Option::ElapsedTime(_) => Dhcpv6OptionCode::ElapsedTime,
-                Dhcpv6Option::RelayMessage(_) => Dhcpv6OptionCode::RelayMessage,
-                Dhcpv6Option::Auth { .. } => Dhcpv6OptionCode::Auth,
-                Dhcpv6Option::ServerUnicast(_) => Dhcpv6OptionCode::ServerUnicast,
-                Dhcpv6Option::StatusCode(_) => Dhcpv6OptionCode::StatusCode,
-                Dhcpv6Option::RapidCommit => Dhcpv6OptionCode::RapidCommit,
-                Dhcpv6Option::UserClass(_) => Dhcpv6OptionCode::UserClass,
-                Dhcpv6Option::VendorClass { .. } => Dhcpv6OptionCode::VendorClass,
-                Dhcpv6Option::VendorOpts { .. } => Dhcpv6OptionCode::VendorOpts,
-                Dhcpv6Option::InterfaceId(_) => Dhcpv6OptionCode::InterfaceId,
-                Dhcpv6Option::ReconfMessage(_) => Dhcpv6OptionCode::ReconfMessage,
-                Dhcpv6Option::ReconfAccept => Dhcpv6OptionCode::ReconfAccept,
-                Dhcpv6Option::SipServersDomainList(_) => Dhcpv6OptionCode::SipServersDomainList,
-                Dhcpv6Option::SipServersAddressList(_) => Dhcpv6OptionCode::SipServersAddressList,
-                Dhcpv6Option::DnsServers(_) => Dhcpv6OptionCode::DnsServers,
-                Dhcpv6Option::DomainSearchList(_) => Dhcpv6OptionCode::DomainSearchList,
-                Dhcpv6Option::IaPd { .. } => Dhcpv6OptionCode::IaPd,
-                Dhcpv6Option::IaPrefix(_) => Dhcpv6OptionCode::IaPrefix,
-                Dhcpv6Option::NisServers(_) => Dhcpv6OptionCode::NisServers,
-                Dhcpv6Option::NisPlusServers(_) => Dhcpv6OptionCode::NisPlusServers,
-                Dhcpv6Option::NisDomainName(_) => Dhcpv6OptionCode::NisDomainName,
-                Dhcpv6Option::NisPlusDomainName(_) => Dhcpv6OptionCode::NisPlusDomainName,
-                Dhcpv6Option::SntpServers(_) => Dhcpv6OptionCode::SntpServers,
-                Dhcpv6Option::InformationRefreshTime(_) => Dhcpv6OptionCode::InformationRefreshTime,
-                Dhcpv6Option::BcmcsControllerDomainList(_) => Dhcpv6OptionCode::BcmcsControllerDomainList,
-                Dhcpv6Option::BcmcsControllerIpv6AddressList(_) => Dhcpv6OptionCode::BcmcsControllerIpv6AddressList,
-                Dhcpv6Option::ClientFqdn { .. } => Dhcpv6OptionCode::ClientFqdn,
-                Dhcpv6Option::ClientDataOption(_) => Dhcpv6OptionCode::ClientDataOption,
-                Dhcpv6Option::CltTime(_) => Dhcpv6OptionCode::CltTime,
-                Dhcpv6Option::LqQuery { .. } => Dhcpv6OptionCode::LqQuery,
-                Dhcpv6Option::LqClientLink(_) => Dhcpv6OptionCode::LqClientLink,
-                Dhcpv6Option::LqRelayData { .. } => Dhcpv6OptionCode::LqRelayData,
-                Dhcpv6Option::BootfileUrl(_) => Dhcpv6OptionCode::BootfileUrl,
-                Dhcpv6Option::BootfileParam(_) => Dhcpv6OptionCode::BootfileParam,
-                Dhcpv6Option::ClientArchType(_) => Dhcpv6OptionCode::ClientArchType,
-                Dhcpv6Option::Nii { .. } => Dhcpv6OptionCode::Nii,
-                Dhcpv6Option::GeoconfCivic { .. } => Dhcpv6OptionCode::GeoconfCivic,
-                Dhcpv6Option::AftrName(_) => Dhcpv6OptionCode::AftrName,
-                Dhcpv6Option::EapMessage(_) => Dhcpv6OptionCode::EapMessage,
-                Dhcpv6Option::RelaySuppliedOptions(_) => Dhcpv6OptionCode::RelaySuppliedOptions,
-                Dhcpv6Option::PrefixExclude(_) => Dhcpv6OptionCode::PrefixExclude,
-                Dhcpv6Option::SolMaxRt(_) => Dhcpv6OptionCode::SolMaxRt,
-                Dhcpv6Option::InfMaxRt(_) => Dhcpv6OptionCode::InfMaxRt,
-                Dhcpv6Option::PcpServer(_) => Dhcpv6OptionCode::PcpServer,
-                Dhcpv6Option::S46Rule(_) => Dhcpv6OptionCode::S46Rule,
-                Dhcpv6Option::S46Br(_) => Dhcpv6OptionCode::S46Br,
-                Dhcpv6Option::S46Dmr(_) => Dhcpv6OptionCode::S46Dmr,
-                Dhcpv6Option::S46V4V6Bind(_) => Dhcpv6OptionCode::S46V4V6Bind,
-                Dhcpv6Option::S46PortParams(_) => Dhcpv6OptionCode::S46PortParams,
-                Dhcpv6Option::S46ContMape(_) => Dhcpv6OptionCode::S46ContMape,
-                Dhcpv6Option::S46ContMapt(_) => Dhcpv6OptionCode::S46ContMapt,
-                Dhcpv6Option::S46ContLw(_) => Dhcpv6OptionCode::S46ContLw,
-                Dhcpv6Option::Ipv4Address(_) => Dhcpv6OptionCode::Ipv4Address,
-                Dhcpv6Option::Dhcpv6ActiveLeasequery(_) => Dhcpv6OptionCode::Dhcpv6ActiveLeasequery,
-                Dhcpv6Option::DhcpFailoverEndpoint(_) => Dhcpv6OptionCode::DhcpFailoverEndpoint,
-            };
-            ocode.as_u16()
+    // Replace the existing get_option_code implementation in the Dhcpv6Option impl block
+    pub fn get_option_code(&self) -> u16 {
+        match self {
+            Dhcpv6Option::UnknownOption { option_code, .. } => *option_code,
+            other => {
+                let ocode = match other {
+                    Dhcpv6Option::UnknownOption { option_code, .. } => panic!("covered already"),
+                    Dhcpv6Option::ClientId(_) => Dhcpv6OptionCode::ClientId,
+                    Dhcpv6Option::ServerId(_) => Dhcpv6OptionCode::ServerId,
+                    Dhcpv6Option::IaNa { .. } => Dhcpv6OptionCode::IaNa,
+                    Dhcpv6Option::IaTa { .. } => Dhcpv6OptionCode::IaTa,
+                    Dhcpv6Option::IaAddr(_) => Dhcpv6OptionCode::IaAddr,
+                    Dhcpv6Option::OptionRequest(_) => Dhcpv6OptionCode::OptionRequest,
+                    Dhcpv6Option::Preference(_) => Dhcpv6OptionCode::Preference,
+                    Dhcpv6Option::ElapsedTime(_) => Dhcpv6OptionCode::ElapsedTime,
+                    Dhcpv6Option::RelayMessage(_) => Dhcpv6OptionCode::RelayMessage,
+                    Dhcpv6Option::Auth { .. } => Dhcpv6OptionCode::Auth,
+                    Dhcpv6Option::ServerUnicast(_) => Dhcpv6OptionCode::ServerUnicast,
+                    Dhcpv6Option::StatusCode(_) => Dhcpv6OptionCode::StatusCode,
+                    Dhcpv6Option::RapidCommit => Dhcpv6OptionCode::RapidCommit,
+                    Dhcpv6Option::UserClass(_) => Dhcpv6OptionCode::UserClass,
+                    Dhcpv6Option::VendorClass { .. } => Dhcpv6OptionCode::VendorClass,
+                    Dhcpv6Option::VendorOpts { .. } => Dhcpv6OptionCode::VendorOpts,
+                    Dhcpv6Option::InterfaceId(_) => Dhcpv6OptionCode::InterfaceId,
+                    Dhcpv6Option::ReconfMessage(_) => Dhcpv6OptionCode::ReconfMessage,
+                    Dhcpv6Option::ReconfAccept => Dhcpv6OptionCode::ReconfAccept,
+                    Dhcpv6Option::SipServersDomainList(_) => Dhcpv6OptionCode::SipServersDomainList,
+                    Dhcpv6Option::SipServersAddressList(_) => {
+                        Dhcpv6OptionCode::SipServersAddressList
+                    }
+                    Dhcpv6Option::DnsServers(_) => Dhcpv6OptionCode::DnsServers,
+                    Dhcpv6Option::DomainSearchList(_) => Dhcpv6OptionCode::DomainSearchList,
+                    Dhcpv6Option::IaPd { .. } => Dhcpv6OptionCode::IaPd,
+                    Dhcpv6Option::IaPrefix(_) => Dhcpv6OptionCode::IaPrefix,
+                    Dhcpv6Option::NisServers(_) => Dhcpv6OptionCode::NisServers,
+                    Dhcpv6Option::NisPlusServers(_) => Dhcpv6OptionCode::NisPlusServers,
+                    Dhcpv6Option::NisDomainName(_) => Dhcpv6OptionCode::NisDomainName,
+                    Dhcpv6Option::NisPlusDomainName(_) => Dhcpv6OptionCode::NisPlusDomainName,
+                    Dhcpv6Option::SntpServers(_) => Dhcpv6OptionCode::SntpServers,
+                    Dhcpv6Option::InformationRefreshTime(_) => {
+                        Dhcpv6OptionCode::InformationRefreshTime
+                    }
+                    Dhcpv6Option::BcmcsControllerDomainList(_) => {
+                        Dhcpv6OptionCode::BcmcsControllerDomainList
+                    }
+                    Dhcpv6Option::BcmcsControllerIpv6AddressList(_) => {
+                        Dhcpv6OptionCode::BcmcsControllerIpv6AddressList
+                    }
+                    Dhcpv6Option::ClientFqdn { .. } => Dhcpv6OptionCode::ClientFqdn,
+                    Dhcpv6Option::ClientDataOption(_) => Dhcpv6OptionCode::ClientDataOption,
+                    Dhcpv6Option::CltTime(_) => Dhcpv6OptionCode::CltTime,
+                    Dhcpv6Option::LqQuery { .. } => Dhcpv6OptionCode::LqQuery,
+                    Dhcpv6Option::LqClientLink(_) => Dhcpv6OptionCode::LqClientLink,
+                    Dhcpv6Option::LqRelayData { .. } => Dhcpv6OptionCode::LqRelayData,
+                    Dhcpv6Option::BootfileUrl(_) => Dhcpv6OptionCode::BootfileUrl,
+                    Dhcpv6Option::BootfileParam(_) => Dhcpv6OptionCode::BootfileParam,
+                    Dhcpv6Option::ClientArchType(_) => Dhcpv6OptionCode::ClientArchType,
+                    Dhcpv6Option::Nii { .. } => Dhcpv6OptionCode::Nii,
+                    Dhcpv6Option::GeoconfCivic { .. } => Dhcpv6OptionCode::GeoconfCivic,
+                    Dhcpv6Option::AftrName(_) => Dhcpv6OptionCode::AftrName,
+                    Dhcpv6Option::EapMessage(_) => Dhcpv6OptionCode::EapMessage,
+                    Dhcpv6Option::RelaySuppliedOptions(_) => Dhcpv6OptionCode::RelaySuppliedOptions,
+                    Dhcpv6Option::PrefixExclude(_) => Dhcpv6OptionCode::PrefixExclude,
+                    Dhcpv6Option::SolMaxRt(_) => Dhcpv6OptionCode::SolMaxRt,
+                    Dhcpv6Option::InfMaxRt(_) => Dhcpv6OptionCode::InfMaxRt,
+                    Dhcpv6Option::PcpServer(_) => Dhcpv6OptionCode::PcpServer,
+                    Dhcpv6Option::S46Rule(_) => Dhcpv6OptionCode::S46Rule,
+                    Dhcpv6Option::S46Br(_) => Dhcpv6OptionCode::S46Br,
+                    Dhcpv6Option::S46Dmr(_) => Dhcpv6OptionCode::S46Dmr,
+                    Dhcpv6Option::S46V4V6Bind(_) => Dhcpv6OptionCode::S46V4V6Bind,
+                    Dhcpv6Option::S46PortParams(_) => Dhcpv6OptionCode::S46PortParams,
+                    Dhcpv6Option::S46ContMape(_) => Dhcpv6OptionCode::S46ContMape,
+                    Dhcpv6Option::S46ContMapt(_) => Dhcpv6OptionCode::S46ContMapt,
+                    Dhcpv6Option::S46ContLw(_) => Dhcpv6OptionCode::S46ContLw,
+                    Dhcpv6Option::Ipv4Address(_) => Dhcpv6OptionCode::Ipv4Address,
+                    Dhcpv6Option::Dhcpv6ActiveLeasequery(_) => {
+                        Dhcpv6OptionCode::Dhcpv6ActiveLeasequery
+                    }
+                    Dhcpv6Option::DhcpFailoverEndpoint(_) => Dhcpv6OptionCode::DhcpFailoverEndpoint,
+                };
+                ocode.as_u16()
+            }
         }
     }
-} 
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
