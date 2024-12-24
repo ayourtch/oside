@@ -26,7 +26,7 @@ impl Default for OspfType {
 pub struct OspfHeader {
     #[nproto(default = 2)] // Version 2 for OSPFv2
     pub version: Value<u8>,
-    #[nproto(next: OSPF_PACKET_TYPES => PacketType)]
+    #[nproto(next: OSPF_PACKET_TYPES => PacketType, next_len=(get_next_len(__packet_length)))]
     pub packet_type: Value<u8>, // OspfType
     pub packet_length: Value<u16>,
     pub router_id: Value<Ipv4Address>,
@@ -35,6 +35,11 @@ pub struct OspfHeader {
     pub auth_type: Value<u16>,
     pub auth_data: Value<FixedSizeString<U8>>,
 }
+
+fn get_next_len(len: u16) -> usize {
+    len as usize
+}
+
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(OSPF_PACKET_TYPES, PacketType = 1))]
 pub struct OspfHello {
