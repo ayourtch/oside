@@ -3,7 +3,7 @@ use crate::*;
 use serde::{Deserialize, Serialize};
 use typenum::U8; // FixedSizeString;
 
-// OSPF Packet Types
+// OSPF Packet Types - https://www.ietf.org/rfc/rfc2328.txt
 #[derive(FromRepr, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum OspfType {
