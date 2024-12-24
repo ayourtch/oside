@@ -16,6 +16,7 @@ pub mod vxlan;
 // misc
 pub mod dhcpv6;
 pub mod dns;
+pub mod ospfv2;
 pub mod pvti;
 
 pub mod all {
