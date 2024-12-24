@@ -402,7 +402,9 @@ impl Encode for LinkStateAdvertisement {
             LinkStateAdvertisement::RouterLsa(lsa) => {
                 let mut out = Vec::new();
                 out.extend(lsa.header.encode::<E>());
-                out.extend_from_slice(&[lsa.flags, 0, 0, 0]); // Include padding
+                out.extend_from_slice(&[lsa.flags, 0]); // Include padding
+                let len: u16 = lsa.links.len() as u16;
+                out.extend(len.encode::<E>());
                 for link in &lsa.links {
                     out.extend(link.encode::<E>());
                 }
