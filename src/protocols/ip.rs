@@ -232,12 +232,21 @@ fn encode_ip_len<E: Encoder>(
 ) -> Vec<u8> {
     use std::convert::TryInto;
     let mut data_len: usize = 0;
-
-    for i in my_index + 1..encoded_data.len() {
-        data_len += encoded_data[i].len();
-    }
-    data_len += 20; // IP HDR
-    let len: u16 = data_len.try_into().unwrap();
+    let len: u16 = match me.len {
+        Value::Auto => {
+            for i in my_index + 1..encoded_data.len() {
+                data_len += encoded_data[i].len();
+            }
+            data_len += 20; // IP HDR
+            let len: u16 = data_len.try_into().unwrap();
+            len
+        }
+        Value::Set(x) => x,
+        Value::Func(f) => f() as u16,
+        Value::Random => {
+            panic!("Should not happen");
+        }
+    };
 
     len.encode::<E>()
 }
