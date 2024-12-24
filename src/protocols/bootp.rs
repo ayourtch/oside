@@ -237,7 +237,7 @@ fn encode_parameter_request_list<E: Encoder>(options: &Vec<DhcpParameterOption>)
 
 #[derive(FromRepr, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[repr(u8)]
-enum DhcpOption {
+pub enum DhcpOption {
     End = 255,                                      // 255 - no length
     Pad = 0,                                        // 0 - no length
     SubnetMask(Ipv4Address),                        // 1
@@ -282,7 +282,7 @@ enum DhcpOption {
     NisDomain(String),                              // 40
     NisServers(Vec<Ipv4Address>),                   // 41
     NtpServers(Vec<Ipv4Address>),                   // 42
-    VendorSpecific(Vec<VendorSuboption>),          // 43
+    VendorSpecific(Vec<VendorSuboption>),           // 43
     NetBiosNameServer(Vec<Ipv4Address>),            // 44
     NetBiosDatagramServer(Vec<Ipv4Address>),        // 45
     NetBiosNodeType(u8),                            // 46

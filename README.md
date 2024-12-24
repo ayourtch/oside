@@ -157,6 +157,27 @@ potential protocol injections. E.g. imagine the access control list which would 
 source address - matching on innermost instance of layer would allow evasion. If you really
 want innermost layer - use *.get_innermost_layer* method.
 
+
+Some protocols, like DHCP, include a vector of enums, which are options.
+For a convenient access to those, there is a macro *find_opt!()* - this allows
+to unpack the variant and gain the access to its internals:
+
+```rust
+use oside::*;
+use oside::protocols::all::*;
+
+let p = Ether!() / UDP!() / DHCP!();
+
+if let Some(dd) = p.get_layer(DHCP!()) {
+     use oside::protocols::all::DhcpOption::ParameterRequestList;
+     println!("DHCP: {:?}", &dd);
+     if let Some(list) = vec_find_enum!(dd.options, ParameterRequestList) {
+        println!("parameter list: {:?}", &list);
+     }
+}
+```
+
+
 # Crafting reply packets
 
 Below is an example of a simple ARP responder implementation which will

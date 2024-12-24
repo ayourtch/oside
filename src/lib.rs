@@ -46,8 +46,23 @@ use crate::encdec::binary_big_endian::BinaryBigEndian;
 #[nproto(registry(UDP_SRC_PORT_APPS, SrcPort: u16))]
 #[nproto(registry(UDP_DST_PORT_APPS, DstPort: u16))]
 #[nproto(registry(BOOTP_VENDORS, VendorCookie: u32))]
+#[nproto(registry(OSPF_PACKET_TYPES, PacketType: u8))]
 /* Only here as a target of derive + attribute macros to make registries */
 struct protocolRegistriesSentinel;
+
+// find an enum variant inside a vec
+#[macro_export]
+macro_rules! vec_find_enum {
+    ($name:expr, $inner_type:ident) => {
+        $name.iter().find_map(|x| {
+            if let $inner_type(data) = x {
+                Some(data)
+            } else {
+                None
+            }
+        })
+    };
+}
 
 pub trait Encoder {
     fn encode_u8(v1: u8) -> Vec<u8>;
