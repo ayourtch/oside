@@ -1043,12 +1043,12 @@ impl <'a> Eq for LayerStack<'a> {
 }
 */
 
-pub trait AutoDecode {}
-pub trait AutoEncode {}
+pub trait AutoDecodeAsSequence {}
+pub trait AutoEncodeAsSequence {}
 
 impl<T: Decode> Decode for Vec<T>
 where
-    Vec<T>: AutoDecode,
+    Vec<T>: AutoDecodeAsSequence,
 {
     fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
         let mut elts = Vec::new();
@@ -1067,7 +1067,7 @@ where
 
 impl<T: Encode> Encode for Vec<T>
 where
-    Vec<T>: AutoEncode,
+    Vec<T>: AutoEncodeAsSequence,
 {
     fn encode<E: Encoder>(&self) -> Vec<u8> {
         let mut out: Vec<u8> = Vec::new();

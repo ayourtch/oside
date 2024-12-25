@@ -106,8 +106,8 @@ pub struct RipEntry {
     pub metric: Value<u32>,
 }
 
-impl AutoEncode for Vec<RipEntry> {}
-impl AutoDecode for Vec<RipEntry> {}
+impl AutoEncodeAsSequence for Vec<RipEntry> {}
+impl AutoDecodeAsSequence for Vec<RipEntry> {}
 
 // RIPv2 Packet
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

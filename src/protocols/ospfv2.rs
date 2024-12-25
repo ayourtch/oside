@@ -96,12 +96,11 @@ pub struct OspfDatabaseDescription {
     pub options: Value<u8>,
     pub flags: Value<u8>, // Init, More, Master/Slave bits
     pub sequence_number: Value<u32>,
-    #[nproto(decode = dbd_decode_lsa_headers, encode = dbd_encode_lsa_headers)]
     pub lsa_headers: Vec<LsaHeader>,
 }
 
 // LSA Header structure used in multiple packet types
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct LsaHeader {
     pub age: u16,
     pub options: u8,
@@ -112,188 +111,25 @@ pub struct LsaHeader {
     pub checksum: u16,
     pub length: u16,
 }
-
-// Helper traits and implementations for LSA types
-impl Encode for LsaHeader {
-    fn encode<E: Encoder>(&self) -> Vec<u8> {
-        let mut out = Vec::new();
-        out.extend(self.age.encode::<E>());
-        out.push(self.options);
-        out.push(self.lsa_type);
-        out.extend(self.link_state_id.encode::<E>());
-        out.extend(self.advertising_router.encode::<E>());
-        out.extend(self.sequence_number.encode::<E>());
-        out.extend(self.checksum.encode::<E>());
-        out.extend(self.length.encode::<E>());
-        out
-    }
-}
-
-impl Decode for LsaHeader {
-    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
-        let mut offset = 0;
-
-        let (age, len) = u16::decode::<D>(buf)?;
-        offset += len;
-
-        if offset + 2 > buf.len() {
-            return None;
-        }
-        let options = buf[offset];
-        let lsa_type = buf[offset + 1];
-        offset += 2;
-
-        let (link_state_id, len) = Ipv4Address::decode::<D>(&buf[offset..])?;
-        offset += len;
-
-        let (advertising_router, len) = Ipv4Address::decode::<D>(&buf[offset..])?;
-        offset += len;
-
-        let (sequence_number, len) = u32::decode::<D>(&buf[offset..])?;
-        offset += len;
-
-        let (checksum, len) = u16::decode::<D>(&buf[offset..])?;
-        offset += len;
-
-        let (length, len) = u16::decode::<D>(&buf[offset..])?;
-        offset += len;
-
-        Some((
-            LsaHeader {
-                age,
-                options,
-                lsa_type,
-                link_state_id,
-                advertising_router,
-                sequence_number,
-                checksum,
-                length,
-            },
-            offset,
-        ))
-    }
-}
-
-fn dbd_decode_lsa_headers<D: Decoder>(
-    buf: &[u8],
-    ci: usize,
-    me: &mut OspfDatabaseDescription,
-) -> Option<(Vec<LsaHeader>, usize)> {
-    let buf = &buf[ci..];
-
-    let mut cursor = 0;
-
-    let mut headers = Vec::new();
-    let mut pos = 0;
-    while pos + 4 <= buf.len() {
-        if let Some((hdr, len)) = LsaHeader::decode::<D>(&buf[pos..]) {
-            headers.push(hdr);
-            pos += len;
-        } else {
-            break;
-        }
-    }
-    Some((headers, pos))
-}
-
-fn dbd_encode_lsa_headers<E: Encoder>(
-    my_layer: &OspfDatabaseDescription,
-    stack: &LayerStack,
-    my_index: usize,
-    encoded_layers: &EncodingVecVec,
-) -> Vec<u8> {
-    let mut out: Vec<u8> = Vec::new();
-
-    for header in &my_layer.lsa_headers {
-        out.extend(header.encode::<E>());
-    }
-    out
-}
+impl AutoEncodeAsSequence for Vec<LsaHeader> {}
+impl AutoDecodeAsSequence for Vec<LsaHeader> {}
 
 // OSPF Link State Request Packet
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(OSPF_PACKET_TYPES, PacketType = 3))]
 pub struct OspfLinkStateRequest {
-    #[nproto(decode = decode_lsa_requests, encode = encode_lsa_requests)]
     pub requests: Vec<LsaRequest>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct LsaRequest {
     pub lsa_type: u32,
     pub link_state_id: Ipv4Address,
     pub advertising_router: Ipv4Address,
 }
+impl AutoEncodeAsSequence for Vec<LsaRequest> {}
+impl AutoDecodeAsSequence for Vec<LsaRequest> {}
 
-impl Encode for LsaRequest {
-    fn encode<E: Encoder>(&self) -> Vec<u8> {
-        let mut out = Vec::new();
-        out.extend(self.lsa_type.encode::<E>());
-        out.extend(self.link_state_id.encode::<E>());
-        out.extend(self.advertising_router.encode::<E>());
-        out
-    }
-}
-
-impl Decode for LsaRequest {
-    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
-        let mut offset = 0;
-
-        let (lsa_type, len) = u32::decode::<D>(&buf[offset..])?;
-        offset += len;
-
-        let (link_state_id, len) = Ipv4Address::decode::<D>(&buf[offset..])?;
-        offset += len;
-
-        let (advertising_router, len) = Ipv4Address::decode::<D>(&buf[offset..])?;
-        offset += len;
-
-        Some((
-            LsaRequest {
-                lsa_type,
-                link_state_id,
-                advertising_router,
-            },
-            offset,
-        ))
-    }
-}
-
-fn decode_lsa_requests<D: Decoder>(
-    buf: &[u8],
-    ci: usize,
-    me: &mut OspfLinkStateRequest,
-) -> Option<(Vec<LsaRequest>, usize)> {
-    let buf = &buf[ci..];
-
-    let mut cursor = 0;
-
-    let mut requests = Vec::new();
-    let mut pos = 0;
-    while pos + 4 <= buf.len() {
-        if let Some((req, len)) = LsaRequest::decode::<D>(&buf[pos..]) {
-            requests.push(req);
-            pos += len;
-        } else {
-            break;
-        }
-    }
-    Some((requests, pos))
-}
-
-fn encode_lsa_requests<E: Encoder>(
-    my_layer: &OspfLinkStateRequest,
-    stack: &LayerStack,
-    my_index: usize,
-    encoded_layers: &EncodingVecVec,
-) -> Vec<u8> {
-    let mut out: Vec<u8> = Vec::new();
-
-    for req in &my_layer.requests {
-        out.extend(req.encode::<E>());
-    }
-    out
-}
 // OSPF Link State Update Packet
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(OSPF_PACKET_TYPES, PacketType = 4))]
@@ -576,42 +412,5 @@ fn encode_lsas<E: Encoder>(
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(OSPF_PACKET_TYPES, PacketType = 5))]
 pub struct OspfLinkStateAck {
-    #[nproto(decode = lsack_decode_lsa_headers, encode = lsack_encode_lsa_headers)]
     pub lsa_headers: Vec<LsaHeader>,
-}
-
-fn lsack_decode_lsa_headers<D: Decoder>(
-    buf: &[u8],
-    ci: usize,
-    me: &mut OspfLinkStateAck,
-) -> Option<(Vec<LsaHeader>, usize)> {
-    let buf = &buf[ci..];
-
-    let mut cursor = 0;
-
-    let mut headers = Vec::new();
-    let mut pos = 0;
-    while pos + 4 <= buf.len() {
-        if let Some((hdr, len)) = LsaHeader::decode::<D>(&buf[pos..]) {
-            headers.push(hdr);
-            pos += len;
-        } else {
-            break;
-        }
-    }
-    Some((headers, pos))
-}
-
-fn lsack_encode_lsa_headers<E: Encoder>(
-    my_layer: &OspfLinkStateAck,
-    stack: &LayerStack,
-    my_index: usize,
-    encoded_layers: &EncodingVecVec,
-) -> Vec<u8> {
-    let mut out: Vec<u8> = Vec::new();
-
-    for header in &my_layer.lsa_headers {
-        out.extend(header.encode::<E>());
-    }
-    out
 }
