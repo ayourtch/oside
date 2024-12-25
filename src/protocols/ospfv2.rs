@@ -135,7 +135,6 @@ impl AutoDecodeAsSequence for Vec<LsaRequest> {}
 #[nproto(register(OSPF_PACKET_TYPES, PacketType = 4))]
 pub struct OspfLinkStateUpdate {
     pub number_of_lsas: Value<u32>,
-    #[nproto(decode = decode_lsas, encode = encode_lsas)]
     pub lsas: Vec<LinkStateAdvertisement>,
 }
 
@@ -147,6 +146,9 @@ pub enum LinkStateAdvertisement {
     SummaryLsa(SummaryLsa),
     AsExternalLsa(AsExternalLsa),
 }
+
+impl AutoEncodeAsSequence for Vec<LinkStateAdvertisement> {}
+impl AutoDecodeAsSequence for Vec<LinkStateAdvertisement> {}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RouterLsa {
@@ -374,38 +376,6 @@ impl Decode for LinkStateAdvertisement {
             _ => None,
         }
     }
-}
-
-fn decode_lsas<D: Decoder>(
-    buf: &[u8],
-    ci: usize,
-    me: &mut OspfLinkStateUpdate,
-) -> Option<(Vec<LinkStateAdvertisement>, usize)> {
-    let buf = &buf[ci..];
-    let num_lsas = me.number_of_lsas.value() as usize;
-    let mut lsas = Vec::with_capacity(num_lsas);
-    let mut pos = 0;
-
-    for _ in 0..num_lsas {
-        let (lsa, len) = LinkStateAdvertisement::decode::<D>(&buf[pos..])?;
-        lsas.push(lsa);
-        pos += len;
-    }
-
-    Some((lsas, pos))
-}
-
-fn encode_lsas<E: Encoder>(
-    my_layer: &OspfLinkStateUpdate,
-    stack: &LayerStack,
-    my_index: usize,
-    encoded_layers: &EncodingVecVec,
-) -> Vec<u8> {
-    let mut out = Vec::new();
-    for lsa in &my_layer.lsas {
-        out.extend(lsa.encode::<E>());
-    }
-    out
 }
 
 // OSPF Link State Acknowledgment Packet
