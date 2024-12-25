@@ -48,7 +48,7 @@ fn encode_arp() {
     eprintln!("Initial: {:02x?}", &x);
     let filled = x.fill();
     assert_eq!(filled[Ether!()].etype, Value::Set(0x0806));
-    let encoded = filled.clone().encode();
+    let encoded = filled.clone().lencode();
     eprintln!("Filled: {:02x?}", &filled);
     eprintln!("Encoded: {:02x?}", &encoded);
 }
@@ -61,7 +61,7 @@ fn make_random_encode() {
     eprintln!("Initial: {:02x?}", &x);
     let filled = x.fill();
     assert_eq!(filled[IP!()].proto, Value::Set(17));
-    let encoded = filled.clone().encode();
+    let encoded = filled.clone().lencode();
     eprintln!("Filled: {:02x?}", &filled);
     eprintln!("Encoded: {:02x?}", &encoded);
     assert_eq!(encoded[12], 0x08);
@@ -73,7 +73,7 @@ fn make_tcp_checksum_tiny() {
     let x = IP!(id = 1) / TCP!(sport = 20, dport = 80);
     eprintln!("Initial: {:02x?}", &x);
     let filled = x.fill();
-    let encoded = filled.clone().encode();
+    let encoded = filled.clone().lencode();
     eprintln!("Filled: {:02x?}", &filled);
     eprintln!("Encoded: {:02x?}", &encoded);
     // IP checksum
@@ -89,7 +89,7 @@ fn make_udp_checksum_tiny() {
     let x = IP!(id = 1) / UDP!(sport = 53, dport = 53);
     eprintln!("Initial: {:02x?}", &x);
     let filled = x.fill();
-    let encoded = filled.clone().encode();
+    let encoded = filled.clone().lencode();
     eprintln!("Filled: {:02x?}", &filled);
     eprintln!("Encoded: {:02x?}", &encoded);
     // IP checksum
@@ -105,7 +105,7 @@ fn make_udp_checksum_payload() {
     let x = IP!(id = 1) / UDP!(sport = 1234, dport = 1234) / "xxx".to_string();
     eprintln!("Initial: {:02x?}", &x);
     let filled = x.fill();
-    let encoded = filled.clone().encode();
+    let encoded = filled.clone().lencode();
     eprintln!("Filled: {:02x?}", &filled);
     eprintln!("Encoded: {:02x?}", &encoded);
     // IP checksum
@@ -128,8 +128,8 @@ fn make_geneve() {
         / UDP!(dport = 234)
         / "testing".to_string();
     eprintln!("Geneve: {:x?}", &x);
-    let encoded = x.clone().encode();
+    let encoded = x.clone().lencode();
     eprintln!("Encoded Geneve: {:02x?}", &encoded);
-    let z = Ether!().decode(&encoded).unwrap().0;
+    let z = Ether!().ldecode(&encoded).unwrap().0;
     println!("decode result: {:?}", &z);
 }

@@ -21,7 +21,7 @@ impl Layer for String {
     fn fill(&self, stack: &LayerStack, my_index: usize, out_stack: &mut LayerStack) {
         out_stack.layers.push(Box::new(self.clone()))
     }
-    fn encode(
+    fn lencode(
         &self,
         stack: &LayerStack,
         my_index: usize,

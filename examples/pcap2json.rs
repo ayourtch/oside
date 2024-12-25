@@ -19,7 +19,7 @@ fn main() {
     let fname = std::env::args().nth(1).unwrap();
     let bytes = get_file_as_byte_vec(&fname);
     // println!("Bytes: {:02x?}", &bytes);
-    let binding = PcapFile!().decode(&bytes).unwrap();
+    let binding = PcapFile!().ldecode(&bytes).unwrap();
     let pcap = binding.0.get_layer(PcapFile!()).unwrap();
     // println!("Pcap: {:#02x?}", &pcap.d);
     println!("[");
@@ -31,7 +31,7 @@ fn main() {
             println!(",");
         }
         // println!("data: {:02x?}", &p.data);
-        let pkt = Ether!().decode(&p.data).unwrap().0;
+        let pkt = Ether!().ldecode(&p.data).unwrap().0;
         let j = serde_json::to_string(&pkt.layers).unwrap();
         println!("{}", j);
     }

@@ -47,7 +47,9 @@ fn encode_icmp_chksum<E: Encoder>(
     }
 
     let encoded_icmp_header = if let Some(icmp) = stack.item_at(ICMP!(), my_index) {
-        icmp.clone().chksum(0).encode(stack, my_index, encoded_data)
+        icmp.clone()
+            .chksum(0)
+            .lencode(stack, my_index, encoded_data)
     } else {
         vec![]
     };

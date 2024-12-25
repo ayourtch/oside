@@ -241,7 +241,7 @@ impl ToTokens for ChainDecodeNetprotoStructField {
             };
             quote! {
                 if let Some(next) = (*#registry_lookup_name).get(&#varname) {
-                    if let Some((decode, delta)) = (next.MakeLayer)().decode(&buf[#next_range]) {
+                    if let Some((decode, delta)) = (next.MakeLayer)().ldecode(&buf[#next_range]) {
                         let mut down_layers = decode.layers;
                         layers.append(&mut down_layers);
                         ci += delta;
@@ -787,7 +787,7 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
         quote! {}
     } else {
         quote! {
-            fn decode(&self, buf: &[u8]) -> Option<(LayerStack, usize)> {
+            fn ldecode(&self, buf: &[u8]) -> Option<(LayerStack, usize)> {
                 type DDD = BinaryBigEndian;
                 use std::collections::HashMap;
                 let mut ci: usize = 0;
@@ -809,7 +809,7 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
         quote! {}
     } else {
         quote! {
-            fn encode(&self, stack: &LayerStack, my_index: usize, encoded_data: &EncodingVecVec) -> Vec<u8> {
+            fn lencode(&self, stack: &LayerStack, my_index: usize, encoded_data: &EncodingVecVec) -> Vec<u8> {
                 let layer = self;
                 type EEE = BinaryBigEndian;
                 let mut out: Vec<u8> = vec![];
@@ -833,6 +833,27 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
                 out
             }
         }
+
+        impl Decode for #name {
+            fn decode<DDD: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
+                use std::collections::HashMap;
+                let mut ci: usize = 0;
+                let mut layer = #macroname!();
+
+                #(#decode_fields_idents)*
+
+
+                Some((layer, ci))
+            }
+        }
+
+        impl Encode for #name {
+            fn encode<E: Encoder>(&self) -> Vec<u8> {
+                vec![]
+            }
+        }
+
+
 
         impl #name {
             fn encode_with_encoder<EEE: Encoder>(&self, stack: &LayerStack, my_index: usize, encoded_data: &EncodingVecVec) -> Vec<u8> {

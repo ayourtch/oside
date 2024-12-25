@@ -22,7 +22,7 @@ impl pcapFile {
     }
 
     pub fn write(&self, fname: &str) -> Result<(), std::io::Error> {
-        std::fs::write(fname, self.clone().to_stack().encode())
+        std::fs::write(fname, self.clone().to_stack().lencode())
     }
 }
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

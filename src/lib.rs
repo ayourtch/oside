@@ -86,6 +86,8 @@ pub trait Decode {
         Self: Sized;
 }
 
+pub trait ManualDecode {}
+
 impl Decode for u8 {
     fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
         D::decode_u8(buf)
@@ -136,6 +138,9 @@ pub trait Encode {
     fn encode<E: Encoder>(&self) -> Vec<u8>;
 }
 
+// Add a dummy impl if you implementing Encode manually
+pub trait ManualEncode {}
+
 impl Encode for u8 {
     fn encode<E: Encoder>(&self) -> Vec<u8> {
         E::encode_u8(*self)
@@ -183,6 +188,7 @@ impl Encode for Vec<u8> {
         E::encode_vec(self)
     }
 }
+impl ManualEncode for Vec<u8> {}
 
 #[derive(PartialEq, Clone, Eq)]
 pub enum Value<T> {
@@ -861,7 +867,7 @@ impl LayerStack {
         self.layers_of(typ)
     }
 
-    pub fn encode(self) -> Vec<u8> {
+    pub fn lencode(self) -> Vec<u8> {
         let target = if self.filled {
             self
         } else {
@@ -874,7 +880,7 @@ impl LayerStack {
         for (i, ll) in (&target.layers).into_iter().enumerate().rev() {
             out.curr_idx = i;
             // println!("{}: {:?}", i, &ll);
-            let ev = ll.encode(&target, i, &out);
+            let ev = ll.lencode(&target, i, &out);
             out.data.push(ev);
         }
         out.data.reverse();
@@ -989,7 +995,7 @@ pub trait Layer: Debug + mopa::Any + New {
     fn fill(&self, stack: &LayerStack, my_index: usize, out_stack: &mut LayerStack);
 
     /* default encode function encodes some dead beef */
-    fn encode(
+    fn lencode(
         &self,
         stack: &LayerStack,
         my_index: usize,
@@ -1012,7 +1018,7 @@ pub trait Layer: Debug + mopa::Any + New {
             filled: true,
         }
     }
-    fn decode(&self, buf: &[u8]) -> Option<(LayerStack, usize)> {
+    fn ldecode(&self, buf: &[u8]) -> Option<(LayerStack, usize)> {
         let buflen = buf.len();
         Some((self.decode_as_raw(buf), buflen))
     }
@@ -1037,6 +1043,42 @@ impl <'a> Eq for LayerStack<'a> {
 }
 */
 
+pub trait AutoDecode {}
+pub trait AutoEncode {}
+
+impl<T: Decode> Decode for Vec<T>
+where
+    Vec<T>: AutoDecode,
+{
+    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
+        let mut elts = Vec::new();
+        let mut pos = 0;
+        while pos < buf.len() {
+            if let Some((elt, len)) = T::decode::<D>(&buf[pos..]) {
+                elts.push(elt);
+                pos += len;
+            } else {
+                break;
+            }
+        }
+        Some((elts, pos))
+    }
+}
+
+impl<T: Encode> Encode for Vec<T>
+where
+    Vec<T>: AutoEncode,
+{
+    fn encode<E: Encoder>(&self) -> Vec<u8> {
+        let mut out: Vec<u8> = Vec::new();
+
+        for elt in self {
+            out.extend(elt.encode::<E>());
+        }
+        out
+    }
+}
+
 pub trait WritePcap {
     fn write_pcap(&self, fname: &str) -> Result<(), std::io::Error>;
 }
@@ -1047,7 +1089,7 @@ impl WritePcap for Vec<LayerStack> {
 
         let mut pcap = PcapFile!();
         for p in self {
-            let pp = PcapPacket!(data = p.clone().encode());
+            let pp = PcapPacket!(data = p.clone().lencode());
             pcap.push(pp);
         }
 

@@ -17,7 +17,7 @@ fn main() {
             filled: true,
             layers: p,
         };
-        let pp = PcapPacket!(data = p.encode());
+        let pp = PcapPacket!(data = p.lencode());
         pcap.push(pp);
     }
 

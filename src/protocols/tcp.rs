@@ -77,7 +77,7 @@ fn encode_tcp_chksum<E: Encoder>(
     }
 
     let encoded_tcp_header = if let Some(tcp) = stack.item_at(TCP!(), my_index) {
-        tcp.clone().chksum(0).encode(stack, my_index, encoded_data)
+        tcp.clone().chksum(0).lencode(stack, my_index, encoded_data)
     } else {
         vec![]
     };

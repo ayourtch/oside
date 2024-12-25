@@ -92,7 +92,7 @@ pub fn read_pcap(pcapname: &str) -> Vec<Vec<u8>> {
 pub fn decode_pcap(pcapname: &str) -> Vec<LayerStack> {
     let d = read_pcap(pcapname);
     d.into_iter()
-        .map(|x| Ether!().decode(&x).unwrap().0)
+        .map(|x| Ether!().ldecode(&x).unwrap().0)
         .collect()
 }
 
@@ -100,16 +100,16 @@ pub fn decode_pcap(pcapname: &str) -> Vec<LayerStack> {
 pub fn test_read_pcap_bytes() {
     let bytes = read_pcap_bytes("pcap_3pkts.pcap");
     println!("Bytes: {:02x?}", &bytes);
-    let pcap = PcapFile!().decode(&bytes).unwrap().0;
+    let pcap = PcapFile!().ldecode(&bytes).unwrap().0;
     println!("Pcap: {:#02x?}", &pcap);
 }
 
 #[test]
 pub fn test_read_reencode_pcap_bytes() {
     let bytes = read_pcap_bytes("pcap_3pkts.pcap");
-    let (pcap, len) = PcapFile!().decode(&bytes).unwrap();
+    let (pcap, len) = PcapFile!().ldecode(&bytes).unwrap();
     println!("Pcap ({}): {:#02x?}", len, &pcap);
-    let pcap_out = pcap.encode();
+    let pcap_out = pcap.lencode();
     // std::fs::write("kaka-pcap.pcap", pcap_out.clone()).unwrap();
 
     println!("PcapOut: {:02x?}", &pcap_out);
@@ -126,7 +126,7 @@ pub fn test_write_pcap_from_scratch() {
     let mut pcap = PcapFile!();
     for i in 0..3 {
         let p = Ether!() / IP!() / GRE!() / IP!() / UDP!();
-        let pp = PcapPacket!(data = p.encode());
+        let pp = PcapPacket!(data = p.lencode());
         pcap.push(pp);
     }
     println!("PCAP: {:02x?}", &pcap);

@@ -56,7 +56,7 @@ fn encode_udp_chksum<E: Encoder>(
     }
 
     let encoded_udp_header = if let Some(udp) = stack.item_at(UDP!(), my_index) {
-        udp.clone().chksum(0).encode(stack, my_index, encoded_data)
+        udp.clone().chksum(0).lencode(stack, my_index, encoded_data)
     } else {
         vec![]
     };

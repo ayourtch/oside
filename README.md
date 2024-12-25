@@ -26,7 +26,7 @@ use oside::protocols::all::*;
 
 let packetbytes = b"\0x00\x00";
 
-if let Some((layers, plen)) = Ether!().decode(packetbytes) {
+if let Some((layers, plen)) = Ether!().ldecode(packetbytes) {
   println!("bytes consumed: {}, layerstack: {:?}", plen, &layers);
 } else {
   println!("Error parsing!");
@@ -99,7 +99,7 @@ use oside::protocols::all::*;
 
 let layers = Ether!(src = "00:01:02:03:04:05")
         / ARP!(hwsrc = "00:02:03:04:05:06");
-let bytes: Vec<u8> = layers.encode();
+let bytes: Vec<u8> = layers.lencode();
 ```
 
 # Accessing the parsed layers
@@ -193,7 +193,7 @@ let data: Vec<u8> = vec![255, 255, 255, 255, 255, 255,
                          82, 84, 0, 18, 52, 86, 8, 6, 0, 1, 8, 0, 6, 4, 0, 1,
                          82, 84, 0, 18, 52, 86, 192, 168, 76, 9,
                          0, 0, 0, 0, 0, 0, 192, 168, 76, 99];
-let sca = Ether!().decode(&data).unwrap().0;
+let sca = Ether!().ldecode(&data).unwrap().0;
 let addr = "01:02:03:04:05:06";
 
 if let Some(arp) = sca.get_layer(ARP!()) {
@@ -208,7 +208,7 @@ if let Some(arp) = sca.get_layer(ARP!()) {
                 psrc = sca[ARP!()].pdst.value()
             );
         println!("Reply: {:?}", &reply);
-        let bytes = reply.encode();
+        let bytes = reply.lencode();
         // Send the bytes into the interface here
     }
 }

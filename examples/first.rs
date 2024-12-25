@@ -136,7 +136,7 @@ fn main() {
     let my_udp = &layers[UDP!()];
     let mut my_src_ip = layers[IP!()].src.clone();
 
-    let data: Vec<u8> = layers.fill().encode();
+    let data: Vec<u8> = layers.fill().lencode();
 
     println!("Data: {:02x?}", &data);
 }

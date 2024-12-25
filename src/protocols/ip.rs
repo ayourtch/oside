@@ -263,7 +263,7 @@ fn encode_ip_chksum<E: Encoder>(
     }
 
     let encoded_ip_header = if let Some(ip) = stack.item_at(IP!(), my_index) {
-        ip.clone().chksum(0).encode(stack, my_index, encoded_data)
+        ip.clone().chksum(0).lencode(stack, my_index, encoded_data)
     } else {
         vec![]
     };

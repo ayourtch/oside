@@ -73,7 +73,7 @@ pub fn read_pcap(pcapname: &str) -> Vec<Vec<u8>> {
 pub fn decode_pcap(pcapname: &str) -> Vec<LayerStack> {
     let d = read_pcap(pcapname);
     d.into_iter()
-        .map(|x| Ether!().decode(&x).unwrap().0)
+        .map(|x| Ether!().ldecode(&x).unwrap().0)
         .collect()
 }
 
@@ -81,11 +81,11 @@ pub fn decode_encode_pcap(name: &str) {
     let packets = read_pcap(name);
     for d in packets {
         println!("data: {:?}", &d);
-        let pkt = Ether!().decode(&d).unwrap().0;
+        let pkt = Ether!().ldecode(&d).unwrap().0;
         println!("pkt: {:?}", &pkt);
         let pkt_filled = pkt.fill();
         println!("pkt_filled: {:?}", &pkt_filled);
-        let pkt_encoded = pkt_filled.encode();
+        let pkt_encoded = pkt_filled.lencode();
         println!("pkt_encoded: {:?}", &pkt_encoded);
         assert_eq!(d.len(), pkt_encoded.len());
         for i in 0..d.len() {
@@ -106,7 +106,7 @@ pub fn test_pcap1() {
     let packets = decode_pcap("pcap1.pcap");
     for p in packets {
         println!("p: {:?}", &p);
-        let bytes = p.encode();
+        let bytes = p.lencode();
         println!("bytes: {:?}", &bytes);
     }
 }
@@ -124,7 +124,7 @@ pub fn test_pcap3_nomod() {
     let packets = read_pcap("pcap3.pcap");
     for d in packets {
         println!("p: {:?}", &d);
-        let p = Ether!().decode(&d).unwrap().0;
+        let p = Ether!().ldecode(&d).unwrap().0;
         println!("p: {:?}", &p);
         let mut pn = p.clone();
         if let Some(t) = pn.get_layer_mut(TCP!()) {
@@ -133,7 +133,7 @@ pub fn test_pcap3_nomod() {
         println!("pn_start: {:?}", &pn);
         let pn_filled = pn.fill();
         println!("pn_filled: {:?}", &pn_filled);
-        let pn_encoded = pn_filled.encode();
+        let pn_encoded = pn_filled.lencode();
         println!("pn_encoded: {:?}", &pn_encoded);
 
         assert_eq!(d.len(), pn_encoded.len());
@@ -148,7 +148,7 @@ pub fn test_pcap3_csum() {
     let packets = read_pcap("pcap3.pcap");
     for d in packets {
         println!("p: {:02x?}", &d);
-        let p = Ether!().decode(&d).unwrap().0;
+        let p = Ether!().ldecode(&d).unwrap().0;
         println!("p: {:02x?}", &p);
         let mut pn = p.clone();
         if let Some(t) = pn.get_layer_mut(TCP!()) {
@@ -157,7 +157,7 @@ pub fn test_pcap3_csum() {
         println!("pn_start: {:?}", &pn);
         let pn_filled = pn.fill();
         println!("pn_filled: {:?}", &pn_filled);
-        let pn_encoded = pn_filled.encode();
+        let pn_encoded = pn_filled.lencode();
         println!("pn_encoded: {:?}", &pn_encoded);
 
         assert_eq!(d.len(), pn_encoded.len());
@@ -174,7 +174,7 @@ pub fn test_pcap_vxlan1() {
     let packets = read_pcap("vxlan1.pcap");
     for d in packets {
         println!("p: {:02x?}", &d);
-        let p = Ether!().decode(&d).unwrap().0;
+        let p = Ether!().ldecode(&d).unwrap().0;
         println!("p_decoded: {:02x?}", &p);
         assert_eq!(p[VXLAN!()].vni, Value::Set(0x010203));
         let mut pn = p.clone();
@@ -188,7 +188,7 @@ pub fn test_pcap_vxlan2() {
     let packets = read_pcap("vxlan2.pcap");
     for d in packets {
         println!("p: {:02x?}", &d);
-        let p = Ether!().decode(&d).unwrap().0;
+        let p = Ether!().ldecode(&d).unwrap().0;
         println!("P_DECODED: {:02x?}", &p);
         assert_eq!(p[VXLAN!()].vni, Value::Set(0x010203));
         let mut pn = p.clone();
@@ -202,7 +202,7 @@ pub fn test_pcap_dhcp() {
     let packets = read_pcap("dhcp.pcap");
     for d in packets {
         // println!("p: {:02x?}", &d);
-        let p = Ether!().decode(&d).unwrap().0;
+        let p = Ether!().ldecode(&d).unwrap().0;
         println!("p_decoded: {:02x?}", &p);
     }
 }

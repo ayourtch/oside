@@ -105,7 +105,7 @@ fn custom_proto() {
     let fx = px.clone().to_stack().fill();
     println!("filled: {:?}", &fx);
     assert_ne!(fx[TestProto!()].mac2, Value::Random);
-    let bytes = fx.encode();
+    let bytes = fx.lencode();
     println!("bytes: {:?}", &bytes);
     assert_eq!(bytes[0], 2); // tos
 }

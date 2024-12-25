@@ -22,7 +22,7 @@ fn main() {
     println!("Set: {:?}", &layers);
     let filled = layers.fill();
     println!("Filled: {:?}", &filled);
-    let bytes = filled.encode();
+    let bytes = filled.lencode();
     println!("Encoded bytes: {:02x?}", &bytes);
 
     let ip = &IANA_LAYERS_BY_Proto[&4];
@@ -32,9 +32,9 @@ fn main() {
     let ll = LayerStack::gg::<Ip>(ll).src("1.1.1.1");
     println!("IP by name: {:?}", ll);
     let x = Ether!()
-        .decode("AAAAAABBBBBB\x08\x0012345678901234567890123456789012a".as_bytes())
+        .ldecode("AAAAAABBBBBB\x08\x0012345678901234567890123456789012a".as_bytes())
         .unwrap()
         .0;
     println!("x: {:?}", &x);
-    println!("xb: {:?}", x.encode());
+    println!("xb: {:?}", x.lencode());
 }
