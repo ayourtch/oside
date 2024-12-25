@@ -145,10 +145,17 @@ pub enum LinkStateAdvertisement {
     NetworkLsa(NetworkLsa),
     SummaryLsa(SummaryLsa),
     AsExternalLsa(AsExternalLsa),
+    UnknownLsa(UnknownLsa),
 }
 
 impl AutoEncodeAsSequence for Vec<LinkStateAdvertisement> {}
 impl AutoDecodeAsSequence for Vec<LinkStateAdvertisement> {}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct UnknownLsa {
+    pub header: LsaHeader,
+    pub lsa_data: Vec<u8>,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RouterLsa {
@@ -273,6 +280,13 @@ impl Encode for LinkStateAdvertisement {
                 out.extend(lsa.external_route_tag.encode::<E>());
                 out
             }
+            LinkStateAdvertisement::UnknownLsa(lsa) => {
+                let mut out = Vec::new();
+                out.extend(lsa.header.encode::<E>());
+                out.extend(lsa.lsa_data.encode::<E>());
+                println!("ENCODE: {:#02x?}", &out);
+                out
+            }
         }
     }
 }
@@ -373,7 +387,16 @@ impl Decode for LinkStateAdvertisement {
                     offset,
                 ))
             }
-            _ => None,
+            x => {
+                let lsa_hdr_len = offset;
+                let (lsa_data, len) =
+                    D::decode_vec(&buf[offset..], header.length as usize - lsa_hdr_len)?;
+                offset += len;
+                Some((
+                    LinkStateAdvertisement::UnknownLsa(UnknownLsa { header, lsa_data }),
+                    offset,
+                ))
+            }
         }
     }
 }
