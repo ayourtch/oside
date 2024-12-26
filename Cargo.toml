@@ -22,7 +22,7 @@ typetag = "*"
 
 [dev-dependencies]
 criterion = "0.3"
-pcap-parser = "*"
+pcap-parser = "0.14.*"
 hex = "*"
 serde_json = { version = "1.0" }
 
