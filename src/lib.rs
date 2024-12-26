@@ -1,7 +1,10 @@
 //use std::any::Any;
+#![allow(nonstandard_style)]
+#![allow(unused_imports)]
 use serde::ser::SerializeTuple;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::marker::PhantomData;
+
 
 #[macro_use]
 extern crate doc_comment;
