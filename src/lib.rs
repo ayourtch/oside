@@ -5,7 +5,6 @@ use serde::ser::SerializeTuple;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::marker::PhantomData;
 
-
 #[macro_use]
 extern crate doc_comment;
 
@@ -775,7 +774,7 @@ impl Index<usize> for EncodingVecVec {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Default)]
 pub struct LayerStack {
     pub filled: bool,
     pub layers: Vec<Box<dyn Layer>>,

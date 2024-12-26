@@ -819,8 +819,17 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
         }
 
         impl Encode for #name {
-            fn encode<E: Encoder>(&self) -> Vec<u8> {
-                vec![]
+            fn encode<EEE: Encoder>(&self) -> Vec<u8> {
+                let layer = self;
+                // Mock values appease the function-based encoders - which should not be used
+                let encoded_data = EncodingVecVec::default();
+                let encoded_data = &encoded_data;
+                let stack = LayerStack::default();
+                let stack = &stack;
+                let my_index = 0;
+                let mut out: Vec<u8> = vec![];
+                #(#encode_fields_idents)*
+                out
             }
         }
 
