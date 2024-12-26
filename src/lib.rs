@@ -1106,6 +1106,7 @@ impl WritePcap for Vec<LayerStack> {
     }
 }
 
+pub mod asn1;
 pub mod encdec;
 pub mod protocols;
 pub mod typ;
