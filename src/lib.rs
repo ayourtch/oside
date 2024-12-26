@@ -47,6 +47,7 @@ use crate::encdec::binary_big_endian::BinaryBigEndian;
 #[nproto(registry(UDP_DST_PORT_APPS, DstPort: u16))]
 #[nproto(registry(BOOTP_VENDORS, VendorCookie: u32))]
 #[nproto(registry(OSPF_PACKET_TYPES, PacketType: u8))]
+#[nproto(registry(ICMPV6_TYPES, Type: u8))]
 /* Only here as a target of derive + attribute macros to make registries */
 struct protocolRegistriesSentinel;
 
@@ -115,6 +116,12 @@ impl Decode for i32 {
 impl Decode for u64 {
     fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
         D::decode_u64(buf)
+    }
+}
+
+impl Decode for Vec<u8> {
+    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
+        Some((buf.to_vec(), buf.len()))
     }
 }
 
@@ -417,7 +424,9 @@ impl<'de> Deserialize<'de> for MacAddr {
             where
                 E: Error,
             {
-                panic!("TBD")
+                MacAddr::from_str(v).map_err(|e| {
+                    E::custom(format!("Failed to parse '{}' as MAC address: {:?}", v, e))
+                })
             }
         }
 
