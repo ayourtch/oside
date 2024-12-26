@@ -1,6 +1,8 @@
 //use std::any::Any;
 #![allow(nonstandard_style)]
 #![allow(unused_imports)]
+#![allow(unused_variables)]
+#![allow(unused_mut)]
 use serde::ser::SerializeTuple;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::marker::PhantomData;
@@ -81,6 +83,14 @@ pub trait Decoder {
     fn decode_u32(buf: &[u8]) -> Option<(u32, usize)>;
     fn decode_u64(buf: &[u8]) -> Option<(u64, usize)>;
     fn decode_vec(buf: &[u8], len: usize) -> Option<(Vec<u8>, usize)>;
+
+    fn decode_octetstring(buf: &[u8]) -> Option<(Vec<u8>, usize)> {
+        Some((buf.to_vec(), buf.len()))
+    }
+    fn pre_decode_seq(buf: &[u8], len: usize) -> Option<(usize, usize)> {
+        // Return new len and the offset to add to ci
+        Some((len, 0))
+    }
 }
 
 pub trait Decode {
@@ -123,7 +133,8 @@ impl Decode for u64 {
 
 impl Decode for Vec<u8> {
     fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
-        Some((buf.to_vec(), buf.len()))
+        //Some((buf.to_vec(), buf.len()))
+        D::decode_octetstring(buf)
     }
 }
 

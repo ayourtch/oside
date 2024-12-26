@@ -609,6 +609,12 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
     let mut nproto_encode_suppress = false;
     let mut nproto_greedy_decode = true;
 
+    let mut pre_decode: Option<syn::Expr> = None;
+    let mut post_decode: Option<syn::Expr> = None;
+
+    let mut decoder_type: Option<syn::Ident> = None;
+    let mut encoder_type: Option<syn::Ident> = None;
+
     // let source = input.to_string();
     // Parse the string representation into a syntax tree
     // let ast = syn::parse_macro_input(&source).unwrap();
@@ -625,6 +631,38 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
                 }
                 if meta.path.is_ident("encode_suppress") {
                     nproto_encode_suppress = true;
+                    return Ok(());
+                }
+                // #[nproto(pre_decode= ... )]
+                if meta.path.is_ident("pre_decode") {
+                    let _eq_token: Option<Token![=]> = meta.input.parse()?;
+                    let val_expr: syn::Expr = meta.input.parse()?;
+                    // pre_decode = Some(val_expr.to_token_stream());
+                    pre_decode = Some(val_expr);
+                    return Ok(());
+                }
+                // #[nproto(post_decode= ... )]
+                if meta.path.is_ident("post_decode") {
+                    let _eq_token: Option<Token![=]> = meta.input.parse()?;
+                    let val_expr: syn::Expr = meta.input.parse()?;
+                    // pre_decode = Some(val_expr.to_token_stream());
+                    post_decode = Some(val_expr);
+                    return Ok(());
+                }
+                // #[nproto(decoder= ... )]
+                if meta.path.is_ident("decoder") {
+                    let content;
+                    parenthesized!(content in meta.input);
+                    let val_expr: syn::Ident = content.parse()?;
+                    decoder_type = Some(val_expr);
+                    return Ok(());
+                }
+                // #[nproto(decoder= ... )]
+                if meta.path.is_ident("encoder") {
+                    let content;
+                    parenthesized!(content in meta.input);
+                    let val_expr: syn::Ident = content.parse()?;
+                    encoder_type = Some(val_expr);
                     return Ok(());
                 }
                 // #[nproto(register(PLACE, Key = _expr_))
@@ -754,15 +792,41 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
         quote! {}
     };
 
+    let pre_decode_code = if let Some(pre_decode) = pre_decode {
+        quote! { #pre_decode }
+    } else {
+        quote! {}
+    };
+
+    let decoder_ident = if let Some(decoder_type) = decoder_type {
+        decoder_type
+    } else {
+        Ident::new(&format!("BinaryBigEndian"), Span::call_site())
+    };
+
+    let post_decode_code = if let Some(post_decode) = post_decode {
+        quote! { #post_decode }
+    } else {
+        quote! {}
+    };
+
     let decode_function = if nproto_decode_suppress {
         quote! {}
     } else {
         quote! {
             fn ldecode(&self, buf: &[u8]) -> Option<(LayerStack, usize)> {
-                type DDD = BinaryBigEndian;
+                type DDD = #decoder_ident;
                 use std::collections::HashMap;
                 let mut ci: usize = 0;
                 let mut layer = #macroname!();
+                let mut max_len = buf.len();
+
+                if let Some((new_len, delta)) = DDD::pre_decode_seq(buf, buf.len()) {
+                    max_len = new_len;
+                    ci += delta;
+                }
+
+                #pre_decode_code
 
                 #(#decode_fields_idents)*
 
@@ -771,6 +835,8 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
                 #(#chained_fields_idents)*
 
                 #greedy_decode_code
+
+                #post_decode_code
 
                 Some((LayerStack { layers, filled: true }, ci))
             }

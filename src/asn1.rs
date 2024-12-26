@@ -22,8 +22,8 @@ pub enum Value {
     Null,
     ObjectIdentifier(Vec<u64>),
     Sequence(Vec<ASN1Object>),
-    UnknownConstructed(Vec<ASN1Object>),
-    UnknownPrimitive(Vec<u8>),
+    UnknownConstructed(u8, Vec<ASN1Object>),
+    UnknownPrimitive(u8, Vec<u8>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -210,9 +210,10 @@ impl Parser {
                             Err(e) => return Err(e),
                         }
                     }
-                    Value::UnknownConstructed(sequence)
+                    Value::UnknownConstructed(*x, sequence)
                 } else {
                     Value::UnknownPrimitive(
+                        *x,
                         self.data[self.position..self.position + length].to_vec(),
                     )
                 }
