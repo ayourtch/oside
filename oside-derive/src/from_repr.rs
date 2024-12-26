@@ -70,7 +70,7 @@ pub fn from_repr_inner(ast: &DeriveInput) -> syn::Result<TokenStream> {
 
     let mut arms = Vec::new();
     let mut constant_defs = Vec::new();
-    let mut has_additional_data = false;
+    //let mut has_additional_data = false;
     let mut prev_const_var_ident = None;
     for variant in variants {
         /*
@@ -83,13 +83,13 @@ pub fn from_repr_inner(ast: &DeriveInput) -> syn::Result<TokenStream> {
         let params = match &variant.fields {
             Fields::Unit => quote! {},
             Fields::Unnamed(fields) => {
-                has_additional_data = true;
+                //has_additional_data = true;
                 let defaults = ::core::iter::repeat(quote!(::core::default::Default::default()))
                     .take(fields.unnamed.len());
                 quote! { (#(#defaults),*) }
             }
             Fields::Named(fields) => {
-                has_additional_data = true;
+                //has_additional_data = true;
                 let fields = fields
                     .named
                     .iter()

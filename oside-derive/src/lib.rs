@@ -1,4 +1,6 @@
 #![recursion_limit = "128"]
+#![allow(nonstandard_style)]
+
 
 // https://cprimozic.net/blog/writing-a-hashmap-to-struct-procedural-macro-in-rust/
 
@@ -8,10 +10,10 @@ extern crate syn;
 extern crate quote;
 
 // use proc_macro::TokenStream;
-use proc_macro::Literal;
+// use proc_macro::Literal;
 use syn::Ident; // , VariantData};
 use syn::{
-    parse_macro_input, parse_quote, Data, DeriveInput, Fields, GenericParam, Generics, Index, Path,
+    Data, DeriveInput, Fields, GenericParam, Generics, Path,
     Type,
 };
 
@@ -56,8 +58,8 @@ struct EncodeNetprotoStructField(NetprotoStructField);
 struct DecodeNetprotoStructField(NetprotoStructField);
 struct ChainDecodeNetprotoStructField(NetprotoStructField);
 
-use proc_macro2::{Punct, Spacing, Span, TokenStream, TokenTree};
-use quote::{ToTokens, TokenStreamExt};
+use proc_macro2::{Span, TokenStream};
+use quote::{ToTokens};
 
 impl ToTokens for StructField {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
@@ -80,7 +82,7 @@ impl ToTokens for EncodeNetprotoStructField {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let name = self.0.name.clone();
         let varname = Ident::new(&format!("__{}", &name), Span::call_site());
-        let conv = self.0.conv.clone();
+        let _conv = self.0.conv.clone();
         let typ = self.0.ty.clone();
         let fixed_typ: TokenStream = if self.0.is_value {
             let iter = typ.clone().into_iter().skip(2);
@@ -89,8 +91,6 @@ impl ToTokens for EncodeNetprotoStructField {
         } else {
             typ.clone()
         };
-        let get_def_X = Ident::new(&format!("get_default_{}", &name), Span::call_site());
-        let set_X = Ident::new(&format!("set_{}", &name), Span::call_site());
 
         let encdec_condition = if let Some(skip_encdec_unless_expr) = &self.0.skip_encdec_unless {
             quote! { #skip_encdec_unless_expr }
@@ -136,7 +136,7 @@ impl ToTokens for DecodeNetprotoStructField {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         use proc_macro2::{Punct, Spacing, TokenStream, TokenTree};
 
-        fn insert_double_colon_if_second_is_angle_bracket(mut tokens: TokenStream) -> TokenStream {
+        fn insert_double_colon_if_second_is_angle_bracket(tokens: TokenStream) -> TokenStream {
             let mut token_vec: Vec<TokenTree> = tokens.into_iter().collect();
 
             if token_vec.len() > 1 {
@@ -159,7 +159,6 @@ impl ToTokens for DecodeNetprotoStructField {
 
         let name = self.0.name.clone();
         let varname = Ident::new(&format!("__{}", &name), Span::call_site());
-        let conv = self.0.conv.clone();
         let typ = self.0.ty.clone();
         let fixed_typ: TokenStream = if self.0.is_value {
             let iter = typ.clone().into_iter().skip(2);
@@ -169,8 +168,6 @@ impl ToTokens for DecodeNetprotoStructField {
             typ.clone()
         };
         let fixed_typ = insert_double_colon_if_second_is_angle_bracket(fixed_typ);
-        let get_def_X = Ident::new(&format!("get_default_{}", &name), Span::call_site());
-        let set_X = Ident::new(&format!("set_{}", &name), Span::call_site());
 
         let encdec_condition = if let Some(skip_encdec_unless_expr) = &self.0.skip_encdec_unless {
             quote! { #skip_encdec_unless_expr }
@@ -217,17 +214,6 @@ impl ToTokens for ChainDecodeNetprotoStructField {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let name = self.0.name.clone();
         let varname = Ident::new(&format!("__{}", &name), Span::call_site());
-        let conv = self.0.conv.clone();
-        let typ = self.0.ty.clone();
-        let fixed_typ: TokenStream = if self.0.is_value {
-            let iter = typ.clone().into_iter().skip(2);
-            let len = iter.clone().collect::<Vec<_>>().len();
-            iter.take(len - 1).collect()
-        } else {
-            typ.clone()
-        };
-        let get_def_X = Ident::new(&format!("get_default_{}", &name), Span::call_site());
-        let set_X = Ident::new(&format!("set_{}", &name), Span::call_site());
 
         let tk2 = if let Some((next_tbl, next_key)) = &self.0.next {
             let registry_lookup_name = Ident::new(
@@ -258,17 +244,7 @@ impl ToTokens for ChainDecodeNetprotoStructField {
 impl ToTokens for ImplDefaultNetprotoStructField {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let name = self.0.name.clone();
-        let conv = self.0.conv.clone();
-        let typ = self.0.ty.clone();
-        let fixed_typ: TokenStream = if self.0.is_value {
-            let iter = typ.clone().into_iter().skip(2);
-            let len = iter.clone().collect::<Vec<_>>().len();
-            iter.take(len - 1).collect()
-        } else {
-            typ.clone()
-        };
         let get_def_X = Ident::new(&format!("get_default_{}", &name), Span::call_site());
-        let set_X = Ident::new(&format!("set_{}", &name), Span::call_site());
 
         let tk2 = quote! {
                 #name: Self::#get_def_X(),
@@ -279,9 +255,9 @@ impl ToTokens for ImplDefaultNetprotoStructField {
 
 impl ToTokens for FillNetprotoStructField {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        let _ = self.0.auto; // silence the warning
         let name = self.0.name.clone();
         let varname = Ident::new(&format!("__{}", &name), Span::call_site());
-        let conv = self.0.conv.clone();
         let typ = self.0.ty.clone();
         let fixed_typ: TokenStream = if self.0.is_value {
             let iter = typ.clone().into_iter().skip(2);
@@ -290,9 +266,6 @@ impl ToTokens for FillNetprotoStructField {
         } else {
             typ.clone()
         };
-        let get_def_X = Ident::new(&format!("get_default_{}", &name), Span::call_site());
-        let set_X = Ident::new(&format!("set_{}", &name), Span::call_site());
-
         let val_varname = Ident::new(&format!("__val_{}", &name), Span::call_site());
         // code to attempt to retrieve the next protocol id and set it into variable
         let try_set_by_next_layer = if let Some((next_tbl, next_key)) = &self.0.next {
@@ -401,7 +374,6 @@ impl ToTokens for FillNetprotoStructField {
 impl ToTokens for FieldMethodsNetprotoStructField {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let name = self.0.name.clone();
-        let conv = self.0.conv.clone();
         let typ = self.0.ty.clone();
         let fixed_typ: TokenStream = if self.0.is_value {
             let iter = typ.clone().into_iter().skip(2);
@@ -622,8 +594,8 @@ impl ToTokens for LayerRegistry {
 
 #[proc_macro_derive(NetworkProtocol, attributes(nproto))]
 pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    use std::str::FromStr;
-    use syn::{parenthesized, parse_quote, token, ItemStruct, LitInt, Token};
+    // use std::str::FromStr;
+    use syn::{parenthesized, token, LitInt, Token};
 
     let mut nproto_align = None::<usize>;
     let mut nproto_packed = None::<usize>;
@@ -632,7 +604,7 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
     let default_encoder: TokenStream = "BinaryBigEndian".parse().unwrap();
     let default_decoder: TokenStream = "BinaryBigEndian".parse().unwrap();
     let mut nproto_encoder = default_encoder;
-    let mut nproto_decoder = default_decoder;
+    let mut _nproto_decoder = default_decoder;
     let mut nproto_decode_suppress = false;
     let mut nproto_encode_suppress = false;
     let mut nproto_greedy_decode = true;
@@ -659,15 +631,15 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
                 if meta.path.is_ident("register") {
                     let content;
                     parenthesized!(content in meta.input);
-                    println!("REGISTER: {:?}", &content);
+                    // println!("REGISTER: {:?}", &content);
                     let place: syn::Ident = content.parse()?;
-                    println!("PLACE: {:?}", &place);
-                    let comma_token: Option<Token![,]> = content.parse()?;
+                    // println!("PLACE: {:?}", &place);
+                    let _comma_token: Option<Token![,]> = content.parse()?;
                     let key: syn::Ident = content.parse()?;
-                    println!("KEY: {:?}", &key);
-                    let eq_token: Option<Token![=]> = content.parse()?;
+                    // println!("KEY: {:?}", &key);
+                    let _eq_token: Option<Token![=]> = content.parse()?;
                     let value: syn::Expr = content.parse()?;
-                    println!("VAL: {:?}", &value);
+                    // println!("VAL: {:?}", &value);
                     let name = name.clone();
 
                     nproto_register.push(LayerRegistryEntry {
@@ -681,16 +653,15 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
                 if meta.path.is_ident("registry") {
                     let content;
                     parenthesized!(content in meta.input);
-                    println!("REGISTRY: {:?}", &content);
+                    // println!("REGISTRY: {:?}", &content);
                     let place: syn::Ident = content.parse()?;
-                    println!("PLACE: {:?}", &place);
-                    let comma_token: Option<Token![,]> = content.parse()?;
+                    // println!("PLACE: {:?}", &place);
+                    let _comma_token: Option<Token![,]> = content.parse()?;
                     let key: syn::Ident = content.parse()?;
-                    println!("KEY: {:?}", &key);
-                    let eq_token: Option<Token![:]> = content.parse()?;
+                    // println!("KEY: {:?}", &key);
+                    let _eq_token: Option<Token![:]> = content.parse()?;
                     let value: syn::Ident = content.parse()?;
-                    println!("VAL: {:?}", &value);
-                    let name = name.clone();
+                    // println!("VAL: {:?}", &value);
                     nproto_registries.push(LayerRegistry { place, key, value });
                     return Ok(());
                 }
@@ -723,7 +694,7 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
                         let content;
                         parenthesized!(content in meta.input);
                         let lit: LitInt = content.parse()?;
-                        let n: usize = lit.base10_parse()?;
+                        let _n: usize = lit.base10_parse()?;
                         nproto_greedy_decode = false;
                     } else {
                         nproto_greedy_decode = false;
@@ -819,7 +790,7 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
         }
     };
 
-    let mut tokens = quote! {
+    let tokens = quote! {
 
         #( #nproto_registries )*
 
@@ -991,7 +962,7 @@ pub fn from_string_hashmap(input: proc_macro::TokenStream) -> proc_macro::TokenS
     let generics = add_trait_bounds(input.generics);
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
-    let mut tokens = quote! {
+    let tokens = quote! {
         impl #impl_generics FromStringHashmap<#name> for #name #ty_generics #where_clause {
             fn from_string_hashmap(mut hm: ::std::collections::HashMap<String, String>) -> #name {
                 // start with the default implementation
@@ -1012,7 +983,7 @@ pub fn from_string_hashmap(input: proc_macro::TokenStream) -> proc_macro::TokenS
 // Add a bound `T: HeapSize` to every type parameter T.
 fn add_trait_bounds(mut generics: Generics) -> Generics {
     for param in &mut generics.params {
-        if let GenericParam::Type(ref mut type_param) = *param {
+        if let GenericParam::Type(ref mut _type_param) = *param {
             // type_param.bounds.push(parse_quote!(heapsize::HeapSize));
         }
     }
@@ -1080,7 +1051,7 @@ fn struct_fields(data: &Data) -> Vec<StructField> {
                         }
                     }
                 }
-                Fields::Unnamed(ref fields) => {
+                Fields::Unnamed(ref _fields) => {
                     // Expands to an expression like
                     //
                     //     0 + self.0.heap_size() + self.1.heap_size() + self.2.heap_size()
@@ -1177,7 +1148,7 @@ fn netproto_struct_fields(default_encoder: &TokenStream, data: &Data) -> Vec<Net
                         // eprintln!("FIELD: {:#?}", f.ty);
                         for attr in &f.attrs {
                             use syn::{
-                                braced, parenthesized, parse_quote, token, ItemStruct, LitInt,
+                                parenthesized, token, LitInt,
                                 Token,
                             };
 
@@ -1198,7 +1169,7 @@ fn netproto_struct_fields(default_encoder: &TokenStream, data: &Data) -> Vec<Net
 
                                     // #[nproto(auto = _expr_)]
                                     if meta.path.is_ident("auto") {
-                                        let eq_token: Option<Token![=]> = meta.input.parse()?;
+                                        let _eq_token: Option<Token![=]> = meta.input.parse()?;
                                         let val_expr: syn::Expr = meta.input.parse()?;
                                         nproto_auto = Some(val_expr.to_token_stream());
                                         return Ok(());
@@ -1206,16 +1177,16 @@ fn netproto_struct_fields(default_encoder: &TokenStream, data: &Data) -> Vec<Net
 
                                     // #[nproto(set = _ident_)]
                                     if meta.path.is_ident("set") {
-                                        let eq_token: Option<Token![=]> = meta.input.parse()?;
+                                        let _eq_token: Option<Token![=]> = meta.input.parse()?;
                                         let val_ident: syn::Ident = meta.input.parse()?;
                                         nproto_set = Some(val_ident);
                                         return Ok(());
                                     }
 
                                     if meta.path.is_ident("next") {
-                                        let eq_token: Option<Token![:]> = meta.input.parse()?;
+                                        let _eq_token: Option<Token![:]> = meta.input.parse()?;
                                         let nxt: syn::Ident = meta.input.parse()?;
-                                        let eq_token: Option<Token![=>]> = meta.input.parse()?;
+                                        let _eq_token: Option<Token![=>]> = meta.input.parse()?;
                                         let nxt_key: syn::Ident = meta.input.parse()?;
                                         nproto_next = Some((nxt, nxt_key));
                                         return Ok(());
@@ -1224,7 +1195,7 @@ fn netproto_struct_fields(default_encoder: &TokenStream, data: &Data) -> Vec<Net
                                     // #[nproto(next_len = _expr_)]
                                     if meta.path.is_ident("next_len") {
 
-                                        let eq_token: Option<Token![=]> = meta.input.parse()?;
+                                        let _eq_token: Option<Token![=]> = meta.input.parse()?;
                                         let val_expr: syn::Expr = meta.input.parse()?;
                                         nproto_next_len_limit = Some(val_expr);
                                         return Ok(());
@@ -1232,7 +1203,7 @@ fn netproto_struct_fields(default_encoder: &TokenStream, data: &Data) -> Vec<Net
 
                                     // #[nproto(encode = _expr_)]
                                     if meta.path.is_ident("encode") {
-                                        let eq_token: Option<Token![=]> = meta.input.parse()?;
+                                        let _eq_token: Option<Token![=]> = meta.input.parse()?;
                                         let val_expr: syn::Expr = meta.input.parse()?;
                                         nproto_encode = Some(val_expr);
                                         return Ok(());
@@ -1240,7 +1211,7 @@ fn netproto_struct_fields(default_encoder: &TokenStream, data: &Data) -> Vec<Net
 
                                     // #[nproto(decode = _expr_)]
                                     if meta.path.is_ident("decode") {
-                                        let eq_token: Option<Token![=]> = meta.input.parse()?;
+                                        let _eq_token: Option<Token![=]> = meta.input.parse()?;
                                         let val_expr: syn::Expr = meta.input.parse()?;
                                         nproto_decode = Some(val_expr);
                                         return Ok(());
@@ -1248,7 +1219,7 @@ fn netproto_struct_fields(default_encoder: &TokenStream, data: &Data) -> Vec<Net
 
                                     // #[nproto(fill = _expr_)]
                                     if meta.path.is_ident("fill") {
-                                        let eq_token: Option<Token![=]> = meta.input.parse()?;
+                                        let _eq_token: Option<Token![=]> = meta.input.parse()?;
                                         let val_expr: syn::Expr = meta.input.parse()?;
                                         nproto_fill = Some(val_expr);
                                         return Ok(());
@@ -1256,7 +1227,7 @@ fn netproto_struct_fields(default_encoder: &TokenStream, data: &Data) -> Vec<Net
 
                                     // #[nproto(default = _expr_)]
                                     if meta.path.is_ident("default") {
-                                        let eq_token: Option<Token![=]> = meta.input.parse()?;
+                                        let _eq_token: Option<Token![=]> = meta.input.parse()?;
                                         let val_expr: syn::Expr = meta.input.parse()?;
                                         nproto_default = Some(val_expr.to_token_stream());
                                         return Ok(());
@@ -1390,7 +1361,7 @@ fn netproto_struct_fields(default_encoder: &TokenStream, data: &Data) -> Vec<Net
                         }
                     }
                 }
-                Fields::Unnamed(ref fields) => {
+                Fields::Unnamed(ref _fields) => {
                     // Expands to an expression like
                     //
                     //     0 + self.0.heap_size() + self.1.heap_size() + self.2.heap_size()
