@@ -524,8 +524,10 @@ impl ToTokens for LayerRegistryEntry {
         let place = self.place.clone();
         let self_value_clone = self.value.clone();
         let self_value = quote! { #self_value_clone }.to_string();
+        let reg_record_string = format!("{}_{}_{}_{}_RegistrationRecord", &name, &place, &self.key, &self_value)
+            .replace(|c: char| !c.is_alphanumeric(), "_");
         let record_name = Ident::new(
-            &format!("{}_{}_{}_{}_RegistrationRecord", &name, &place, &self.key, &self_value),
+            &reg_record_string,
             Span::call_site(),
         );
         let key = self.key.clone();
@@ -546,7 +548,7 @@ impl ToTokens for LayerRegistryEntry {
 struct LayerRegistry {
     place: syn::Ident,
     key: syn::Ident,
-    value: syn::Ident,
+    value: syn::Type,
 }
 impl ToTokens for LayerRegistry {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
@@ -698,7 +700,7 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
                     let key: syn::Ident = content.parse()?;
                     // println!("KEY: {:?}", &key);
                     let _eq_token: Option<Token![:]> = content.parse()?;
-                    let value: syn::Ident = content.parse()?;
+                    let value: syn::Type = content.parse()?;
                     // println!("VAL: {:?}", &value);
                     nproto_registries.push(LayerRegistry { place, key, value });
                     return Ok(());

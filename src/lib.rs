@@ -40,6 +40,7 @@ use crate::Value::Random;
 use rand::distributions::{Distribution, Standard};
 use rand::Rng;
 
+use crate::protocols::snmp::BerTag;
 use linkme::distributed_slice;
 
 use crate::encdec::binary_big_endian::BinaryBigEndian;
@@ -52,6 +53,9 @@ use crate::encdec::binary_big_endian::BinaryBigEndian;
 #[nproto(registry(BOOTP_VENDORS, VendorCookie: u32))]
 #[nproto(registry(OSPF_PACKET_TYPES, PacketType: u8))]
 #[nproto(registry(ICMPV6_TYPES, Type: u8))]
+#[nproto(registry(SNMP_VERSIONS, Version: u8))]
+#[nproto(registry(SNMP_PDUS, Tag: BerTag))]
+
 /* Only here as a target of derive + attribute macros to make registries */
 struct protocolRegistriesSentinel;
 

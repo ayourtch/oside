@@ -1,11 +1,12 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Copy)]
 pub enum Tag {
     Boolean,
     Integer,
     BitString,
     OctetString,
+    #[default]
     Null,
     ObjectIdentifier,
     Sequence,
@@ -13,12 +14,13 @@ pub enum Tag {
     Extended(u32), // For tags >= 31
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Eq, PartialEq)]
 pub enum Value {
     Boolean(bool),
     Integer(i64),
     BitString(Vec<u8>),
     OctetString(Vec<u8>),
+    #[default]
     Null,
     ObjectIdentifier(Vec<u64>),
     Sequence(Vec<ASN1Object>),
@@ -26,10 +28,10 @@ pub enum Value {
     UnknownPrimitive(u8, Vec<u8>),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Eq, PartialEq)]
 pub struct ASN1Object {
-    tag: Tag,
-    value: Value,
+    pub tag: Tag,
+    pub value: Value,
 }
 
 pub struct Parser {

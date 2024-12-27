@@ -1,9 +1,186 @@
-use crate::*;
+use crate::asn1;
+use crate::{Decoder, Encoder};
 
 pub struct Asn1Decoder;
 
 impl Asn1Decoder {
-    fn parse_integer(buf: &[u8], ci: usize) -> Result<(i64, usize), String> {
+    pub fn parse_tag(buf: &[u8], ci: usize) -> Result<(asn1::Tag, usize), String> {
+        use crate::asn1::*;
+        let start = ci;
+        let mut ci = ci;
+        if ci >= buf.len() {
+            return Err("Unexpected end of data while parsing tag".to_string());
+        }
+
+        let first_byte = buf[ci];
+        ci += 1;
+
+        // Check if it's an extended tag (>= 31)
+        if (first_byte & 0x1F) == 0x1F {
+            let mut tag_number: u32 = 0;
+
+            // Parse subsequent octets
+            loop {
+                if ci >= buf.len() {
+                    return Err("Unexpected end of data while parsing extended tag".to_string());
+                }
+
+                let byte = buf[ci];
+                ci += 1;
+
+                tag_number = (tag_number << 7) | ((byte & 0x7F) as u32);
+
+                // Last octet has bit 8 set to zero
+                if (byte & 0x80) == 0 {
+                    break;
+                }
+            }
+            Ok((Tag::Extended(tag_number), ci - start))
+        } else {
+            match first_byte {
+                0x01 => Ok((Tag::Boolean, 1)),
+                0x02 => Ok((Tag::Integer, 1)),
+                0x03 => Ok((Tag::BitString, 1)),
+                0x04 => Ok((Tag::OctetString, 1)),
+                0x05 => Ok((Tag::Null, 1)),
+                0x06 => Ok((Tag::ObjectIdentifier, 1)),
+                0x30 => Ok((Tag::Sequence, 1)),
+                x => Ok((Tag::UnknownTag(x), 1)),
+            }
+        }
+    }
+
+    pub fn parse_tag_and_len(buf: &[u8], ci: usize) -> Option<((asn1::Tag, usize), usize)> {
+        if ci + 2 >= buf.len() {
+            return None;
+        }
+        let start = ci;
+        let mut ci = ci;
+        let (tag, delta) = Self::parse_tag(buf, ci).ok()?;
+        ci += delta;
+        let (new_len, delta) = Self::parse_length(buf, ci).ok()?;
+        Some(((tag, new_len), ci + delta - start))
+    }
+    pub fn parse(buf: &[u8], ci: usize) -> Result<(asn1::ASN1Object, usize), String> {
+        let start = ci;
+        let mut ci = ci;
+        let (tag, delta) = Self::parse_tag(buf, ci)?;
+        ci += delta;
+        let (len, delta) = Self::parse_length(buf, ci)?;
+        ci += delta;
+        let (value, delta) = Self::parse_value(buf, ci, &tag, len)?;
+        ci += delta;
+        Ok((asn1::ASN1Object { tag, value }, ci - start))
+    }
+
+    pub fn parse_value(
+        buf: &[u8],
+        ci: usize,
+        tag: &asn1::Tag,
+        length: usize,
+    ) -> Result<(asn1::Value, usize), String> {
+        use asn1::Tag;
+        let start = ci;
+        let mut ci = ci;
+
+        if ci + length > buf.len() {
+            return Err("Unexpected end of data while parsing value".to_string());
+        }
+
+        let value = match tag {
+            Tag::Boolean => {
+                if length != 1 {
+                    return Err("Invalid boolean length".to_string());
+                }
+                asn1::Value::Boolean(buf[ci] != 0)
+            }
+            Tag::Integer => {
+                let mut value: i64 = 0;
+                let mut is_negative = false;
+
+                if length > 0 {
+                    is_negative = (buf[ci] & 0x80) != 0;
+                    for i in 0..length {
+                        value = (value << 8) | (buf[ci + i] as i64);
+                    }
+                }
+                asn1::Value::Integer(if is_negative {
+                    value | !((1 << (length * 8)) - 1)
+                } else {
+                    value
+                })
+            }
+            Tag::BitString => asn1::Value::BitString(buf[ci..ci + length].to_vec()),
+            Tag::OctetString => asn1::Value::OctetString(buf[ci..ci + length].to_vec()),
+            Tag::Null => {
+                if length != 0 {
+                    return Err("Invalid null length".to_string());
+                }
+                asn1::Value::Null
+            }
+            Tag::ObjectIdentifier => {
+                let mut oid = Vec::new();
+                let mut value: u64 = 0;
+                let mut pos = ci;
+
+                while pos < ci + length {
+                    let byte = buf[pos];
+                    value = (value << 7) | ((byte & 0x7F) as u64);
+                    pos += 1;
+
+                    if byte & 0x80 == 0 {
+                        oid.push(value);
+                        value = 0;
+                    }
+                }
+                asn1::Value::ObjectIdentifier(oid)
+            }
+            Tag::Sequence => {
+                let mut sequence = Vec::new();
+                let mut bytes_read = 0;
+
+                while bytes_read < length {
+                    match Self::parse(buf, ci) {
+                        Ok((obj, delta)) => {
+                            bytes_read += delta;
+                            ci += delta;
+                            sequence.push(obj);
+                        }
+                        Err(e) => return Err(e),
+                    }
+                }
+                asn1::Value::Sequence(sequence)
+            }
+            Tag::UnknownTag(x) => {
+                if x & 0x20 == 0x20 {
+                    let mut sequence = Vec::new();
+                    let mut bytes_read = 0;
+
+                    while bytes_read < length {
+                        match Self::parse(buf, ci) {
+                            Ok((obj, delta)) => {
+                                bytes_read += delta;
+                                ci += delta;
+                                sequence.push(obj);
+                            }
+                            Err(e) => return Err(e),
+                        }
+                    }
+                    asn1::Value::UnknownConstructed(*x, sequence)
+                } else {
+                    asn1::Value::UnknownPrimitive(*x, buf[ci..ci + length].to_vec())
+                }
+            }
+            Tag::Extended(_) => {
+                return Err("Extended tag not yet supported for value parsing".to_string())
+            }
+        };
+
+        ci += length;
+        Ok((value, ci - start))
+    }
+
+    pub fn parse_integer(buf: &[u8], ci: usize) -> Result<(i64, usize), String> {
         let mut value: i64 = 0;
         let mut is_negative = false;
         let mut ci = ci;
@@ -53,7 +230,7 @@ impl Asn1Decoder {
         Ok((&buf[ci..ci + length], ci + length))
     }
 
-    fn parse_length(buf: &[u8], ci: usize) -> Result<(usize, usize), String> {
+    pub fn parse_length(buf: &[u8], ci: usize) -> Result<(usize, usize), String> {
         let start = ci;
         let mut ci = ci;
         if ci >= buf.len() {
@@ -80,25 +257,28 @@ impl Asn1Decoder {
 
         Ok((length, ci - start))
     }
+
+    pub fn parse_oid(buf: &[u8], ci: usize, length: usize) -> Option<(Vec<u64>, usize)> {
+        let mut oid = Vec::new();
+        let mut value: u64 = 0;
+
+        let mut pos = ci;
+
+        while pos < ci + length {
+            let byte = buf[pos];
+            value = (value << 7) | ((byte & 0x7F) as u64);
+            pos += 1;
+
+            if byte & 0x80 == 0 {
+                oid.push(value);
+                value = 0;
+            }
+        }
+        Some((oid, pos - ci))
+    }
 }
 
 impl Decoder for Asn1Decoder {
-    fn pre_decode_seq(buf: &[u8], len: usize) -> Option<(usize, usize)> {
-        if len < 2 {
-            return None;
-        }
-        let tag = buf[0];
-        if tag != 0x30 {
-            return None;
-        }
-        let mut ci = 1;
-        if let Ok((new_len, delta)) = Self::parse_length(buf, ci) {
-            return Some((new_len, ci + delta));
-        }
-        // Could not parse tag + len - refuse parsing further
-        None
-    }
-
     fn decode_u8(buf: &[u8]) -> Option<(u8, usize)> {
         match Self::parse_integer(buf, 0) {
             Ok((value, delta)) => {
@@ -128,14 +308,17 @@ impl Decoder for Asn1Decoder {
         }
     }
     fn decode_u32(buf: &[u8]) -> Option<(u32, usize)> {
-        if buf.len() >= 4 {
-            let v = buf[0] as u32;
-            let v = (v << 8) + buf[1] as u32;
-            let v = (v << 8) + buf[2] as u32;
-            let v = (v << 8) + buf[3] as u32;
-            Some((v, 4))
-        } else {
-            None
+        match Self::parse_integer(buf, 0) {
+            Ok((value, delta)) => {
+                if value < 0 {
+                    return None;
+                }
+                if value > 0x100000000i64 {
+                    return None;
+                }
+                Some((value as u32, delta))
+            }
+            Err(x) => None,
         }
     }
     fn decode_u64(buf: &[u8]) -> Option<(u64, usize)> {

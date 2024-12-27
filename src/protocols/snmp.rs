@@ -20,6 +20,11 @@ impl From<&[u8; 6]> for Community {
         Community(arg.to_vec())
     }
 }
+impl From<&str> for Community {
+    fn from(arg: &str) -> Self {
+        Community(arg.to_string().into_bytes())
+    }
+}
 
 impl Distribution<Community> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Community {
@@ -41,18 +46,291 @@ impl Decode for Community {
     }
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct BerTagAndLen(asn1::Tag, usize);
+
+impl FromStr for BerTagAndLen {
+    type Err = ValueParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        panic!("FIXME");
+        Err(ValueParseError::Error)
+    }
+}
+
+impl From<&[u8; 6]> for BerTagAndLen {
+    fn from(arg: &[u8; 6]) -> Self {
+        Self::default()
+    }
+}
+
+impl Distribution<BerTagAndLen> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> BerTagAndLen {
+        panic!("FIXME!");
+        BerTagAndLen::default()
+    }
+}
+
+impl Decode for BerTagAndLen {
+    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
+        let ((tag, len), delta) = Asn1Decoder::parse_tag_and_len(buf, 0)?;
+        Some((BerTagAndLen(tag, len), delta))
+    }
+}
+
+impl Encode for BerTagAndLen {
+    fn encode<E: Encoder>(&self) -> Vec<u8> {
+        panic!("FIXME");
+        vec![]
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Hash, Copy)]
+pub struct BerTag(asn1::Tag);
+
+impl FromStr for BerTag {
+    type Err = ValueParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        panic!("FIXME");
+        Err(ValueParseError::Error)
+    }
+}
+
+impl From<&[u8; 6]> for BerTag {
+    fn from(arg: &[u8; 6]) -> Self {
+        Self::default()
+    }
+}
+
+impl Distribution<BerTag> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> BerTag {
+        panic!("FIXME!");
+        BerTag::default()
+    }
+}
+
+impl Decode for BerTag {
+    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
+        let (tag, delta) = Asn1Decoder::parse_tag(buf, 0).ok()?;
+        Some((BerTag(tag), delta))
+    }
+}
+
+impl Encode for BerTag {
+    fn encode<E: Encoder>(&self) -> Vec<u8> {
+        panic!("FIXME");
+        vec![]
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct BerLen(usize);
+
+impl FromStr for BerLen {
+    type Err = ValueParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        panic!("FIXME");
+        Err(ValueParseError::Error)
+    }
+}
+
+impl From<&[u8; 6]> for BerLen {
+    fn from(arg: &[u8; 6]) -> Self {
+        Self::default()
+    }
+}
+
+impl Distribution<BerLen> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> BerLen {
+        panic!("FIXME!");
+        BerLen::default()
+    }
+}
+
+impl Decode for BerLen {
+    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
+        let (len, delta) = Asn1Decoder::parse_length(buf, 0).ok()?;
+        Some((BerLen(len), delta))
+    }
+}
+
+impl Encode for BerLen {
+    fn encode<E: Encoder>(&self) -> Vec<u8> {
+        panic!("FIXME");
+        vec![]
+    }
+}
+
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(UDP_SRC_PORT_APPS, SrcPort = 161))]
 #[nproto(register(UDP_DST_PORT_APPS, DstPort = 161))]
 #[nproto(decoder(Asn1Decoder))]
 pub struct Snmp {
+    #[nproto(encode=Skip)] // FIXME
+    pub _seq_tag_len: Value<BerTagAndLen>,
     #[nproto(default = 1)] // 1 == SNMPv2c
+    #[nproto(next: SNMP_VERSIONS => Version )]
     pub version: Value<u8>,
-    // #[nproto(default = b"public", encode=Skip)] // TBD
-    // pub community: Value<Community>,
-    // pub pdu_type: Value<u8>,
-    // pub request_id: Value<i32>,
-    // pub error_status: Value<i32>,
-    // pub error_index: Value<i32>,
+}
+
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(register(SNMP_VERSIONS, Version = 1))]
+#[nproto(decoder(Asn1Decoder))]
+pub struct SnmpV2c {
+    #[nproto(default = "public", encode=Skip)] // TBD
+    pub community: Value<Community>,
+    #[nproto(encode=Skip)] // FIXME
+    #[nproto(next: SNMP_PDUS => Tag)]
+    pub _pdu_tag: Value<BerTag>,
+    pub _pdu_len: Value<BerLen>,
+    /*
+    pub pdu_type: Value<SnmpPduType>,
+    pub request_id: Value<i32>,
+    pub error_status: Value<i32>,
+    pub error_index: Value<i32>,
+    */
     // pub var_bindings: Vec<SnmpVarBind>,
+}
+
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(register(SNMP_PDUS, Tag = BerTag(asn1::Tag::UnknownTag(160))))]
+#[nproto(decoder(Asn1Decoder))]
+pub struct SnmpGet {
+    pub request_id: Value<u32>,
+    pub error_status: Value<i32>,
+    pub error_index: Value<i32>,
+    pub _bindings_tag_len: Value<BerTagAndLen>,
+    pub var_bindings: Vec<SnmpVarBind>,
+}
+
+impl AutoDecodeAsSequence for Vec<SnmpVarBind> {}
+impl AutoEncodeAsSequence for Vec<SnmpVarBind> {}
+
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(register(SNMP_PDUS, Tag = BerTag(asn1::Tag::UnknownTag(161))))]
+#[nproto(decoder(Asn1Decoder))]
+pub struct SnmpGetNext {
+    pub request_id: Value<u32>,
+    pub error_status: Value<i32>,
+    pub error_index: Value<i32>,
+    pub _bindings_tag_len: Value<BerTagAndLen>,
+    pub var_bindings: Vec<SnmpVarBind>,
+}
+
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(register(SNMP_PDUS, Tag = BerTag(asn1::Tag::UnknownTag(162))))]
+#[nproto(decoder(Asn1Decoder))]
+pub struct SnmpGetResponse {
+    pub request_id: Value<u32>,
+    pub error_status: Value<i32>,
+    pub error_index: Value<i32>,
+    pub _bindings_tag_len: Value<BerTagAndLen>,
+    pub var_bindings: Vec<SnmpVarBind>,
+}
+
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(decoder(Asn1Decoder))]
+pub struct SnmpVarBind {
+    pub _bind_tag_len: Value<BerTagAndLen>,
+    pub name: Value<BerOid>,
+    pub value: Value<BerValue>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct BerOid(Vec<u64>);
+
+impl FromStr for BerOid {
+    type Err = ValueParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        //Ok(BerOid(s.to_string().into_bytes()))
+        panic!("FIXME");
+        Ok(Self::default())
+    }
+}
+
+impl From<&[u8; 6]> for BerOid {
+    fn from(arg: &[u8; 6]) -> Self {
+        panic!("FIXME");
+        Self::default()
+    }
+}
+impl From<&str> for BerOid {
+    fn from(arg: &str) -> Self {
+        panic!("FIXME");
+        // BerOid(arg.to_string().into_bytes())
+        Self::default()
+    }
+}
+
+impl Distribution<BerOid> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> BerOid {
+        panic!("FIXME!");
+        BerOid(vec![])
+    }
+}
+
+impl Decode for BerOid {
+    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
+        let mut ci = 0;
+        let ((tag, len), tldelta) = Asn1Decoder::parse_tag_and_len(buf, 0)?;
+        Asn1Decoder::parse_oid(buf, tldelta, len).map(|(oid, delta)| (BerOid(oid), tldelta + delta))
+    }
+}
+
+impl Encode for BerOid {
+    fn encode<E: Encoder>(&self) -> Vec<u8> {
+        panic!("FIXME");
+        vec![]
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct BerValue(asn1::ASN1Object);
+
+impl FromStr for BerValue {
+    type Err = ValueParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        //Ok(BerValue(s.to_string().into_bytes()))
+        panic!("FIXME");
+        Ok(Self::default())
+    }
+}
+
+impl From<&[u8; 6]> for BerValue {
+    fn from(arg: &[u8; 6]) -> Self {
+        panic!("FIXME");
+        Self::default()
+    }
+}
+impl From<&str> for BerValue {
+    fn from(arg: &str) -> Self {
+        panic!("FIXME");
+        // BerValue(arg.to_string().into_bytes())
+        Self::default()
+    }
+}
+
+impl Distribution<BerValue> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> BerValue {
+        panic!("FIXME!");
+        BerValue(Default::default())
+    }
+}
+
+impl Decode for BerValue {
+    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
+        let (out, delta) = Asn1Decoder::parse(buf, 0).ok()?;
+        Some((BerValue(out), delta))
+    }
+}
+
+impl Encode for BerValue {
+    fn encode<E: Encoder>(&self) -> Vec<u8> {
+        panic!("FIXME");
+        vec![]
+    }
 }
