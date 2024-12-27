@@ -2,8 +2,6 @@ use oside::protocols::all::*;
 use oside::protocols::pcap_file::*;
 use oside::*;
 
-use std::convert::TryFrom;
-
 fn get_file_as_byte_vec(filename: &str) -> Vec<u8> {
     use std::fs::File;
     use std::io::Read;

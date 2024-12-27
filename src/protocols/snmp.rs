@@ -46,8 +46,8 @@ impl Decode for Community {
 #[nproto(register(UDP_DST_PORT_APPS, DstPort = 161))]
 #[nproto(decoder(Asn1Decoder))]
 pub struct Snmp {
-    #[nproto(default = 1)]
-    pub version: Value<u8>, // 1 for SNMPv2c
+    #[nproto(default = 1)] // 1 == SNMPv2c
+    pub version: Value<u8>,
     // #[nproto(default = b"public", encode=Skip)] // TBD
     // pub community: Value<Community>,
     // pub pdu_type: Value<u8>,

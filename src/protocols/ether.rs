@@ -21,6 +21,3 @@ pub struct ether {
 fn fill_dmac(layer: &dyn Layer, stack: &LayerStack, my_index: usize) -> MacAddr {
     MacAddr::from("ff:ff:ff:ff:ff:ff")
 }
-fn fill_crc(layer: &dyn Layer, stack: &LayerStack, my_index: usize) -> u32 {
-    0x1234
-}

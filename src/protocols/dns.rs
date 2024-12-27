@@ -137,7 +137,6 @@ impl DnsEncoder {
             if let Some(&offset) = self.compression_map.get(remaining) {
                 result.extend_from_slice(&((offset | 0xC000_u16).to_be_bytes()));
                 return result;
-                break;
             }
 
             if remaining.starts_with('.') {
@@ -546,7 +545,7 @@ fn decode_resource_records<D: Decoder>(
                 }
             }
             DnsType::OPT => DnsRData::OPT(buf[offset..offset + rdlength].to_vec()),
-            _ => DnsRData::Unknown(buf[offset..offset + rdlength].to_vec()),
+            // _ => DnsRData::Unknown(buf[offset..offset + rdlength].to_vec()),
         };
 
         records.push(DnsResourceRecord {

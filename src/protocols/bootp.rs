@@ -11,7 +11,7 @@ const DHCP_COOKIE_VAL: u32 = 0x63825363;
 
 #[derive(FromRepr, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[repr(u8)]
-enum VendorSuboption {
+pub enum VendorSuboption {
     End = 255,
     Pad = 0,
     Unknown(u8, Vec<u8>),

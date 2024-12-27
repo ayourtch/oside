@@ -10,7 +10,7 @@ use std::marker::PhantomData;
 #[macro_use]
 extern crate doc_comment;
 
-fn readme_test() {
+fn _readme_test() {
     doc_comment! {
         include_str!("../README.md"),
         fn readme_test_examples() {}
@@ -647,7 +647,6 @@ impl<'de> Deserialize<'de> for Ipv4Address {
         impl<'de> Visitor<'de> for Ipv4Visitor {
             type Value = Ipv4Address;
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                panic!("TBD1");
                 formatter.write_str("Ipv4Address")
             }
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
@@ -937,7 +936,7 @@ impl Index<TypeId> for LayerStack {
     fn index(&self, type_id: TypeId) -> &Self::Output {
         for ref layer in &self.layers {
             if layer.type_id_is(type_id) {
-                return layer.clone();
+                return layer;
             }
         }
         panic!("Layer not found");
@@ -952,7 +951,7 @@ where
     fn index(&self, typ: T) -> &Self::Output {
         for ref layer in &self.layers {
             if layer.type_id_is(typ.type_id()) {
-                return layer.clone().downcast_ref().unwrap();
+                return layer.downcast_ref().unwrap();
             }
         }
         panic!("Layer not found");
@@ -1030,9 +1029,7 @@ pub trait Layer: Debug + mopa::Any + New {
         use crate::protocols::raw::*;
         let mut layers = vec![];
         if buf.len() > 0 {
-            let layer = raw {
-                data: buf.clone().to_vec(),
-            };
+            let layer = raw { data: buf.to_vec() };
             layers.push(layer.embox());
         }
         LayerStack {
