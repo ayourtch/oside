@@ -237,85 +237,35 @@ impl<T: Serialize> Serialize for Value<T> {
     }
 }
 
-impl<'de, T: Deserialize<'de> + FromStr> Deserialize<'de> for Value<T> {
+impl<'de, T: Deserialize<'de> + std::str::FromStr> Deserialize<'de> for Value<T> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        use serde::de::{self, Error, MapAccess, SeqAccess, Visitor};
+        use serde::de;
 
-        struct ValueVisitor<T>(PhantomData<T>);
-
-        impl<'de, T> Visitor<'de> for ValueVisitor<T>
-        where
-            T: Deserialize<'de> + FromStr,
-        {
-            type Value = Value<T>;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a string '<auto>', '<random>', or a value")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-            where
-                E: Error,
-            {
-                match value {
-                    "<auto>" => Ok(Value::Auto),
-                    "<random>" => Ok(Value::Random),
-                    _ => {
-                        // Try to parse the string as T
-                        T::from_str(value).map(Value::Set).map_err(|_| {
-                            E::custom(format!("Failed to parse '{}' as Set value", value))
-                        })
-                    }
-                }
-            }
-
-            fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
-            where
-                E: Error,
-            {
-                T::deserialize(de::value::I64Deserializer::new(v)).map(Value::Set)
-            }
-
-            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
-            where
-                E: Error,
-            {
-                T::deserialize(de::value::U64Deserializer::new(v)).map(Value::Set)
-            }
-
-            fn visit_f64<E>(self, v: f64) -> Result<Self::Value, E>
-            where
-                E: Error,
-            {
-                T::deserialize(de::value::F64Deserializer::new(v)).map(Value::Set)
-            }
-
-            fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E>
-            where
-                E: Error,
-            {
-                T::deserialize(de::value::BoolDeserializer::new(v)).map(Value::Set)
-            }
-
-            fn visit_seq<A>(self, seq: A) -> Result<Self::Value, A::Error>
-            where
-                A: SeqAccess<'de>,
-            {
-                Deserialize::deserialize(de::value::SeqAccessDeserializer::new(seq)).map(Value::Set)
-            }
-
-            fn visit_map<A>(self, map: A) -> Result<Self::Value, A::Error>
-            where
-                A: MapAccess<'de>,
-            {
-                Deserialize::deserialize(de::value::MapAccessDeserializer::new(map)).map(Value::Set)
-            }
+        // A helper enum to represent the possible forms of input
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum ValueHelper<T> {
+            String(String),
+            Value(T),
         }
 
-        deserializer.deserialize_any(ValueVisitor(PhantomData))
+        // Deserialize into helper enum first
+        match ValueHelper::deserialize(deserializer)? {
+            ValueHelper::String(s) => match s.as_str() {
+                "<auto>" => Ok(Value::Auto),
+                "<random>" => Ok(Value::Random),
+                _ => {
+                    // Try to parse the string as T
+                    T::from_str(&s).map(Value::Set).map_err(|_| {
+                        de::Error::custom(format!("Failed to parse '{}' as Set value", s))
+                    })
+                }
+            },
+            ValueHelper::Value(v) => Ok(Value::Set(v)),
+        }
     }
 }
 
