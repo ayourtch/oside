@@ -377,20 +377,313 @@ impl Decoder for Asn1Decoder {
 }
 
 pub struct Asn1Encoder;
+
+impl Asn1Encoder {
+    // Encode an ASN.1 tag according to DER rules
+    fn encode_tag(tag: &asn1::Tag) -> Vec<u8> {
+        match tag {
+            asn1::Tag::Boolean => vec![0x01],
+            asn1::Tag::Integer => vec![0x02],
+            asn1::Tag::BitString => vec![0x03],
+            asn1::Tag::OctetString => vec![0x04],
+            asn1::Tag::Null => vec![0x05],
+            asn1::Tag::ObjectIdentifier => vec![0x06],
+            asn1::Tag::Sequence => vec![0x30],
+            asn1::Tag::UnknownTag(x) => vec![*x],
+            asn1::Tag::Extended(x) => {
+                let mut result = vec![0x1F]; // Extended tag marker
+                let mut value = *x;
+                let mut bytes = Vec::new();
+
+                // Encode in base-128 with continuation bits
+                loop {
+                    let mut byte = (value & 0x7F) as u8;
+                    value >>= 7;
+                    if !bytes.is_empty() {
+                        byte |= 0x80; // Set continuation bit for all but the last byte
+                    }
+                    bytes.insert(0, byte);
+                    if value == 0 {
+                        break;
+                    }
+                }
+
+                result.extend(bytes);
+                result
+            }
+        }
+    }
+
+    // Encode an entire ASN.1 object
+    pub fn encode_asn1_object(obj: &asn1::ASN1Object) -> Vec<u8> {
+        let mut result = Self::encode_tag(&obj.tag);
+        let value_bytes = Self::encode_value(&obj.value);
+        result.extend(Self::encode_length(value_bytes.len()));
+        result.extend(value_bytes);
+        result
+    }
+
+    // Encode an ASN.1 value
+    fn encode_value(value: &asn1::Value) -> Vec<u8> {
+        match value {
+            asn1::Value::Boolean(b) => vec![if *b { 0xFF } else { 0x00 }],
+            asn1::Value::Integer(i) => {
+                let mut bytes = Vec::new();
+                let mut val = *i;
+
+                // Convert to bytes ensuring proper sign handling
+                if val == 0 {
+                    bytes.push(0);
+                } else {
+                    let is_negative = val < 0;
+                    while val != 0 && val != -1 {
+                        bytes.insert(0, (val & 0xFF) as u8);
+                        val >>= 8;
+                    }
+
+                    // Ensure proper sign bit
+                    if is_negative && (bytes[0] & 0x80) == 0 {
+                        bytes.insert(0, 0xFF);
+                    } else if !is_negative && (bytes[0] & 0x80) != 0 {
+                        bytes.insert(0, 0x00);
+                    }
+                }
+                bytes
+            }
+            asn1::Value::BitString(bytes) => bytes.clone(),
+            asn1::Value::OctetString(bytes) => bytes.clone(),
+            asn1::Value::Null => Vec::new(),
+            asn1::Value::ObjectIdentifier(oid) => {
+                let mut bytes = Vec::new();
+                for (i, &value) in oid.iter().enumerate() {
+                    let mut val = value;
+                    let mut val_bytes = Vec::new();
+
+                    // Encode in base-128 with continuation bits
+                    loop {
+                        let mut byte = (val & 0x7F) as u8;
+                        val >>= 7;
+                        if !val_bytes.is_empty() {
+                            byte |= 0x80;
+                        }
+                        val_bytes.insert(0, byte);
+                        if val == 0 {
+                            break;
+                        }
+                    }
+                    bytes.extend(val_bytes);
+                }
+                bytes
+            }
+            asn1::Value::Sequence(seq) => {
+                let mut bytes = Vec::new();
+                for obj in seq {
+                    bytes.extend(Self::encode_asn1_object(obj));
+                }
+                bytes
+            }
+            asn1::Value::UnknownConstructed(_, seq) => {
+                let mut bytes = Vec::new();
+                for obj in seq {
+                    bytes.extend(Self::encode_asn1_object(obj));
+                }
+                bytes
+            }
+            asn1::Value::UnknownPrimitive(_, bytes) => bytes.clone(),
+        }
+    }
+    // Helper function to encode length in DER format
+    fn encode_length(length: usize) -> Vec<u8> {
+        if length < 128 {
+            // Short form
+            vec![length as u8]
+        } else {
+            // Long form
+            let mut length_bytes = Vec::new();
+            let mut len = length;
+
+            // Convert length to bytes
+            while len > 0 {
+                length_bytes.insert(0, (len & 0xFF) as u8);
+                len >>= 8;
+            }
+
+            // Add number of length bytes with high bit set
+            let mut result = vec![(0x80 | length_bytes.len() as u8)];
+            result.extend(length_bytes);
+            result
+        }
+    }
+
+    // Helper function to encode integers
+    fn encode_integer_bytes(value: u64, force_positive: bool) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        let mut val = value;
+
+        // Convert to bytes
+        while val > 0 {
+            bytes.insert(0, (val & 0xFF) as u8);
+            val >>= 8;
+        }
+
+        // Ensure positive numbers starting with high bit set have a leading zero
+        if force_positive && !bytes.is_empty() && (bytes[0] & 0x80) != 0 {
+            bytes.insert(0, 0);
+        }
+
+        // Handle zero specially
+        if bytes.is_empty() {
+            bytes.push(0);
+        }
+
+        bytes
+    }
+}
+
 impl Encoder for Asn1Encoder {
     fn encode_u8(v1: u8) -> Vec<u8> {
-        panic!("FIXME")
+        let mut result = vec![0x02]; // Integer tag
+        let value_bytes = Self::encode_integer_bytes(v1 as u64, true);
+        result.extend(Self::encode_length(value_bytes.len()));
+        result.extend(value_bytes);
+        result
     }
+
     fn encode_u16(v1: u16) -> Vec<u8> {
-        panic!("FIXME")
+        let mut result = vec![0x02]; // Integer tag
+        let value_bytes = Self::encode_integer_bytes(v1 as u64, true);
+        result.extend(Self::encode_length(value_bytes.len()));
+        result.extend(value_bytes);
+        result
     }
+
     fn encode_u32(v1: u32) -> Vec<u8> {
-        panic!("FIXME")
+        let mut result = vec![0x02]; // Integer tag
+        let value_bytes = Self::encode_integer_bytes(v1 as u64, true);
+        result.extend(Self::encode_length(value_bytes.len()));
+        result.extend(value_bytes);
+        result
     }
+
     fn encode_u64(v1: u64) -> Vec<u8> {
-        panic!("FIXME")
+        let mut result = vec![0x02]; // Integer tag
+        let value_bytes = Self::encode_integer_bytes(v1, true);
+        result.extend(Self::encode_length(value_bytes.len()));
+        result.extend(value_bytes);
+        result
     }
+
     fn encode_vec(v1: &Vec<u8>) -> Vec<u8> {
-        panic!("FIXME")
+        let mut result = vec![0x04]; // OctetString tag
+        result.extend(Self::encode_length(v1.len()));
+        result.extend(v1);
+        result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::asn1::{ASN1Object, Tag, Value};
+    use crate::Decoder;
+
+    #[test]
+    fn test_encode_decode_u8() {
+        let values = vec![0, 1, 127, 128, 255];
+        for value in values {
+            let encoded = Asn1Encoder::encode_u8(value);
+            let (decoded, _) = Asn1Decoder::decode_u8(&encoded).unwrap();
+            assert_eq!(value, decoded);
+        }
+    }
+
+    #[test]
+    fn test_encode_decode_u16() {
+        let values = vec![0, 1, 255, 256, 32767, 32768, 65535];
+        for value in values {
+            let encoded = Asn1Encoder::encode_u16(value);
+            let (decoded, _) = Asn1Decoder::decode_u16(&encoded).unwrap();
+            assert_eq!(value, decoded);
+        }
+    }
+
+    #[test]
+    fn test_encode_decode_u32() {
+        let values = vec![0, 1, 65535, 65536, 2147483647, 2147483648, 4294967295];
+        for value in values {
+            let encoded = Asn1Encoder::encode_u32(value);
+            let (decoded, _) = Asn1Decoder::decode_u32(&encoded).unwrap();
+            assert_eq!(value, decoded);
+        }
+    }
+
+    #[test]
+    fn test_encode_decode_vec() {
+        let test_data = vec![1, 2, 3, 4, 5];
+        let encoded = Asn1Encoder::encode_vec(&test_data);
+        let (decoded, _) = Asn1Decoder::decode_octetstring(&encoded).unwrap();
+        assert_eq!(test_data, decoded);
+    }
+
+    #[test]
+    fn test_encode_length() {
+        // Test short form
+        assert_eq!(Asn1Encoder::encode_length(127), vec![127]);
+
+        // Test long form
+        assert_eq!(Asn1Encoder::encode_length(128), vec![0x81, 128]);
+        assert_eq!(Asn1Encoder::encode_length(256), vec![0x82, 1, 0]);
+    }
+
+    #[test]
+    fn test_encode_tag() {
+        assert_eq!(Asn1Encoder::encode_tag(&Tag::Boolean), vec![0x01]);
+        assert_eq!(Asn1Encoder::encode_tag(&Tag::Integer), vec![0x02]);
+        assert_eq!(Asn1Encoder::encode_tag(&Tag::Sequence), vec![0x30]);
+
+        // Test extended tag
+        assert_eq!(
+            Asn1Encoder::encode_tag(&Tag::Extended(255)),
+            vec![0x1F, 0x81, 0x7F]
+        ); // 255 encoded in base-128 with continuation bit
+    }
+
+    #[test]
+    fn test_encode_decode_asn1_object() {
+        // Test boolean
+        let obj = ASN1Object {
+            tag: Tag::Boolean,
+            value: Value::Boolean(true),
+        };
+        let encoded = Asn1Encoder::encode_asn1_object(&obj);
+        let (decoded, _) = Asn1Decoder::parse(&encoded, 0).unwrap();
+        assert_eq!(obj, decoded);
+
+        // Test integer
+        let obj = ASN1Object {
+            tag: Tag::Integer,
+            value: Value::Integer(12345),
+        };
+        let encoded = Asn1Encoder::encode_asn1_object(&obj);
+        let (decoded, _) = Asn1Decoder::parse(&encoded, 0).unwrap();
+        assert_eq!(obj, decoded);
+
+        // Test sequence
+        let obj = ASN1Object {
+            tag: Tag::Sequence,
+            value: Value::Sequence(vec![
+                ASN1Object {
+                    tag: Tag::Integer,
+                    value: Value::Integer(1),
+                },
+                ASN1Object {
+                    tag: Tag::Boolean,
+                    value: Value::Boolean(true),
+                },
+            ]),
+        };
+        let encoded = Asn1Encoder::encode_asn1_object(&obj);
+        let (decoded, _) = Asn1Decoder::parse(&encoded, 0).unwrap();
+        assert_eq!(obj, decoded);
     }
 }
