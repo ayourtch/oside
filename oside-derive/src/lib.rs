@@ -34,6 +34,7 @@ struct NetprotoStructField {
     fill: Option<syn::Expr>,
     auto: Option<TokenStream>,
     encode: Option<syn::Expr>,
+    post_encode: Option<syn::Expr>,
     decode: Option<syn::Expr>,
     next: Option<(syn::Ident, syn::Ident)>,
     next_len_limit: Option<syn::Expr>,
@@ -97,27 +98,39 @@ impl ToTokens for EncodeNetprotoStructField {
         } else {
             quote! { true }
         };
+            let pe2 = if let Some(post_encode_expr) = &self.0.post_encode {
+                quote! {
+                   #post_encode_expr::<EEE>(self, stack, my_index, &mut out, &skip_points, encoded_data);
+                }
+            } else {
+                quote! {}
+            };
 
         let tk2 = if self.0.is_value {
             quote! {
                 let mut #varname: &#fixed_typ = &self.#name.value();
                 out.extend_from_slice(&#varname.encode::<EEE>());
+                #pe2
             }
         } else {
             quote! {
                 let #varname: &#fixed_typ = &self.#name;
                 out.extend_from_slice(&#varname.encode::<EEE>());
+                #pe2
             }
         };
 
         let tk2 = if let Some(encode_expr) = &self.0.encode {
             if &encode_expr.to_token_stream().to_string() == "Skip" {
-                quote! {}
+                quote! {
+                    skip_points.push(out.len());
+                }
             } else {
                 quote! {
                     if (#encdec_condition) {
                         let #varname: Vec<u8> = #encode_expr::<EEE>(self, stack, my_index, encoded_data);
                         out.extend_from_slice(&#varname);
+                        #pe2
                     }
                 }
             }
@@ -858,7 +871,9 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
                 let layer = self;
                 type EEE = #encoder_ident;
                 let mut out: Vec<u8> = vec![];
+                let mut skip_points: Vec<usize> = vec![];
                 #(#encode_fields_idents)*
+
                 out
             }
         }
@@ -902,6 +917,7 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
                 let stack = &stack;
                 let my_index = 0;
                 let mut out: Vec<u8> = vec![];
+                let mut skip_points: Vec<usize> = vec![];
                 #(#encode_fields_idents)*
                 out
             }
@@ -1222,6 +1238,7 @@ fn netproto_struct_fields(default_encoder: &TokenStream, data: &Data) -> Vec<Net
                         let mut nproto_fill = None::<syn::Expr>;
                         let mut nproto_auto = None::<TokenStream>;
                         let mut nproto_encode = None::<syn::Expr>;
+                        let mut nproto_post_encode = None::<syn::Expr>;
                         let mut nproto_next = None::<(syn::Ident, syn::Ident)>;
                         let mut nproto_next_len_limit = None::<syn::Expr>;
                         let mut nproto_decode = None::<syn::Expr>;
@@ -1289,6 +1306,14 @@ fn netproto_struct_fields(default_encoder: &TokenStream, data: &Data) -> Vec<Net
                                         let _eq_token: Option<Token![=]> = meta.input.parse()?;
                                         let val_expr: syn::Expr = meta.input.parse()?;
                                         nproto_encode = Some(val_expr);
+                                        return Ok(());
+                                    }
+
+                                    // #[nproto(post_encode = _expr_)]
+                                    if meta.path.is_ident("post_encode") {
+                                        let _eq_token: Option<Token![=]> = meta.input.parse()?;
+                                        let val_expr: syn::Expr = meta.input.parse()?;
+                                        nproto_post_encode = Some(val_expr);
                                         return Ok(());
                                     }
 
@@ -1373,6 +1398,7 @@ fn netproto_struct_fields(default_encoder: &TokenStream, data: &Data) -> Vec<Net
                                     auto: nproto_auto,
                                     fill: nproto_fill,
                                     encode: nproto_encode,
+                                    post_encode: nproto_post_encode,
                                     next: nproto_next,
                                     next_len_limit: nproto_next_len_limit,
                                     decode: nproto_decode,
@@ -1393,6 +1419,7 @@ fn netproto_struct_fields(default_encoder: &TokenStream, data: &Data) -> Vec<Net
                                     auto: nproto_auto,
                                     fill: nproto_fill,
                                     encode: nproto_encode,
+                                    post_encode: nproto_post_encode,
                                     next: nproto_next,
                                     next_len_limit: nproto_next_len_limit,
                                     decode: nproto_decode,
@@ -1413,6 +1440,7 @@ fn netproto_struct_fields(default_encoder: &TokenStream, data: &Data) -> Vec<Net
                                     auto: nproto_auto,
                                     fill: nproto_fill,
                                     encode: nproto_encode,
+                                    post_encode: nproto_post_encode,
                                     next: nproto_next,
                                     next_len_limit: nproto_next_len_limit,
                                     decode: nproto_decode,
@@ -1431,6 +1459,7 @@ fn netproto_struct_fields(default_encoder: &TokenStream, data: &Data) -> Vec<Net
                                     auto: nproto_auto,
                                     fill: nproto_fill,
                                     encode: nproto_encode,
+                                    post_encode: nproto_post_encode,
                                     next: nproto_next,
                                     next_len_limit: nproto_next_len_limit,
                                     decode: nproto_decode,

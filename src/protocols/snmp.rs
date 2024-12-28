@@ -177,7 +177,7 @@ impl Encode for BerLen {
 #[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
 pub struct Snmp {
     pub _seq_tag_len: Value<BerTagAndLen>,
-    #[nproto(default = 1)] // 1 == SNMPv2c
+    //#[nproto(default = 1)] // 1 == SNMPv2c
     #[nproto(next: SNMP_VERSIONS => Version )]
     pub version: Value<u8>,
 }
@@ -232,9 +232,29 @@ pub struct SnmpGetResponse {
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
 pub struct SnmpVarBind {
+    #[nproto(encode = Skip)]
     pub _bind_tag_len: Value<BerTagAndLen>,
     pub name: Value<BerOid>,
+    #[nproto(post_encode = post_encode_bind_tag_len)]
     pub value: Value<BerValue>,
+}
+
+fn post_encode_bind_tag_len<E: Encoder>(
+    me: &SnmpVarBind,
+    stack: &LayerStack,
+    my_index: usize,
+    out: &mut Vec<u8>,
+    skip_points: &Vec<usize>,
+    encoded_data: &EncodingVecVec,
+) {
+    use std::convert::TryInto;
+    let bind_tag_len = if !me._bind_tag_len.is_auto() {
+        me._bind_tag_len.value()
+    } else {
+        BerTagAndLen(asn1::Tag::Sequence, out.len())
+    };
+    let bytes = bind_tag_len.encode::<E>();
+    out.splice(0..0, bytes);
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
