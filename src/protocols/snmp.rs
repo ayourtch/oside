@@ -168,7 +168,6 @@ impl Encode for BerLen {
 #[nproto(register(UDP_DST_PORT_APPS, DstPort = 161))]
 #[nproto(decoder(Asn1Decoder))]
 pub struct Snmp {
-    #[nproto(encode=Skip)] // FIXME
     pub _seq_tag_len: Value<BerTagAndLen>,
     #[nproto(default = 1)] // 1 == SNMPv2c
     #[nproto(next: SNMP_VERSIONS => Version )]
@@ -181,17 +180,9 @@ pub struct Snmp {
 pub struct SnmpV2c {
     #[nproto(default = "public", encode=Skip)] // TBD
     pub community: Value<Community>,
-    #[nproto(encode=Skip)] // FIXME
     #[nproto(next: SNMP_PDUS => Tag)]
     pub _pdu_tag: Value<BerTag>,
     pub _pdu_len: Value<BerLen>,
-    /*
-    pub pdu_type: Value<SnmpPduType>,
-    pub request_id: Value<i32>,
-    pub error_status: Value<i32>,
-    pub error_index: Value<i32>,
-    */
-    // pub var_bindings: Vec<SnmpVarBind>,
 }
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

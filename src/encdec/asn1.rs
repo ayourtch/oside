@@ -209,6 +209,35 @@ impl Asn1Decoder {
         };
         Ok((out, ci + length))
     }
+    pub fn parse_integer_u64(buf: &[u8], ci: usize) -> Result<(u64, usize), String> {
+        let mut value: u64 = 0;
+        let mut is_negative = false;
+        let mut ci = ci;
+        if ci + 2 >= buf.len() {
+            return Err("Buffer too short".to_string());
+        }
+        if buf[ci] != 0x02 {
+            // tag is not integer
+            return Err(format!("Wrong tag - not integer, but 0x{:02x}", buf[ci]));
+        }
+        ci += 1;
+        let (length, delta) = Self::parse_length(buf, ci)?;
+        ci += delta;
+
+        if length > 0 {
+            is_negative = (buf[ci] & 0x80) != 0;
+            for i in 0..length {
+                value = (value << 8) | (buf[ci + i] as u64);
+            }
+        }
+
+        let out = if is_negative {
+            return Err(format!("Negative number when expected an unsigned integer"));
+        } else {
+            value
+        };
+        Ok((out, ci + length))
+    }
     fn parse_octetstring(buf: &[u8], ci: usize) -> Result<(&[u8], usize), String> {
         let mut value: i64 = 0;
         let mut is_negative = false;
@@ -322,18 +351,9 @@ impl Decoder for Asn1Decoder {
         }
     }
     fn decode_u64(buf: &[u8]) -> Option<(u64, usize)> {
-        if buf.len() >= 8 {
-            let v = buf[0] as u64;
-            let v = (v << 8) + buf[1] as u64;
-            let v = (v << 8) + buf[2] as u64;
-            let v = (v << 8) + buf[3] as u64;
-            let v = (v << 8) + buf[4] as u64;
-            let v = (v << 8) + buf[5] as u64;
-            let v = (v << 8) + buf[6] as u64;
-            let v = (v << 8) + buf[7] as u64;
-            Some((v, 8))
-        } else {
-            None
+        match Self::parse_integer_u64(buf, 0) {
+            Ok((value, delta)) => Some((value, delta)),
+            Err(x) => None,
         }
     }
     fn decode_vec(buf: &[u8], len: usize) -> Option<(Vec<u8>, usize)> {
@@ -359,33 +379,18 @@ impl Decoder for Asn1Decoder {
 pub struct Asn1Encoder;
 impl Encoder for Asn1Encoder {
     fn encode_u8(v1: u8) -> Vec<u8> {
-        let o0 = v1;
-        vec![o0]
+        panic!("FIXME")
     }
     fn encode_u16(v1: u16) -> Vec<u8> {
-        let o0 = (v1 >> 8) as u8;
-        let o1 = (v1 & 0xff) as u8;
-        vec![o0, o1]
+        panic!("FIXME")
     }
     fn encode_u32(v1: u32) -> Vec<u8> {
-        let o0 = ((v1 >> 24) & 0xff) as u8;
-        let o1 = ((v1 >> 16) & 0xff) as u8;
-        let o2 = ((v1 >> 8) & 0xff) as u8;
-        let o3 = ((v1 >> 0) & 0xff) as u8;
-        vec![o0, o1, o2, o3]
+        panic!("FIXME")
     }
     fn encode_u64(v1: u64) -> Vec<u8> {
-        let o0 = ((v1 >> 56) & 0xff) as u8;
-        let o1 = ((v1 >> 48) & 0xff) as u8;
-        let o2 = ((v1 >> 40) & 0xff) as u8;
-        let o3 = ((v1 >> 32) & 0xff) as u8;
-        let o4 = ((v1 >> 24) & 0xff) as u8;
-        let o5 = ((v1 >> 16) & 0xff) as u8;
-        let o6 = ((v1 >> 8) & 0xff) as u8;
-        let o7 = ((v1 >> 0) & 0xff) as u8;
-        vec![o0, o1, o2, o3, o4, o5, o6, o7]
+        panic!("FIXME")
     }
     fn encode_vec(v1: &Vec<u8>) -> Vec<u8> {
-        v1.clone()
+        panic!("FIXME")
     }
 }
