@@ -806,6 +806,12 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
         Ident::new(&format!("BinaryBigEndian"), Span::call_site())
     };
 
+    let encoder_ident = if let Some(encoder_type) = encoder_type {
+        encoder_type
+    } else {
+        Ident::new(&format!("BinaryBigEndian"), Span::call_site())
+    };
+
     let post_decode_code = if let Some(post_decode) = post_decode {
         quote! { #post_decode }
     } else {
@@ -850,7 +856,7 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
         quote! {
             fn lencode(&self, stack: &LayerStack, my_index: usize, encoded_data: &EncodingVecVec) -> Vec<u8> {
                 let layer = self;
-                type EEE = BinaryBigEndian;
+                type EEE = #encoder_ident;
                 let mut out: Vec<u8> = vec![];
                 #(#encode_fields_idents)*
                 out

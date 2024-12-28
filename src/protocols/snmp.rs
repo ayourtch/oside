@@ -1,4 +1,5 @@
 use crate::encdec::asn1::Asn1Decoder;
+use crate::encdec::asn1::Asn1Encoder;
 use crate::typ::string::FixedSizeString;
 use crate::*;
 use serde::{Deserialize, Serialize};
@@ -46,6 +47,12 @@ impl Decode for Community {
     }
 }
 
+impl Encode for Community {
+    fn encode<E: Encoder>(&self) -> Vec<u8> {
+        E::encode_vec(&self.0)
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct BerTagAndLen(asn1::Tag, usize);
 
@@ -80,8 +87,11 @@ impl Decode for BerTagAndLen {
 
 impl Encode for BerTagAndLen {
     fn encode<E: Encoder>(&self) -> Vec<u8> {
-        panic!("FIXME");
-        vec![]
+        let tag = &self.0;
+        let len = &self.1;
+        let mut out = Asn1Encoder::encode_tag(tag);
+        out.extend(Asn1Encoder::encode_length(*len));
+        out
     }
 }
 
@@ -119,8 +129,7 @@ impl Decode for BerTag {
 
 impl Encode for BerTag {
     fn encode<E: Encoder>(&self) -> Vec<u8> {
-        panic!("FIXME");
-        vec![]
+        Asn1Encoder::encode_tag(&self.0)
     }
 }
 
@@ -158,15 +167,14 @@ impl Decode for BerLen {
 
 impl Encode for BerLen {
     fn encode<E: Encoder>(&self) -> Vec<u8> {
-        panic!("FIXME");
-        vec![]
+        Asn1Encoder::encode_length(self.0)
     }
 }
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(UDP_SRC_PORT_APPS, SrcPort = 161))]
 #[nproto(register(UDP_DST_PORT_APPS, DstPort = 161))]
-#[nproto(decoder(Asn1Decoder))]
+#[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
 pub struct Snmp {
     pub _seq_tag_len: Value<BerTagAndLen>,
     #[nproto(default = 1)] // 1 == SNMPv2c
@@ -176,9 +184,9 @@ pub struct Snmp {
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(SNMP_VERSIONS, Version = 1))]
-#[nproto(decoder(Asn1Decoder))]
+#[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
 pub struct SnmpV2c {
-    #[nproto(default = "public", encode=Skip)] // TBD
+    #[nproto(default = "public")]
     pub community: Value<Community>,
     #[nproto(next: SNMP_PDUS => Tag)]
     pub _pdu_tag: Value<BerTag>,
@@ -187,7 +195,7 @@ pub struct SnmpV2c {
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(SNMP_PDUS, Tag = BerTag(asn1::Tag::UnknownTag(160))))]
-#[nproto(decoder(Asn1Decoder))]
+#[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
 pub struct SnmpGet {
     pub request_id: Value<u32>,
     pub error_status: Value<i32>,
@@ -201,7 +209,7 @@ impl AutoEncodeAsSequence for Vec<SnmpVarBind> {}
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(SNMP_PDUS, Tag = BerTag(asn1::Tag::UnknownTag(161))))]
-#[nproto(decoder(Asn1Decoder))]
+#[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
 pub struct SnmpGetNext {
     pub request_id: Value<u32>,
     pub error_status: Value<i32>,
@@ -212,7 +220,7 @@ pub struct SnmpGetNext {
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(SNMP_PDUS, Tag = BerTag(asn1::Tag::UnknownTag(162))))]
-#[nproto(decoder(Asn1Decoder))]
+#[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
 pub struct SnmpGetResponse {
     pub request_id: Value<u32>,
     pub error_status: Value<i32>,
@@ -222,7 +230,7 @@ pub struct SnmpGetResponse {
 }
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[nproto(decoder(Asn1Decoder))]
+#[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
 pub struct SnmpVarBind {
     pub _bind_tag_len: Value<BerTagAndLen>,
     pub name: Value<BerOid>,
@@ -273,8 +281,11 @@ impl Decode for BerOid {
 
 impl Encode for BerOid {
     fn encode<E: Encoder>(&self) -> Vec<u8> {
-        panic!("FIXME");
-        vec![]
+        let oid_bytes = Asn1Encoder::encode_oid(&self.0);
+        let mut out = Asn1Encoder::encode_tag(&asn1::Tag::ObjectIdentifier);
+        out.extend(Asn1Encoder::encode_length(oid_bytes.len()));
+        out.extend(oid_bytes);
+        out
     }
 }
 
@@ -321,7 +332,6 @@ impl Decode for BerValue {
 
 impl Encode for BerValue {
     fn encode<E: Encoder>(&self) -> Vec<u8> {
-        panic!("FIXME");
-        vec![]
+        Asn1Encoder::encode_asn1_object(&self.0)
     }
 }

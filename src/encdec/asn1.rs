@@ -380,7 +380,7 @@ pub struct Asn1Encoder;
 
 impl Asn1Encoder {
     // Encode an ASN.1 tag according to DER rules
-    fn encode_tag(tag: &asn1::Tag) -> Vec<u8> {
+    pub fn encode_tag(tag: &asn1::Tag) -> Vec<u8> {
         match tag {
             asn1::Tag::Boolean => vec![0x01],
             asn1::Tag::Integer => vec![0x02],
@@ -423,8 +423,31 @@ impl Asn1Encoder {
         result
     }
 
+    pub fn encode_oid(oid: &Vec<u64>) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        for (i, &value) in oid.iter().enumerate() {
+            let mut val = value;
+            let mut val_bytes = Vec::new();
+
+            // Encode in base-128 with continuation bits
+            loop {
+                let mut byte = (val & 0x7F) as u8;
+                val >>= 7;
+                if !val_bytes.is_empty() {
+                    byte |= 0x80;
+                }
+                val_bytes.insert(0, byte);
+                if val == 0 {
+                    break;
+                }
+            }
+            bytes.extend(val_bytes);
+        }
+        bytes
+    }
+
     // Encode an ASN.1 value
-    fn encode_value(value: &asn1::Value) -> Vec<u8> {
+    pub fn encode_value(value: &asn1::Value) -> Vec<u8> {
         match value {
             asn1::Value::Boolean(b) => vec![if *b { 0xFF } else { 0x00 }],
             asn1::Value::Integer(i) => {
@@ -493,7 +516,7 @@ impl Asn1Encoder {
         }
     }
     // Helper function to encode length in DER format
-    fn encode_length(length: usize) -> Vec<u8> {
+    pub fn encode_length(length: usize) -> Vec<u8> {
         if length < 128 {
             // Short form
             vec![length as u8]
@@ -516,7 +539,7 @@ impl Asn1Encoder {
     }
 
     // Helper function to encode integers
-    fn encode_integer_bytes(value: u64, force_positive: bool) -> Vec<u8> {
+    pub fn encode_integer_bytes(value: u64, force_positive: bool) -> Vec<u8> {
         let mut bytes = Vec::new();
         let mut val = value;
 
