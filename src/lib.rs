@@ -1075,6 +1075,27 @@ pub mod encdec;
 pub mod protocols;
 pub mod typ;
 
+pub fn update_inet_sum_with_carry(sum: u32, data: &[u8], carry: Option<u8>) -> (u32, Option<u8>) {
+    let mut sum: u32 = sum;
+    let mut i = 0;
+    if let Some(cval) = carry {
+        sum += ((cval as u32) << 8);
+        if i < data.len() {
+            sum += data[i] as u32;
+            i += 1;
+        }
+    }
+    while i + 1 < data.len() {
+        sum += (data[i + 1] as u32) | ((data[i] as u32) << 8);
+        i += 2;
+    }
+    if i > data.len() {
+        panic!("Overrun");
+    }
+    let carry: Option<u8> = if i < data.len() { Some(data[i]) } else { None };
+    (sum, carry)
+}
+
 pub fn update_inet_sum(sum: u32, data: &[u8]) -> u32 {
     let mut sum: u32 = sum;
     let mut i = 0;

@@ -90,9 +90,12 @@ fn encode_udp_chksum<E: Encoder>(
 
             let mut sum = update_inet_sum(sum, &encoded_udp_header);
             // eprintln!("CHECKSUM B4 data: {:04x}", sum);
-            for i in my_index + 1..encoded_data.len() {
-                sum = update_inet_sum(sum, &encoded_data[i]);
+            let mut carry: Option<u8> = None;
+            // Have to do from outermost to innermost payload, to account for a carry byte
+            for i in (my_index + 1..encoded_data.len()).rev() {
+                (sum, carry) = update_inet_sum_with_carry(sum, &encoded_data[i], carry);
             }
+            (sum, carry) = update_inet_sum_with_carry(sum, &vec![], carry);
             let sum = fold_u32(sum);
             // eprintln!("CHECKSUM: {:04x}", sum);
             sum.encode::<E>()
@@ -103,9 +106,12 @@ fn encode_udp_chksum<E: Encoder>(
             let sum = update_inet_sum(sum, &total_len.encode::<E>());
 
             let mut sum = update_inet_sum(sum, &encoded_udp_header);
-            for i in my_index + 1..encoded_data.len() {
-                sum = update_inet_sum(sum, &encoded_data[i]);
+            let mut carry: Option<u8> = None;
+            // Have to do from outermost to innermost payload, to account for a carry byte
+            for i in (my_index + 1..encoded_data.len()).rev() {
+                (sum, carry) = update_inet_sum_with_carry(sum, &encoded_data[i], carry);
             }
+            (sum, carry) = update_inet_sum_with_carry(sum, &vec![], carry);
             let sum = fold_u32(sum);
             sum.encode::<E>()
         } else {
