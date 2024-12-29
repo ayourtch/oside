@@ -22,6 +22,10 @@ struct StructField {
     name: Ident,
     conv: Ident,
 }
+#[derive(Debug, Clone)]
+struct NetprotoUnnamedField {
+    ty: TokenStream,
+}
 
 #[derive(Debug, Clone)]
 struct NetprotoStructField {
@@ -297,10 +301,15 @@ impl ToTokens for FillNetprotoStructField {
             quote! {}
         };
 
+        let mut is_auto_fill = false;
+
         let fill_func = if let Some(fill_tok) = self.0.fill.clone() {
             let fill_expr = {
                 match fill_tok {
                     syn::Expr::Path(ppp) => {
+                        if ppp.clone().to_token_stream().to_string() == format!("auto") {
+                           is_auto_fill = true;
+                        }
                         quote! {
                             #ppp(&out, stack, my_index)
                         }
@@ -312,7 +321,11 @@ impl ToTokens for FillNetprotoStructField {
                     }
                 }
             };
-            let set_statement = if self.0.add_conversion {
+            let set_statement = if is_auto_fill {
+                // do nothing
+                quote!{}
+            } else {
+                if self.0.add_conversion {
                 quote! {
                     let #varname = #fill_expr;
                     out.#name = Value::Set(#varname.into());
@@ -322,6 +335,7 @@ impl ToTokens for FillNetprotoStructField {
                     let #varname = #fill_expr;
                     // out = out.#name(#varname);
                 }
+            }
             };
             quote! {
                 match &out.#name {
@@ -780,7 +794,7 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
     let make_name_layer = Ident::new(&format!("make_{}_layer", &name), Span::call_site());
     let varname = Ident::new(&format!("__{}", &name), Span::call_site());
 
-    let idents = netproto_struct_fields(&nproto_encoder, &input.data);
+    let (idents, unnamed_idents) = netproto_struct_fields(&nproto_encoder, &input.data);
     let def_idents = vec_newtype!(idents, ImplDefaultNetprotoStructField);
     let field_methods_idents = vec_newtype!(idents, FieldMethodsNetprotoStructField);
     let fill_fields_idents = vec_newtype!(idents, FillNetprotoStructField);
@@ -793,6 +807,46 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
                     // $ip.$ident(TryFrom::try_from($e).unwrap().into());
                     $ip = $ip.$ident($e);
     };
+
+    let default_value = if unnamed_idents.len() > 0 {
+        let subtype = unnamed_idents[0].ty.clone();
+        quote! {
+                #name (#subtype::default())
+        }
+    } else {
+        quote! {
+                #name {
+                    #(
+                        #def_idents
+                    )*
+                }
+        }
+    };
+
+    let unnamed_encode_expr = if unnamed_idents.len() > 0 {
+        quote! {
+            out = self.0.lencode(stack, my_index, encoded_data);
+        }
+    } else {
+        quote! {}
+    };
+
+    let unnamed_decode_expr = if unnamed_idents.len() > 0 {
+        let subtype = unnamed_idents[0].ty.clone();
+        quote! {
+                    if let Some((dec, delta)) = self.0.ldecode(&buf) {
+                        layers[0].downcast_mut::<#name>().unwrap().0 = dec.layers[0].downcast_ref::<#subtype>().unwrap().clone();
+                        let mut down_layers = dec.layers[1..].to_vec();
+                        layers.append(&mut down_layers);
+                        ci += delta;
+                    } else {
+                        return None;
+                    }
+        }
+    } else {
+        quote! {}
+    };
+
 
     let greedy_decode_code = if nproto_greedy_decode {
         quote! {
@@ -851,9 +905,12 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
 
                 #(#decode_fields_idents)*
 
+
                 let mut layers = vec![layer.embox()];
 
                 #(#chained_fields_idents)*
+
+                #unnamed_decode_expr
 
                 #greedy_decode_code
 
@@ -873,6 +930,8 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
                 let mut out: Vec<u8> = vec![];
                 let mut skip_points: Vec<usize> = vec![];
                 #(#encode_fields_idents)*
+
+                #unnamed_encode_expr
 
                 out
             }
@@ -929,6 +988,7 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
             fn encode_with_encoder<EEE: Encoder>(&self, stack: &LayerStack, my_index: usize, encoded_data: &EncodingVecVec) -> Vec<u8> {
                 let layer = self;
                 let mut out: Vec<u8> = vec![];
+                let mut skip_points: Vec<usize> = vec![];
                 #(#encode_fields_idents)*
                 out
             }
@@ -965,11 +1025,7 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
 
         impl Default for #name {
             fn default() -> Self {
-                #name {
-                    #(
-                        #def_idents
-                    )*
-                }
+                #default_value
             }
         }
 
@@ -983,6 +1039,7 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
             }
             fn fill(&self, stack: &LayerStack, my_index: usize, out_stack: &mut LayerStack) {
                 let mut out: #name = self.clone();
+                let mut skip_points: Vec<usize> = vec![];
                 #(#fill_fields_idents)*
                 out_stack.layers.push(Box::new(out))
             }
@@ -1171,7 +1228,7 @@ fn struct_fields(data: &Data) -> Vec<StructField> {
     out
 }
 
-fn netproto_struct_fields(default_encoder: &TokenStream, data: &Data) -> Vec<NetprotoStructField> {
+fn netproto_struct_fields(default_encoder: &TokenStream, data: &Data) -> (Vec<NetprotoStructField>, Vec<NetprotoUnnamedField>) {
     fn path_is_option(path: &Path) -> bool {
         path.leading_colon.is_none()
             && path.segments.len() == 1
@@ -1228,6 +1285,7 @@ fn netproto_struct_fields(default_encoder: &TokenStream, data: &Data) -> Vec<Net
     }
 
     let mut out = vec![];
+    let mut unnamed_out = vec![];
 
     match *data {
         Data::Struct(ref data) => {
@@ -1473,25 +1531,20 @@ fn netproto_struct_fields(default_encoder: &TokenStream, data: &Data) -> Vec<Net
                         }
                     }
                 }
-                Fields::Unnamed(ref _fields) => {
-                    // Expands to an expression like
-                    //
-                    //     0 + self.0.heap_size() + self.1.heap_size() + self.2.heap_size()
-                    /*
-                    let recurse = fields.unnamed.iter().enumerate().map(|(i, f)| {
-                        let index = Index::from(i);
-                        quote_spanned! {f.span()=>
-                            heapsize::HeapSize::heap_size_of_children(&self.#index)
-                        }
-                    });
-                    */
+                Fields::Unnamed(ref fields) => {
+                    for f in &fields.unnamed {
+                        unnamed_out.push(NetprotoUnnamedField {
+                            ty: f.ty.clone().to_token_stream(),
+                        });
+                    }
                 }
-                Fields::Unit => {}
+                Fields::Unit => {
+                }
             }
         }
         Data::Enum(_) | Data::Union(_) => unimplemented!(),
     }
-    out
+    (out, unnamed_out)
 }
 
 fn debug_print_generated(ast: &DeriveInput, toks: &TokenStream) {

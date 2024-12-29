@@ -51,7 +51,7 @@ impl Asn1Decoder {
     }
 
     pub fn parse_tag_and_len(buf: &[u8], ci: usize) -> Option<((asn1::Tag, usize), usize)> {
-        if ci + 2 >= buf.len() {
+        if ci + 2 > buf.len() {
             return None;
         }
         let start = ci;
@@ -242,7 +242,7 @@ impl Asn1Decoder {
         let mut value: i64 = 0;
         let mut is_negative = false;
         let mut ci = ci;
-        if ci + 2 >= buf.len() {
+        if ci + 2 > buf.len() {
             return Err("Buffer too short".to_string());
         }
         if buf[ci] != 0x04 {

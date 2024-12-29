@@ -54,7 +54,7 @@ impl Encode for Community {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-pub struct BerTagAndLen(asn1::Tag, usize);
+pub struct BerTagAndLen(pub asn1::Tag, pub usize);
 
 impl FromStr for BerTagAndLen {
     type Err = ValueParseError;
@@ -134,7 +134,7 @@ impl Encode for BerTag {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-pub struct BerLen(usize);
+pub struct BerLen(pub usize);
 
 impl FromStr for BerLen {
     type Err = ValueParseError;
@@ -176,10 +176,37 @@ impl Encode for BerLen {
 #[nproto(register(UDP_DST_PORT_APPS, DstPort = 161))]
 #[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
 pub struct Snmp {
+    #[nproto(encode=Skip, fill=auto)]
     pub _seq_tag_len: Value<BerTagAndLen>,
     //#[nproto(default = 1)] // 1 == SNMPv2c
     #[nproto(next: SNMP_VERSIONS => Version )]
+    #[nproto(post_encode = post_encode_seq_tag_len)]
     pub version: Value<u8>,
+}
+
+fn post_encode_seq_tag_len<E: Encoder>(
+    me: &Snmp,
+    stack: &LayerStack,
+    my_index: usize,
+    out: &mut Vec<u8>,
+    skip_points: &Vec<usize>,
+    encoded_data: &EncodingVecVec,
+) {
+    use std::convert::TryInto;
+    let mut skip_point = skip_points;
+    let old_len = skip_points[0];
+    let mut out_len = 0;
+    for i in my_index + 1..encoded_data.len() {
+        out_len += encoded_data[i].len();
+    }
+    let seq_tag_len = if !me._seq_tag_len.is_auto() {
+        me._seq_tag_len.value()
+    } else {
+        BerTagAndLen(asn1::Tag::Sequence, out_len - old_len)
+    };
+    // find out the length of inner layers
+    let bytes = seq_tag_len.encode::<E>();
+    out.splice(old_len..old_len, bytes);
 }
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -190,44 +217,78 @@ pub struct SnmpV2c {
     pub community: Value<Community>,
     #[nproto(next: SNMP_PDUS => Tag)]
     pub _pdu_tag: Value<BerTag>,
+    #[nproto(encode = encode_pdu_len, fill=auto)]
     pub _pdu_len: Value<BerLen>,
+}
+
+fn encode_pdu_len<E: Encoder>(
+    me: &SnmpV2c,
+    stack: &LayerStack,
+    my_index: usize,
+    encoded_data: &EncodingVecVec,
+) -> Vec<u8> {
+    let mut out_len = 0;
+    for i in my_index + 1..encoded_data.len() {
+        out_len += encoded_data[i].len();
+    }
+    let pdu_len = if !me._pdu_len.is_auto() {
+        me._pdu_len.value()
+    } else {
+        BerLen(out_len)
+    };
+    let bytes = pdu_len.encode::<E>();
+    bytes
 }
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(SNMP_PDUS, Tag = BerTag(asn1::Tag::UnknownTag(160))))]
 #[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
-pub struct SnmpGet {
-    pub request_id: Value<u32>,
-    pub error_status: Value<i32>,
-    pub error_index: Value<i32>,
-    pub _bindings_tag_len: Value<BerTagAndLen>,
-    pub var_bindings: Vec<SnmpVarBind>,
-}
-
-impl AutoDecodeAsSequence for Vec<SnmpVarBind> {}
-impl AutoEncodeAsSequence for Vec<SnmpVarBind> {}
+pub struct SnmpGet(pub SnmpGetOrResponse);
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(SNMP_PDUS, Tag = BerTag(asn1::Tag::UnknownTag(161))))]
 #[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
-pub struct SnmpGetNext {
-    pub request_id: Value<u32>,
-    pub error_status: Value<i32>,
-    pub error_index: Value<i32>,
-    pub _bindings_tag_len: Value<BerTagAndLen>,
-    pub var_bindings: Vec<SnmpVarBind>,
-}
+pub struct SnmpGetNext(pub SnmpGetOrResponse);
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(SNMP_PDUS, Tag = BerTag(asn1::Tag::UnknownTag(162))))]
 #[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
-pub struct SnmpGetResponse {
+pub struct SnmpGetResponse(pub SnmpGetOrResponse);
+
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
+pub struct SnmpGetOrResponse {
     pub request_id: Value<u32>,
     pub error_status: Value<i32>,
     pub error_index: Value<i32>,
+    #[nproto(encode = Skip)]
     pub _bindings_tag_len: Value<BerTagAndLen>,
+    #[nproto(post_encode = post_encode_bindings_tag_len)]
     pub var_bindings: Vec<SnmpVarBind>,
 }
+
+fn post_encode_bindings_tag_len<E: Encoder>(
+    me: &SnmpGetOrResponse,
+    stack: &LayerStack,
+    my_index: usize,
+    out: &mut Vec<u8>,
+    skip_points: &Vec<usize>,
+    encoded_data: &EncodingVecVec,
+) {
+    use std::convert::TryInto;
+    let mut skip_point = skip_points;
+    let old_len = skip_points[0];
+    let bindings_tag_len = if !me._bindings_tag_len.is_auto() {
+        me._bindings_tag_len.value()
+    } else {
+        BerTagAndLen(asn1::Tag::Sequence, out.len() - old_len)
+    };
+    let bytes = bindings_tag_len.encode::<E>();
+    out.splice(old_len..old_len, bytes);
+}
+
+impl AutoDecodeAsSequence for Vec<SnmpVarBind> {}
+impl AutoEncodeAsSequence for Vec<SnmpVarBind> {}
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
