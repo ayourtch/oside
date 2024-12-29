@@ -184,7 +184,7 @@ impl Asn1Decoder {
         let mut value: i64 = 0;
         let mut is_negative = false;
         let mut ci = ci;
-        if ci + 2 >= buf.len() {
+        if ci + 2 > buf.len() {
             return Err("Buffer too short".to_string());
         }
         if buf[ci] != 0x02 {
@@ -209,6 +209,34 @@ impl Asn1Decoder {
         };
         Ok((out, ci + length))
     }
+
+    pub fn parse_just_integer_unsigned(buf: &[u8], length: usize) -> Result<(u64, usize), String> {
+        if buf.len() < length {
+            return Err(format!(
+                "Supplied length {} but buffer '{:?}' is too short",
+                length, &buf
+            ));
+        }
+        let mut value: u64 = 0;
+        let mut is_negative = false;
+        let mut ci = 0;
+
+        if length > 0 {
+            is_negative = (buf[ci] & 0x80) != 0;
+            for i in 0..length {
+                value = (value << 8) | (buf[ci + i] as u64);
+            }
+        }
+        /*
+        let out = if is_negative {
+            value | !((1 << (length * 8)) - 1)
+        } else {
+            value
+        };
+        */
+        Ok((value, ci))
+    }
+
     pub fn parse_integer_u64(buf: &[u8], ci: usize) -> Result<(u64, usize), String> {
         let mut value: u64 = 0;
         let mut is_negative = false;

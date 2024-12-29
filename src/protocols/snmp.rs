@@ -199,10 +199,12 @@ fn post_encode_seq_tag_len<E: Encoder>(
     for i in my_index + 1..encoded_data.len() {
         out_len += encoded_data[i].len();
     }
+    // Also account for what has been encoded on this level already
+    out_len += out.len() - old_len;
     let seq_tag_len = if !me._seq_tag_len.is_auto() {
         me._seq_tag_len.value()
     } else {
-        BerTagAndLen(asn1::Tag::Sequence, out_len - old_len)
+        BerTagAndLen(asn1::Tag::Sequence, out_len)
     };
     // find out the length of inner layers
     let bytes = seq_tag_len.encode::<E>();
@@ -297,7 +299,7 @@ pub struct SnmpVarBind {
     pub _bind_tag_len: Value<BerTagAndLen>,
     pub name: Value<BerOid>,
     #[nproto(post_encode = post_encode_bind_tag_len)]
-    pub value: Value<BerValue>,
+    pub value: Value<SnmpValue>,
 }
 
 fn post_encode_bind_tag_len<E: Encoder>(
@@ -339,9 +341,13 @@ impl From<&[u8; 6]> for BerOid {
 }
 impl From<&str> for BerOid {
     fn from(arg: &str) -> Self {
-        panic!("FIXME");
-        // BerOid(arg.to_string().into_bytes())
-        Self::default()
+        let mut dotted_val: Vec<u64> = arg
+            .split(".")
+            .map(|x| x.to_string().parse().unwrap())
+            .collect();
+        dotted_val[0] = dotted_val[0] * 40 + dotted_val[1];
+        dotted_val.remove(1);
+        Self(dotted_val)
     }
 }
 
@@ -414,5 +420,125 @@ impl Decode for BerValue {
 impl Encode for BerValue {
     fn encode<E: Encoder>(&self) -> Vec<u8> {
         Asn1Encoder::encode_asn1_object(&self.0)
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub enum SnmpValue {
+    #[default]
+    Null,
+    Unknown(asn1::ASN1Object),
+    Timeticks(u32),
+    Counter64(u64),
+    #[serde(untagged)]
+    SimpleInt32(i32),
+}
+
+impl FromStr for SnmpValue {
+    type Err = ValueParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Null" => return Ok(SnmpValue::Null),
+            x => {
+                panic!("FIXME: {}", s);
+            }
+        }
+        //Ok(SnmpValue(s.to_string().into_bytes()))
+        Ok(Self::default())
+    }
+}
+
+impl From<&[u8; 6]> for SnmpValue {
+    fn from(arg: &[u8; 6]) -> Self {
+        panic!("FIXME");
+        Self::default()
+    }
+}
+impl From<&str> for SnmpValue {
+    fn from(arg: &str) -> Self {
+        panic!("FIXME");
+        // SnmpValue(arg.to_string().into_bytes())
+        Self::default()
+    }
+}
+
+impl Distribution<SnmpValue> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> SnmpValue {
+        panic!("FIXME!");
+        Default::default()
+    }
+}
+
+impl Decode for SnmpValue {
+    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
+        let (out, delta) = Asn1Decoder::parse(buf, 0).ok()?;
+        let snmp_out = match out.tag {
+            asn1::Tag::Null => SnmpValue::Null,
+            asn1::Tag::Integer => {
+                if let asn1::Value::Integer(iv) = out.value {
+                    if iv < -2147483648 || iv > 2147483647 {
+                        return None;
+                    }
+                    SnmpValue::SimpleInt32(iv as i32)
+                } else {
+                    return None;
+                }
+            }
+            asn1::Tag::UnknownTag(0x43) => {
+                if let asn1::Value::UnknownPrimitive(_, data) = out.value {
+                    let (value, _) =
+                        Asn1Decoder::parse_just_integer_unsigned(&data, data.len()).ok()?;
+                    if value > 4294967295 {
+                        return None;
+                    }
+                    SnmpValue::Timeticks(value as u32)
+                } else {
+                    return None;
+                }
+            }
+            asn1::Tag::UnknownTag(0x46) => {
+                if let asn1::Value::UnknownPrimitive(_, data) = out.value {
+                    let (value, _) =
+                        Asn1Decoder::parse_just_integer_unsigned(&data, data.len()).ok()?;
+                    SnmpValue::Counter64(value)
+                } else {
+                    return None;
+                }
+            }
+            x => SnmpValue::Unknown(out),
+        };
+        Some((snmp_out, delta))
+    }
+}
+
+impl Encode for SnmpValue {
+    fn encode<E: Encoder>(&self) -> Vec<u8> {
+        let asn1obj = match self {
+            SnmpValue::Unknown(x) => x,
+            SnmpValue::Null => &asn1::ASN1Object {
+                tag: asn1::Tag::Null,
+                value: asn1::Value::Null,
+            },
+            SnmpValue::SimpleInt32(x) => &asn1::ASN1Object {
+                tag: asn1::Tag::Integer,
+                value: asn1::Value::Integer(*x as i64),
+            },
+            SnmpValue::Timeticks(x) => {
+                let mut result = vec![0x43];
+                let value_bytes = Asn1Encoder::encode_integer_bytes(*x as u64, false);
+                result.extend(Asn1Encoder::encode_length(value_bytes.len()));
+                result.extend(value_bytes);
+                return result;
+            }
+            SnmpValue::Counter64(x) => {
+                let mut result = vec![0x46];
+                let value_bytes = Asn1Encoder::encode_integer_bytes(*x, true);
+                result.extend(Asn1Encoder::encode_length(value_bytes.len()));
+                result.extend(value_bytes);
+                return result;
+            }
+        };
+        Asn1Encoder::encode_asn1_object(asn1obj)
     }
 }
