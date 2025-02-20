@@ -53,8 +53,14 @@ fn encode_icmp_chksum<E: Encoder>(
     } else {
         vec![]
     };
-    // eprintln!("Encoded IP header: {:02x?}", &encoded_ip_header);
-    let sum = get_inet_sum(&encoded_icmp_header);
+    // eprintln!("Encoded ICMP header: {:02x?}", &encoded_icmp_header);
+    let mut sum = get_inet_sum(&encoded_icmp_header);
+    let mut carry: Option<u8> = None;
+    // Have to do from outermost to innermost payload, to account for a carry byte
+    for i in (my_index + 1..encoded_data.len()).rev() {
+        (sum, carry) = update_inet_sum_with_carry(sum, &encoded_data[i], carry);
+    }
+    (sum, carry) = update_inet_sum_with_carry(sum, &vec![], carry);
     let sum = fold_u32(sum);
     sum.encode::<E>()
 }
