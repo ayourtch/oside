@@ -44,7 +44,7 @@ impl Default for Icmpv6Type {
 // Message-specific structures
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(ICMPV6_TYPES, Type = 1))]
-pub struct Icmpv6DestUnreach {
+pub struct icmpv6DestUnreach {
     pub unused: Value<u32>,
     #[nproto(encode = encode_invoking_packet, decode = decode_invoking_packet)]
     pub invoking_packet: Vec<u8>,
@@ -52,7 +52,7 @@ pub struct Icmpv6DestUnreach {
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(ICMPV6_TYPES, Type = 2))]
-pub struct Icmpv6PacketTooBig {
+pub struct icmpv6PacketTooBig {
     pub mtu: Value<u32>,
     #[nproto(encode = encode_invoking_packet, decode = decode_invoking_packet)]
     pub invoking_packet: Vec<u8>,
@@ -60,7 +60,7 @@ pub struct Icmpv6PacketTooBig {
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(ICMPV6_TYPES, Type = 3))]
-pub struct Icmpv6TimeExceeded {
+pub struct icmpv6TimeExceeded {
     pub unused: Value<u32>,
     #[nproto(encode = encode_invoking_packet, decode = decode_invoking_packet)]
     pub invoking_packet: Vec<u8>,
@@ -68,7 +68,7 @@ pub struct Icmpv6TimeExceeded {
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(ICMPV6_TYPES, Type = 4))]
-pub struct Icmpv6ParameterProblem {
+pub struct icmpv6ParameterProblem {
     pub pointer: Value<u32>,
     #[nproto(encode = encode_invoking_packet, decode = decode_invoking_packet)]
     pub invoking_packet: Vec<u8>,
@@ -76,24 +76,24 @@ pub struct Icmpv6ParameterProblem {
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(ICMPV6_TYPES, Type = 128))]
-pub struct Icmpv6EchoRequest {
+pub struct icmpv6EchoRequest {
     pub identifier: Value<u16>,
     pub sequence: Value<u16>,
-    pub data: Vec<u8>,
+    // pub data: Vec<u8>, // Do not include data into packet for congruence with ICMPv4
 }
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(ICMPV6_TYPES, Type = 129))]
-pub struct Icmpv6EchoReply {
+pub struct icmpv6EchoReply {
     pub identifier: Value<u16>,
     pub sequence: Value<u16>,
-    pub data: Vec<u8>,
+    // pub data: Vec<u8>, // Do not include data into packet for congruence with ICMPv4
 }
 
 // NDP Messages
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(ICMPV6_TYPES, Type = 133))]
-pub struct Icmpv6RouterSolicitation {
+pub struct icmpv6RouterSolicitation {
     pub reserved: Value<u32>,
     #[nproto(encode = encode_ndp_options, decode = decode_ndp_options)]
     pub options: Vec<NdpOption>,
@@ -101,7 +101,7 @@ pub struct Icmpv6RouterSolicitation {
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(ICMPV6_TYPES, Type = 134))]
-pub struct Icmpv6RouterAdvertisement {
+pub struct icmpv6RouterAdvertisement {
     pub cur_hop_limit: Value<u8>,
     pub flags: Value<u8>,
     pub router_lifetime: Value<u16>,
@@ -113,7 +113,7 @@ pub struct Icmpv6RouterAdvertisement {
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(ICMPV6_TYPES, Type = 135))]
-pub struct Icmpv6NeighborSolicitation {
+pub struct icmpv6NeighborSolicitation {
     pub reserved: Value<u32>,
     pub target_address: Value<Ipv6Address>,
     #[nproto(encode = encode_ndp_options, decode = decode_ndp_options)]
@@ -122,7 +122,7 @@ pub struct Icmpv6NeighborSolicitation {
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(ICMPV6_TYPES, Type = 136))]
-pub struct Icmpv6NeighborAdvertisement {
+pub struct icmpv6NeighborAdvertisement {
     pub flags: Value<u32>, // Router, Solicited, Override flags
     pub target_address: Value<Ipv6Address>,
     #[nproto(encode = encode_ndp_options, decode = decode_ndp_options)]
@@ -131,7 +131,7 @@ pub struct Icmpv6NeighborAdvertisement {
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(ICMPV6_TYPES, Type = 137))]
-pub struct Icmpv6Redirect {
+pub struct icmpv6Redirect {
     pub reserved: Value<u32>,
     pub target_address: Value<Ipv6Address>,
     pub destination_address: Value<Ipv6Address>,
@@ -211,23 +211,23 @@ fn encode_invoking_packet<E: Encoder>(
 ) -> Vec<u8> {
     // Return the invoking packet data
     match me {
-        x if x.type_id() == TypeId::of::<Icmpv6DestUnreach>() => x
-            .downcast_ref::<Icmpv6DestUnreach>()
+        x if x.type_id() == TypeId::of::<icmpv6DestUnreach>() => x
+            .downcast_ref::<icmpv6DestUnreach>()
             .unwrap()
             .invoking_packet
             .clone(),
-        x if x.type_id() == TypeId::of::<Icmpv6PacketTooBig>() => x
-            .downcast_ref::<Icmpv6PacketTooBig>()
+        x if x.type_id() == TypeId::of::<icmpv6PacketTooBig>() => x
+            .downcast_ref::<icmpv6PacketTooBig>()
             .unwrap()
             .invoking_packet
             .clone(),
-        x if x.type_id() == TypeId::of::<Icmpv6TimeExceeded>() => x
-            .downcast_ref::<Icmpv6TimeExceeded>()
+        x if x.type_id() == TypeId::of::<icmpv6TimeExceeded>() => x
+            .downcast_ref::<icmpv6TimeExceeded>()
             .unwrap()
             .invoking_packet
             .clone(),
-        x if x.type_id() == TypeId::of::<Icmpv6ParameterProblem>() => x
-            .downcast_ref::<Icmpv6ParameterProblem>()
+        x if x.type_id() == TypeId::of::<icmpv6ParameterProblem>() => x
+            .downcast_ref::<icmpv6ParameterProblem>()
             .unwrap()
             .invoking_packet
             .clone(),
@@ -252,28 +252,28 @@ fn encode_ndp_options<E: Encoder>(
 ) -> Vec<u8> {
     let mut out = Vec::new();
     let options = match me {
-        x if x.type_id() == TypeId::of::<Icmpv6RouterSolicitation>() => {
-            &x.downcast_ref::<Icmpv6RouterSolicitation>()
+        x if x.type_id() == TypeId::of::<icmpv6RouterSolicitation>() => {
+            &x.downcast_ref::<icmpv6RouterSolicitation>()
                 .unwrap()
                 .options
         }
-        x if x.type_id() == TypeId::of::<Icmpv6RouterAdvertisement>() => {
-            &x.downcast_ref::<Icmpv6RouterAdvertisement>()
+        x if x.type_id() == TypeId::of::<icmpv6RouterAdvertisement>() => {
+            &x.downcast_ref::<icmpv6RouterAdvertisement>()
                 .unwrap()
                 .options
         }
-        x if x.type_id() == TypeId::of::<Icmpv6NeighborSolicitation>() => {
-            &x.downcast_ref::<Icmpv6NeighborSolicitation>()
+        x if x.type_id() == TypeId::of::<icmpv6NeighborSolicitation>() => {
+            &x.downcast_ref::<icmpv6NeighborSolicitation>()
                 .unwrap()
                 .options
         }
-        x if x.type_id() == TypeId::of::<Icmpv6NeighborAdvertisement>() => {
-            &x.downcast_ref::<Icmpv6NeighborAdvertisement>()
+        x if x.type_id() == TypeId::of::<icmpv6NeighborAdvertisement>() => {
+            &x.downcast_ref::<icmpv6NeighborAdvertisement>()
                 .unwrap()
                 .options
         }
-        x if x.type_id() == TypeId::of::<Icmpv6Redirect>() => {
-            &x.downcast_ref::<Icmpv6Redirect>().unwrap().options
+        x if x.type_id() == TypeId::of::<icmpv6Redirect>() => {
+            &x.downcast_ref::<icmpv6Redirect>().unwrap().options
         }
         _ => return vec![],
     };
