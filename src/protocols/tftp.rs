@@ -11,6 +11,7 @@ pub enum TftpOpcode {
     Data = 3,
     Ack = 4,
     Error = 5,
+    OptionAck = 6,
 }
 
 impl Default for TftpOpcode {
@@ -43,14 +44,22 @@ impl ToString for TransferMode {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct TftpOption {
+    name: String,
+    value: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum TftpMessage {
     ReadRequest {
         filename: String,
         mode: TransferMode,
+        options: Vec<TftpOption>,
     },
     WriteRequest {
         filename: String,
         mode: TransferMode,
+        options: Vec<TftpOption>,
     },
     Data {
         block_number: u16,
@@ -58,6 +67,9 @@ pub enum TftpMessage {
     },
     Acknowledgment {
         block_number: u16,
+    },
+    OptionAcknowledgment {
+        options: Vec<TftpOption>,
     },
     Error {
         code: TftpErrorCode,
@@ -74,6 +86,7 @@ impl Default for TftpMessage {
         TftpMessage::ReadRequest {
             filename: String::new(),
             mode: TransferMode::default(),
+            options: Vec::new(),
         }
     }
 }
@@ -85,6 +98,7 @@ impl FromStr for TftpMessage {
         Ok(TftpMessage::ReadRequest {
             filename: s.to_string(),
             mode: TransferMode::default(),
+            options: Vec::new(),
         })
     }
 }
@@ -106,14 +120,16 @@ impl From<Value<TftpMessage>> for TftpMessage {
 
 impl Distribution<TftpMessage> for Standard {
     fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> TftpMessage {
-        match rng.gen_range(0..5) {
+        match rng.gen_range(0..6) {
             0 => TftpMessage::ReadRequest {
                 filename: String::from("random.txt"),
                 mode: TransferMode::Octet,
+                options: vec![],
             },
             1 => TftpMessage::WriteRequest {
                 filename: String::from("random.txt"),
                 mode: TransferMode::Octet,
+                options: vec![],
             },
             2 => TftpMessage::Data {
                 block_number: rng.gen(),
@@ -122,6 +138,7 @@ impl Distribution<TftpMessage> for Standard {
             3 => TftpMessage::Acknowledgment {
                 block_number: rng.gen(),
             },
+            4 => TftpMessage::OptionAcknowledgment { options: vec![] },
             _ => TftpMessage::Error {
                 code: TftpErrorCode::NotDefined,
                 message: String::from("Random error"),
@@ -170,6 +187,18 @@ fn decode_string(buf: &[u8], start: &mut usize) -> Option<String> {
     Some(s)
 }
 
+fn decode_options(buf: &[u8], start: &mut usize) -> Vec<TftpOption> {
+    let mut options = Vec::new();
+    while let Some(name) = decode_string(buf, start) {
+        if let Some(value) = decode_string(buf, start) {
+            options.push(TftpOption { name, value });
+        } else {
+            break;
+        }
+    }
+    options
+}
+
 fn parse_mode(mode: &str) -> Option<TransferMode> {
     match mode.to_lowercase().as_str() {
         "netascii" => Some(TransferMode::Netascii),
@@ -194,14 +223,22 @@ fn decode_tftp_message<D: Decoder>(
 
     let message = match opcode {
         1 | 2 => {
-            // RRQ or WRQ
             if let Some(filename) = decode_string(buf, &mut cursor) {
                 if let Some(mode_str) = decode_string(buf, &mut cursor) {
                     if let Some(mode) = parse_mode(&mode_str) {
+                        let options = decode_options(buf, &mut cursor);
                         if opcode == 1 {
-                            TftpMessage::ReadRequest { filename, mode }
+                            TftpMessage::ReadRequest {
+                                filename,
+                                mode,
+                                options,
+                            }
                         } else {
-                            TftpMessage::WriteRequest { filename, mode }
+                            TftpMessage::WriteRequest {
+                                filename,
+                                mode,
+                                options,
+                            }
                         }
                     } else {
                         TftpMessage::Raw {
@@ -223,7 +260,6 @@ fn decode_tftp_message<D: Decoder>(
             }
         }
         3 => {
-            // DATA
             if cursor + 2 <= buf.len() {
                 let block_number = u16::from_be_bytes([buf[cursor], buf[cursor + 1]]);
                 cursor += 2;
@@ -239,7 +275,6 @@ fn decode_tftp_message<D: Decoder>(
             }
         }
         4 => {
-            // ACK
             if cursor + 2 <= buf.len() {
                 let block_number = u16::from_be_bytes([buf[cursor], buf[cursor + 1]]);
                 cursor += 2;
@@ -253,7 +288,6 @@ fn decode_tftp_message<D: Decoder>(
             }
         }
         5 => {
-            // ERROR
             if cursor + 2 <= buf.len() {
                 let error_code = u16::from_be_bytes([buf[cursor], buf[cursor + 1]]);
                 cursor += 2;
@@ -275,6 +309,10 @@ fn decode_tftp_message<D: Decoder>(
                 }
             }
         }
+        6 => {
+            let options = decode_options(buf, &mut cursor);
+            TftpMessage::OptionAcknowledgment { options }
+        }
         _ => TftpMessage::Raw {
             opcode: TftpOpcode::Read,
             payload: buf[2..].to_vec(),
@@ -282,6 +320,17 @@ fn decode_tftp_message<D: Decoder>(
     };
 
     Some((Value::Set(message), cursor))
+}
+
+fn encode_options(options: &[TftpOption]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for option in options {
+        out.extend_from_slice(option.name.as_bytes());
+        out.push(0);
+        out.extend_from_slice(option.value.as_bytes());
+        out.push(0);
+    }
+    out
 }
 
 fn encode_tftp_message<E: Encoder>(
@@ -293,19 +342,29 @@ fn encode_tftp_message<E: Encoder>(
     let mut out = Vec::new();
 
     match &my_layer.message.value() {
-        TftpMessage::ReadRequest { filename, mode } => {
+        TftpMessage::ReadRequest {
+            filename,
+            mode,
+            options,
+        } => {
             out.extend_from_slice(&1u16.to_be_bytes());
             out.extend_from_slice(filename.as_bytes());
             out.push(0);
             out.extend_from_slice(mode.to_string().as_bytes());
             out.push(0);
+            out.extend_from_slice(&encode_options(options));
         }
-        TftpMessage::WriteRequest { filename, mode } => {
+        TftpMessage::WriteRequest {
+            filename,
+            mode,
+            options,
+        } => {
             out.extend_from_slice(&2u16.to_be_bytes());
             out.extend_from_slice(filename.as_bytes());
             out.push(0);
             out.extend_from_slice(mode.to_string().as_bytes());
             out.push(0);
+            out.extend_from_slice(&encode_options(options));
         }
         TftpMessage::Data { block_number, data } => {
             out.extend_from_slice(&3u16.to_be_bytes());
@@ -315,6 +374,10 @@ fn encode_tftp_message<E: Encoder>(
         TftpMessage::Acknowledgment { block_number } => {
             out.extend_from_slice(&4u16.to_be_bytes());
             out.extend_from_slice(&block_number.to_be_bytes());
+        }
+        TftpMessage::OptionAcknowledgment { options } => {
+            out.extend_from_slice(&6u16.to_be_bytes());
+            out.extend_from_slice(&encode_options(options));
         }
         TftpMessage::Error { code, message } => {
             out.extend_from_slice(&5u16.to_be_bytes());
@@ -332,20 +395,30 @@ fn encode_tftp_message<E: Encoder>(
 }
 
 impl Tftp {
-    pub fn read_request(filename: impl Into<String>, mode: TransferMode) -> Self {
+    pub fn read_request(
+        filename: impl Into<String>,
+        mode: TransferMode,
+        options: Vec<TftpOption>,
+    ) -> Self {
         Self {
             message: Value::Set(TftpMessage::ReadRequest {
                 filename: filename.into(),
                 mode,
+                options,
             }),
         }
     }
 
-    pub fn write_request(filename: impl Into<String>, mode: TransferMode) -> Self {
+    pub fn write_request(
+        filename: impl Into<String>,
+        mode: TransferMode,
+        options: Vec<TftpOption>,
+    ) -> Self {
         Self {
             message: Value::Set(TftpMessage::WriteRequest {
                 filename: filename.into(),
                 mode,
+                options,
             }),
         }
     }
@@ -362,6 +435,12 @@ impl Tftp {
     pub fn ack(block_number: u16) -> Self {
         Self {
             message: Value::Set(TftpMessage::Acknowledgment { block_number }),
+        }
+    }
+
+    pub fn oack(options: Vec<TftpOption>) -> Self {
+        Self {
+            message: Value::Set(TftpMessage::OptionAcknowledgment { options }),
         }
     }
 
@@ -390,7 +469,17 @@ mod tests {
 
     #[test]
     fn test_encode_decode_read_request() {
-        let orig = Tftp::read_request("test.txt", TransferMode::Octet);
+        let options = vec![
+            TftpOption {
+                name: "timeout".to_string(),
+                value: "6".to_string(),
+            },
+            TftpOption {
+                name: "tsize".to_string(),
+                value: "1024".to_string(),
+            },
+        ];
+        let orig = Tftp::read_request("test.txt", TransferMode::Octet, options);
         let encoded = encode_tftp_message::<BinaryBigEndian>(
             &orig,
             &LayerStack::default(),
@@ -404,7 +493,11 @@ mod tests {
 
     #[test]
     fn test_encode_decode_write_request() {
-        let orig = Tftp::write_request("test.txt", TransferMode::Netascii);
+        let options = vec![TftpOption {
+            name: "timeout".to_string(),
+            value: "6".to_string(),
+        }];
+        let orig = Tftp::write_request("test.txt", TransferMode::Netascii, options);
         let encoded = encode_tftp_message::<BinaryBigEndian>(
             &orig,
             &LayerStack::default(),
@@ -433,6 +526,30 @@ mod tests {
     #[test]
     fn test_encode_decode_ack() {
         let orig = Tftp::ack(1);
+        let encoded = encode_tftp_message::<BinaryBigEndian>(
+            &orig,
+            &LayerStack::default(),
+            0,
+            &EncodingVecVec::default(),
+        );
+        let mut decoded = Tftp::default();
+        let (msg, _) = decode_tftp_message::<BinaryBigEndian>(&encoded, 0, &mut decoded).unwrap();
+        assert_eq!(orig.message.value(), msg.value());
+    }
+
+    #[test]
+    fn test_encode_decode_oack() {
+        let options = vec![
+            TftpOption {
+                name: "timeout".to_string(),
+                value: "6".to_string(),
+            },
+            TftpOption {
+                name: "tsize".to_string(),
+                value: "1024".to_string(),
+            },
+        ];
+        let orig = Tftp::oack(options);
         let encoded = encode_tftp_message::<BinaryBigEndian>(
             &orig,
             &LayerStack::default(),
@@ -474,7 +591,6 @@ mod tests {
 
     #[test]
     fn test_malformed_packet_handling() {
-        // Test with truncated packet
         let mut decoded = Tftp::default();
         let result = decode_tftp_message::<BinaryBigEndian>(&[0, 1], 0, &mut decoded);
         assert!(matches!(
@@ -482,9 +598,8 @@ mod tests {
             Some((Value::Set(TftpMessage::Raw { .. }), _))
         ));
 
-        // Test with invalid mode
         let mut buf = Vec::new();
-        buf.extend_from_slice(&1u16.to_be_bytes()); // RRQ
+        buf.extend_from_slice(&1u16.to_be_bytes());
         buf.extend_from_slice(b"test.txt\0");
         buf.extend_from_slice(b"invalid_mode\0");
         let result = decode_tftp_message::<BinaryBigEndian>(&buf, 0, &mut decoded);
