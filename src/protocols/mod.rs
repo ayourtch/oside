@@ -21,6 +21,7 @@ pub mod ospfv2;
 pub mod pvti;
 pub mod ripv2;
 pub mod snmp;
+pub mod tftp;
 
 pub mod all {
     pub use crate::encdec::binary_big_endian::BinaryBigEndian;
