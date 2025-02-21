@@ -1114,5 +1114,6 @@ pub fn get_inet_sum(data: &[u8]) -> u32 {
 }
 
 pub fn fold_u32(data: u32) -> u16 {
-    0xffff ^ (((data >> 16) as u16) + ((data & 0xffff) as u16))
+    let fold1 = ((data >> 16) + (data & 0xffff));
+    0xffff ^ (((fold1 >> 16) as u16) + ((fold1 & 0xffff) as u16))
 }
