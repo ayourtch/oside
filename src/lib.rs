@@ -1079,7 +1079,7 @@ pub fn update_inet_sum_with_carry(sum: u32, data: &[u8], carry: Option<u8>) -> (
     let mut sum: u32 = sum;
     let mut i = 0;
     if let Some(cval) = carry {
-        sum += ((cval as u32) << 8);
+        sum += (cval as u32) << 8;
         if i < data.len() {
             sum += data[i] as u32;
             i += 1;
@@ -1114,6 +1114,6 @@ pub fn get_inet_sum(data: &[u8]) -> u32 {
 }
 
 pub fn fold_u32(data: u32) -> u16 {
-    let fold1 = ((data >> 16) + (data & 0xffff));
+    let fold1 = (data >> 16) + (data & 0xffff);
     0xffff ^ (((fold1 >> 16) as u16) + ((fold1 & 0xffff) as u16))
 }

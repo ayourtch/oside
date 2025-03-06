@@ -2,8 +2,6 @@ use std::env;
 use std::error::Error;
 use std::net::UdpSocket;
 
-use oside::asn1;
-use oside::protocols::all::*;
 use oside::protocols::dns::*;
 use oside::protocols::snmp::*;
 use oside::Layer;
@@ -51,8 +49,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     / SNMPV2C!(community = "public")
                     / SnmpGet(SNMPGETORRESPONSE!(
                         request_id = 722681733,
-                        var_bindings =
-                            vec![SNMPVARBIND!(name = name.clone(), value = SnmpValue::Null)]
+                        var_bindings = vec![SNMPVARBIND!(name = name, value = SnmpValue::Null)]
                     ));
                 println!("snmp result: {:02x?}", &snmp_q);
                 let snmp_encoded = snmp_q.clone().lencode();

@@ -1,7 +1,6 @@
 use oside::*;
 
 use crate::protocols::all::*;
-use asn1;
 use oside::protocols::snmp::*;
 
 #[test]

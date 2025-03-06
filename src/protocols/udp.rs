@@ -96,6 +96,7 @@ fn encode_udp_chksum<E: Encoder>(
                 (sum, carry) = update_inet_sum_with_carry(sum, &encoded_data[i], carry);
             }
             (sum, carry) = update_inet_sum_with_carry(sum, &vec![], carry);
+            assert!(carry.is_none());
             let sum = fold_u32(sum);
             // eprintln!("CHECKSUM: {:04x}", sum);
             sum.encode::<E>()
@@ -112,6 +113,7 @@ fn encode_udp_chksum<E: Encoder>(
                 (sum, carry) = update_inet_sum_with_carry(sum, &encoded_data[i], carry);
             }
             (sum, carry) = update_inet_sum_with_carry(sum, &vec![], carry);
+            assert!(carry.is_none());
             let sum = fold_u32(sum);
             sum.encode::<E>()
         } else {

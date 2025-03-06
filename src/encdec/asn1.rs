@@ -227,6 +227,7 @@ impl Asn1Decoder {
                 value = (value << 8) | (buf[ci + i] as u64);
             }
         }
+        assert!(is_negative == false);
         /*
         let out = if is_negative {
             value | !((1 << (length * 8)) - 1)

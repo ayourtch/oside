@@ -1,8 +1,5 @@
 use oside::*;
-use std::any::Any;
 use std::any::TypeId;
-use std::boxed::Box;
-use std::convert::TryFrom;
 
 use oside::protocols::all::*;
 
@@ -134,7 +131,7 @@ fn main() {
     println!("UDP: {:#?}", Udp::of(&layers).sport);
 
     let my_udp = &layers[UDP!()];
-    let mut my_src_ip = layers[IP!()].src.clone();
+    let my_src_ip = layers[IP!()].src.clone();
 
     let data: Vec<u8> = layers.fill().lencode();
 

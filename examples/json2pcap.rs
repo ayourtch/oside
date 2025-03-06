@@ -1,8 +1,5 @@
-use oside::protocols::all::*;
 use oside::protocols::pcap_file::*;
 use oside::*;
-
-use std::convert::TryFrom;
 
 fn main() {
     let fname = std::env::args().nth(1).unwrap();

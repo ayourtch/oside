@@ -177,7 +177,7 @@ pub fn test_pcap_vxlan1() {
         let p = Ether!().ldecode(&d).unwrap().0;
         println!("p_decoded: {:02x?}", &p);
         assert_eq!(p[VXLAN!()].vni, Value::Set(0x010203));
-        let mut pn = p.clone();
+        let pn = p.clone();
     }
 }
 
@@ -191,14 +191,12 @@ pub fn test_pcap_vxlan2() {
         let p = Ether!().ldecode(&d).unwrap().0;
         println!("P_DECODED: {:02x?}", &p);
         assert_eq!(p[VXLAN!()].vni, Value::Set(0x010203));
-        let mut pn = p.clone();
+        let pn = p.clone();
     }
 }
 
 #[test]
 pub fn test_pcap_dhcp() {
-    use oside::protocols::bootp::Bootp;
-
     let packets = read_pcap("dhcp.pcap");
     for d in packets {
         // println!("p: {:02x?}", &d);

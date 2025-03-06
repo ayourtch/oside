@@ -20,7 +20,6 @@ fn test_encode_long() {
     let out = p.fill().lencode();
 }
 
-use asn1;
 use oside::protocols::snmp::*;
 
 fn test_encode_snmp_ipv4() {

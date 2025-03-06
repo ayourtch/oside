@@ -35,7 +35,6 @@ fn serialize_1() {
 
 #[test]
 fn it_works() {
-    use oside::*;
     let ip = Ip {
         ..Default::default()
     };

@@ -61,6 +61,7 @@ fn encode_icmp_chksum<E: Encoder>(
         (sum, carry) = update_inet_sum_with_carry(sum, &encoded_data[i], carry);
     }
     (sum, carry) = update_inet_sum_with_carry(sum, &vec![], carry);
+    assert!(carry.is_none());
     let sum = fold_u32(sum);
     sum.encode::<E>()
 }

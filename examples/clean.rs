@@ -1,6 +1,5 @@
 use oside::protocols::all::*;
 use oside::*;
-use std::convert::TryFrom;
 
 fn get_dst() -> MacAddr {
     MacAddr::from("22:22:22:22:22:22")
