@@ -1,156 +1,3 @@
-_RESP => {
-                                let assoc_resp = Dot11AssocResp::default();
-                                if let Some((assoc_resp_decoded, assoc_resp_offset)) = assoc_resp.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
-                                    dot11_decoded.layers.extend(assoc_resp_decoded.layers);
-                                    offset += assoc_resp_offset;
-                                }
-                            },
-                            frame_types::REASSOC_REQ => {
-                                let reassoc_req = Dot11ReassocReq::default();
-                                if let Some((reassoc_req_decoded, reassoc_req_offset)) = reassoc_req.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
-                                    dot11_decoded.layers.extend(reassoc_req_decoded.layers);
-                                    offset += reassoc_req_offset;
-                                }
-                            },
-                            frame_types::AUTH => {
-                                let auth = Dot11Auth::default();
-                                if let Some((auth_decoded, auth_offset)) = auth.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
-                                    dot11_decoded.layers.extend(auth_decoded.layers);
-                                    offset += auth_offset;
-                                }
-                            },
-                            frame_types::DEAUTH => {
-                                let deauth = Dot11Deauth::default();
-                                if let Some((deauth_decoded, deauth_offset)) = deauth.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
-                                    dot11_decoded.layers.extend(deauth_decoded.layers);
-                                    offset += deauth_offset;
-                                }
-                            },
-                            frame_types::ACTION => {
-                                let action = Dot11Action::default();
-                                if let Some((action_decoded, action_offset)) = action.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
-                                    dot11_decoded.layers.extend(action_decoded.layers);
-                                    offset += action_offset;
-                                }
-                            },
-                            _ => {
-                                // Unknown management frame subtype
-                                // Just return the Dot11 header
-                            }
-                        }
-                    },
-                    
-                    // Control frames
-                    frame_types::CONTROL => {
-                        match fc.frame_subtype {
-                            control_frame_subtypes::RTS => {
-                                let rts = Dot11RTS::default();
-                                if let Some((rts_decoded, rts_offset)) = rts.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
-                                    dot11_decoded.layers.extend(rts_decoded.layers);
-                                    offset += rts_offset;
-                                }
-                            },
-                            control_frame_subtypes::CTS => {
-                                let cts = Dot11CTS::default();
-                                if let Some((cts_decoded, cts_offset)) = cts.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
-                                    dot11_decoded.layers.extend(cts_decoded.layers);
-                                    offset += cts_offset;
-                                }
-                            },
-                            control_frame_subtypes::ACK => {
-                                let ack = Dot11ACK::default();
-                                if let Some((ack_decoded, ack_offset)) = ack.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
-                                    dot11_decoded.layers.extend(ack_decoded.layers);
-                                    offset += ack_offset;
-                                }
-                            },
-                            control_frame_subtypes::BLOCK_ACK_REQ => {
-                                let bar = Dot11BlockAckReq::default();
-                                if let Some((bar_decoded, bar_offset)) = bar.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
-                                    dot11_decoded.layers.extend(bar_decoded.layers);
-                                    offset += bar_offset;
-                                }
-                            },
-                            control_frame_subtypes::BLOCK_ACK => {
-                                let ba = Dot11BlockAck::default();
-                                if let Some((ba_decoded, ba_offset)) = ba.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
-                                    dot11_decoded.layers.extend(ba_decoded.layers);
-                                    offset += ba_offset;
-                                }
-                            },
-                            _ => {
-                                // Unknown control frame subtype
-                                // Just return the Dot11 header
-                            }
-                        }
-                    },
-                    
-                    // Data frames
-                    frame_types::DATA => {
-                        // Create a data frame with the appropriate fields based on the frame control
-                        let mut data = Dot11Data {
-                            addr4: None,
-                            qos_control: None,
-                            ht_control: None,
-                            payload: Vec::new(),
-                        };
-                        
-                        let mut data_offset = 0;
-                        
-                        // If both ToDS and FromDS are set, there's a 4th address
-                        if fc.to_ds && fc.from_ds {
-                            if offset + 6 <= buf.len() {
-                                let addr4_bytes = &buf[offset..offset+6];
-                                let addr4 = MacAddr::from(addr4_bytes);
-                                data.addr4 = Some(Value::Set(addr4));
-                                data_offset += 6;
-                            }
-                        }
-                        
-                        // QoS Data frames have a QoS control field
-                        if fc.frame_subtype >= data_frame_subtypes::QOS_DATA && fc.frame_subtype <= data_frame_subtypes::QOS_CF_ACK_POLL {
-                            if offset + data_offset + 2 <= buf.len() {
-                                let qos_bytes = &buf[offset+data_offset..offset+data_offset+2];
-                                let qos = u16::from_le_bytes([qos_bytes[0], qos_bytes[1]]);
-                                data.qos_control = Some(Value::Set(qos));
-                                data_offset += 2;
-                            }
-                        }
-                        
-                        // Frames with Order bit set have an HT Control field
-                        if fc.order {
-                            if offset + data_offset + 4 <= buf.len() {
-                                let ht_bytes = &buf[offset+data_offset..offset+data_offset+4];
-                                let ht = u32::from_le_bytes([ht_bytes[0], ht_bytes[1], ht_bytes[2], ht_bytes[3]]);
-                                data.ht_control = Some(Value::Set(ht));
-                                data_offset += 4;
-                            }
-                        }
-                        
-                        // The rest of the frame is payload
-                        if offset + data_offset < buf.len() {
-                            data.payload = buf[offset+data_offset..].to_vec();
-                        }
-                        
-                        dot11_decoded.layers.push(Box::new(data));
-                        offset = buf.len(); // We've consumed the entire buffer
-                    },
-                    
-                    // Extension frames
-                    frame_types::EXTENSION => {
-                        // These are complex 802.11ax/be frames, not implementing for now
-                        // Just return the Dot11 header
-                    },
-                }
-            }
-        }
-        
-        return Some((dot11_decoded, offset));
-    }
-    
-    None
-}
-
 // Scan a PCAP file for 802.11 beacon frames and return a list of networks
 pub fn scan_pcap_for_networks(pcap_data: &[u8]) -> Vec<NetworkInfo> {
     use std::collections::HashMap;
@@ -2254,7 +2101,158 @@ pub fn decode_dot11_frame(buf: &[u8]) -> Option<(LayerStack, usize)> {
                                     offset += assoc_req_offset;
                                 }
                             },
-                            frame_types::ASSOC
+                            frame_types::ASSOC_RESP => {
+                                let assoc_resp = Dot11AssocResp::default();
+                                if let Some((assoc_resp_decoded, assoc_resp_offset)) = assoc_resp.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                    dot11_decoded.layers.extend(assoc_resp_decoded.layers);
+                                    offset += assoc_resp_offset;
+                                }
+                            },
+                            frame_types::REASSOC_REQ => {
+                                let reassoc_req = Dot11ReassocReq::default();
+                                if let Some((reassoc_req_decoded, reassoc_req_offset)) = reassoc_req.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                    dot11_decoded.layers.extend(reassoc_req_decoded.layers);
+                                    offset += reassoc_req_offset;
+                                }
+                            },
+                            frame_types::AUTH => {
+                                let auth = Dot11Auth::default();
+                                if let Some((auth_decoded, auth_offset)) = auth.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                    dot11_decoded.layers.extend(auth_decoded.layers);
+                                    offset += auth_offset;
+                                }
+                            },
+                            frame_types::DEAUTH => {
+                                let deauth = Dot11Deauth::default();
+                                if let Some((deauth_decoded, deauth_offset)) = deauth.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                    dot11_decoded.layers.extend(deauth_decoded.layers);
+                                    offset += deauth_offset;
+                                }
+                            },
+                            frame_types::ACTION => {
+                                let action = Dot11Action::default();
+                                if let Some((action_decoded, action_offset)) = action.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                    dot11_decoded.layers.extend(action_decoded.layers);
+                                    offset += action_offset;
+                                }
+                            },
+                            _ => {
+                                // Unknown management frame subtype
+                                // Just return the Dot11 header
+                            }
+                        }
+                    },
+                    
+                    // Control frames
+                    frame_types::CONTROL => {
+                        match fc.frame_subtype {
+                            control_frame_subtypes::RTS => {
+                                let rts = Dot11RTS::default();
+                                if let Some((rts_decoded, rts_offset)) = rts.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                    dot11_decoded.layers.extend(rts_decoded.layers);
+                                    offset += rts_offset;
+                                }
+                            },
+                            control_frame_subtypes::CTS => {
+                                let cts = Dot11CTS::default();
+                                if let Some((cts_decoded, cts_offset)) = cts.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                    dot11_decoded.layers.extend(cts_decoded.layers);
+                                    offset += cts_offset;
+                                }
+                            },
+                            control_frame_subtypes::ACK => {
+                                let ack = Dot11ACK::default();
+                                if let Some((ack_decoded, ack_offset)) = ack.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                    dot11_decoded.layers.extend(ack_decoded.layers);
+                                    offset += ack_offset;
+                                }
+                            },
+                            control_frame_subtypes::BLOCK_ACK_REQ => {
+                                let bar = Dot11BlockAckReq::default();
+                                if let Some((bar_decoded, bar_offset)) = bar.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                    dot11_decoded.layers.extend(bar_decoded.layers);
+                                    offset += bar_offset;
+                                }
+                            },
+                            control_frame_subtypes::BLOCK_ACK => {
+                                let ba = Dot11BlockAck::default();
+                                if let Some((ba_decoded, ba_offset)) = ba.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                    dot11_decoded.layers.extend(ba_decoded.layers);
+                                    offset += ba_offset;
+                                }
+                            },
+                            _ => {
+                                // Unknown control frame subtype
+                                // Just return the Dot11 header
+                            }
+                        }
+                    },
+                    
+                    // Data frames
+                    frame_types::DATA => {
+                        // Create a data frame with the appropriate fields based on the frame control
+                        let mut data = Dot11Data {
+                            addr4: None,
+                            qos_control: None,
+                            ht_control: None,
+                            payload: Vec::new(),
+                        };
+                        
+                        let mut data_offset = 0;
+                        
+                        // If both ToDS and FromDS are set, there's a 4th address
+                        if fc.to_ds && fc.from_ds {
+                            if offset + 6 <= buf.len() {
+                                let addr4_bytes = &buf[offset..offset+6];
+                                let addr4 = MacAddr::from(addr4_bytes);
+                                data.addr4 = Some(Value::Set(addr4));
+                                data_offset += 6;
+                            }
+                        }
+                        
+                        // QoS Data frames have a QoS control field
+                        if fc.frame_subtype >= data_frame_subtypes::QOS_DATA && fc.frame_subtype <= data_frame_subtypes::QOS_CF_ACK_POLL {
+                            if offset + data_offset + 2 <= buf.len() {
+                                let qos_bytes = &buf[offset+data_offset..offset+data_offset+2];
+                                let qos = u16::from_le_bytes([qos_bytes[0], qos_bytes[1]]);
+                                data.qos_control = Some(Value::Set(qos));
+                                data_offset += 2;
+                            }
+                        }
+                        
+                        // Frames with Order bit set have an HT Control field
+                        if fc.order {
+                            if offset + data_offset + 4 <= buf.len() {
+                                let ht_bytes = &buf[offset+data_offset..offset+data_offset+4];
+                                let ht = u32::from_le_bytes([ht_bytes[0], ht_bytes[1], ht_bytes[2], ht_bytes[3]]);
+                                data.ht_control = Some(Value::Set(ht));
+                                data_offset += 4;
+                            }
+                        }
+                        
+                        // The rest of the frame is payload
+                        if offset + data_offset < buf.len() {
+                            data.payload = buf[offset+data_offset..].to_vec();
+                        }
+                        
+                        dot11_decoded.layers.push(Box::new(data));
+                        offset = buf.len(); // We've consumed the entire buffer
+                    },
+                    
+                    // Extension frames
+                    frame_types::EXTENSION => {
+                        // These are complex 802.11ax/be frames, not implementing for now
+                        // Just return the Dot11 header
+                    },
+                }
+            }
+        }
+        
+        return Some((dot11_decoded, offset));
+    }
+    
+    None
+}
 
 // Helper functions for creating common management frames
 
@@ -2455,8 +2453,14 @@ pub fn get_security_type(capabilities: &CapabilitiesInfo, elements: &[ParsedElem
         "WEP"
     }
 }
+
+/*
+
+stray things:
+
 >,
 }
+*/
 
 fn encode_capabilities<E: Encoder>(
     my_layer: &Dot11Beacon,
@@ -2814,4 +2818,645 @@ fn encode_elements<E: Encoder>(
 #[nproto(encode_suppress)]
 pub struct Dot11ProbeReq {
     #[nproto(decode = decode_elements, encode = encode_elements)]
-    pub elements: Vec<ParsedElement
+    pub elements: Vec<ParsedElement>,
+}
+
+
+
+use crate::*;
+use rand::distributions::{Distribution, Standard};
+use std::str::FromStr;
+
+// Implementation of Distribution for FrameControl
+impl Distribution<FrameControl> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> FrameControl {
+        FrameControl {
+            protocol_version: rng.gen(),
+            frame_type: rng.gen_range(0..4),
+            frame_subtype: rng.gen_range(0..16),
+            to_ds: rng.gen(),
+            from_ds: rng.gen(),
+            more_fragments: rng.gen(),
+            retry: rng.gen(),
+            power_management: rng.gen(),
+            more_data: rng.gen(),
+            protected: rng.gen(),
+            order: rng.gen(),
+        }
+    }
+}
+
+// Implementation of FromStr for FrameControl
+impl FromStr for FrameControl {
+    type Err = ValueParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Parse from a string like "type=0,subtype=8,tods=0,fromds=0"
+        let mut frame_control = FrameControl::default();
+        let parts: Vec<&str> = s.split(',').collect();
+        
+        for part in parts {
+            let kv: Vec<&str> = part.split('=').map(|s| s.trim()).collect();
+            if kv.len() != 2 {
+                return Err(ValueParseError::Error);
+            }
+            
+            match kv[0] {
+                "protocol" | "protocol_version" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        frame_control.protocol_version = val;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                "type" | "frame_type" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        frame_control.frame_type = val;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                "subtype" | "frame_subtype" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        frame_control.frame_subtype = val;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                "tods" | "to_ds" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        frame_control.to_ds = val != 0;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                "fromds" | "from_ds" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        frame_control.from_ds = val != 0;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                "more_fragments" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        frame_control.more_fragments = val != 0;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                "retry" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        frame_control.retry = val != 0;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                "power_management" | "power_mgmt" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        frame_control.power_management = val != 0;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                "more_data" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        frame_control.more_data = val != 0;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                "protected" | "wep" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        frame_control.protected = val != 0;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                "order" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        frame_control.order = val != 0;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                _ => return Err(ValueParseError::Error),
+            }
+        }
+        
+        Ok(frame_control)
+    }
+}
+
+// Implementation of Distribution for CapabilitiesInfo
+impl Distribution<CapabilitiesInfo> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> CapabilitiesInfo {
+        CapabilitiesInfo {
+            ess: rng.gen(),
+            ibss: rng.gen(),
+            cf_pollable: rng.gen(),
+            cf_poll_request: rng.gen(),
+            privacy: rng.gen(),
+            short_preamble: rng.gen(),
+            pbcc: rng.gen(),
+            channel_agility: rng.gen(),
+            spectrum_management: rng.gen(),
+            qos: rng.gen(),
+            short_slot_time: rng.gen(),
+            apsd: rng.gen(),
+            radio_measurement: rng.gen(),
+            dsss_ofdm: rng.gen(),
+            delayed_block_ack: rng.gen(),
+            immediate_block_ack: rng.gen(),
+        }
+    }
+}
+
+// Implementation of FromStr for CapabilitiesInfo
+impl FromStr for CapabilitiesInfo {
+    type Err = ValueParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Parse from a string like "ess=1,ibss=0,privacy=1"
+        let mut caps = CapabilitiesInfo::default();
+        let parts: Vec<&str> = s.split(',').collect();
+        
+        for part in parts {
+            let kv: Vec<&str> = part.split('=').map(|s| s.trim()).collect();
+            if kv.len() != 2 {
+                return Err(ValueParseError::Error);
+            }
+            
+            match kv[0] {
+                "ess" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        caps.ess = val != 0;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                "ibss" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        caps.ibss = val != 0;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                "cf_pollable" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        caps.cf_pollable = val != 0;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                "cf_poll_request" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        caps.cf_poll_request = val != 0;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                "privacy" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        caps.privacy = val != 0;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                "short_preamble" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        caps.short_preamble = val != 0;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                "pbcc" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        caps.pbcc = val != 0;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                "channel_agility" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        caps.channel_agility = val != 0;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                "spectrum_management" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        caps.spectrum_management = val != 0;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                "qos" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        caps.qos = val != 0;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                "short_slot_time" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        caps.short_slot_time = val != 0;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                "apsd" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        caps.apsd = val != 0;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                "radio_measurement" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        caps.radio_measurement = val != 0;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                "dsss_ofdm" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        caps.dsss_ofdm = val != 0;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                "delayed_block_ack" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        caps.delayed_block_ack = val != 0;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                "immediate_block_ack" => {
+                    if let Ok(val) = kv[1].parse::<u8>() {
+                        caps.immediate_block_ack = val != 0;
+                    } else {
+                        return Err(ValueParseError::Error);
+                    }
+                },
+                _ => return Err(ValueParseError::Error),
+            }
+        }
+        
+        Ok(caps)
+    }
+}
+
+// Implementation of Encode for RadiotapField
+impl Encode for RadiotapField {
+    fn encode<E: Encoder>(&self) -> Vec<u8> {
+        match self {
+            RadiotapField::TSFT(value) => value.encode::<E>(),
+            RadiotapField::Flags(flags) => flags.encode::<E>(),
+            RadiotapField::Rate(rate) => rate.encode::<E>(),
+            RadiotapField::Channel(freq, flags) => {
+                let mut result = freq.encode::<E>();
+                result.extend_from_slice(&flags.encode::<E>());
+                result
+            },
+            RadiotapField::FHSS(hop_set, hop_pattern) => {
+                let mut result = hop_set.encode::<E>();
+                result.extend_from_slice(&hop_pattern.encode::<E>());
+                result
+            },
+            RadiotapField::AntennaSignal(signal) => (*signal as u8).encode::<E>(),
+            RadiotapField::AntennaNoise(noise) => (*noise as u8).encode::<E>(),
+            RadiotapField::LockQuality(quality) => quality.encode::<E>(),
+            RadiotapField::TxAttenuation(atten) => atten.encode::<E>(),
+            RadiotapField::DBTxAttenuation(atten) => atten.encode::<E>(),
+            RadiotapField::DBmTxPower(power) => (*power as u8).encode::<E>(),
+            RadiotapField::Antenna(antenna) => antenna.encode::<E>(),
+            RadiotapField::DBAntennaSignal(signal) => signal.encode::<E>(),
+            RadiotapField::DBAntennaNoise(noise) => noise.encode::<E>(),
+            RadiotapField::RxFlags(flags) => flags.encode::<E>(),
+            RadiotapField::TxFlags(flags) => flags.encode::<E>(),
+            RadiotapField::RtsRetries(retries) => retries.encode::<E>(),
+            RadiotapField::DataRetries(retries) => retries.encode::<E>(),
+            RadiotapField::XChannel(flags, freq, channel) => {
+                let mut result = flags.encode::<E>();
+                result.extend_from_slice(&freq.encode::<E>());
+                result.push(*channel);
+                result
+            },
+            RadiotapField::MCS(known, flags, mcs) => {
+                let mut result = known.encode::<E>();
+                result.push(*flags);
+                result.push(*mcs);
+                result
+            },
+            RadiotapField::AMPDUStatus(ref_num, flags, crc, reserved) => {
+                let mut result = ref_num.encode::<E>();
+                result.extend_from_slice(&flags.encode::<E>());
+                result.push(*crc);
+                result.push(*reserved);
+                result
+            },
+            RadiotapField::VHT(known, flags, bandwidth, mcs_nss) => {
+                let mut result = known.encode::<E>();
+                result.push(*flags);
+                result.push(*bandwidth);
+                result.extend_from_slice(mcs_nss);
+                result
+            },
+            RadiotapField::HEData1(data1, data2) => {
+                let mut result = data1.encode::<E>();
+                result.extend_from_slice(&data2.encode::<E>());
+                result
+            },
+            RadiotapField::HEData2(data3, data4) => {
+                let mut result = data3.encode::<E>();
+                result.extend_from_slice(&data4.encode::<E>());
+                result
+            },
+            RadiotapField::HEData3(data5, data6) => {
+                let mut result = data5.encode::<E>();
+                result.extend_from_slice(&data6.encode::<E>());
+                result
+            },
+            RadiotapField::HEData4(data7, data8, data9, data10) => {
+                let mut result = vec![*data7, *data8, *data9, *data10];
+                result
+            },
+            RadiotapField::HEData5(data11, data12, data13, data14) => {
+                let mut result = vec![*data11, *data12, *data13, *data14];
+                result
+            },
+            RadiotapField::HEData6(data15, data16) => {
+                let mut result = vec![*data15, *data16];
+                result
+            },
+            RadiotapField::RadiotapNamespace() => Vec::new(),
+            RadiotapField::VendorNamespace(data) => data.clone(),
+            RadiotapField::ExtendedBitmap(bitmap) => bitmap.encode::<E>(),
+            RadiotapField::Unknown(bit, data) => {
+                let mut result = bit.encode::<E>();
+                result.extend_from_slice(data);
+                result
+            },
+        }
+    }
+}
+
+// Marker implementation for AutoEncodeAsSequence for Vec<RadiotapField>
+impl AutoEncodeAsSequence for Vec<RadiotapField> {}
+
+// Fix for the frame type-specific decode capabilities
+// Each frame type needs its own decode_capabilities and decode_elements functions
+// Rather than using the ones from Dot11Beacon
+
+// Function for Dot11ProbeResp capabilities
+pub fn decode_probe_capabilities<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Dot11ProbeResp,
+) -> Option<(CapabilitiesInfo, usize)> {
+    let buf = &buf[ci..];
+    let (raw_value, delta) = u16::decode::<D>(buf)?;
+    let caps = CapabilitiesInfo::from_raw(raw_value);
+    Some((caps, delta))
+}
+
+// Function for Dot11ProbeResp elements
+pub fn decode_probe_elements<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Dot11ProbeResp,
+) -> Option<(Vec<ParsedElement>, usize)> {
+    decode_elements::<D>(buf, ci, &mut Dot11Beacon::default())
+}
+
+// Function for Dot11AssocReq capabilities
+pub fn decode_assoc_req_capabilities<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Dot11AssocReq,
+) -> Option<(CapabilitiesInfo, usize)> {
+    let buf = &buf[ci..];
+    let (raw_value, delta) = u16::decode::<D>(buf)?;
+    let caps = CapabilitiesInfo::from_raw(raw_value);
+    Some((caps, delta))
+}
+
+// Function for Dot11AssocReq elements
+pub fn decode_assoc_req_elements<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Dot11AssocReq,
+) -> Option<(Vec<ParsedElement>, usize)> {
+    decode_elements::<D>(buf, ci, &mut Dot11Beacon::default())
+}
+
+// Function for Dot11AssocResp capabilities
+pub fn decode_assoc_resp_capabilities<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Dot11AssocResp,
+) -> Option<(CapabilitiesInfo, usize)> {
+    let buf = &buf[ci..];
+    let (raw_value, delta) = u16::decode::<D>(buf)?;
+    let caps = CapabilitiesInfo::from_raw(raw_value);
+    Some((caps, delta))
+}
+
+// Function for Dot11AssocResp elements
+pub fn decode_assoc_resp_elements<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Dot11AssocResp,
+) -> Option<(Vec<ParsedElement>, usize)> {
+    decode_elements::<D>(buf, ci, &mut Dot11Beacon::default())
+}
+
+// Function for Dot11ReassocReq capabilities
+pub fn decode_reassoc_req_capabilities<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Dot11ReassocReq,
+) -> Option<(CapabilitiesInfo, usize)> {
+    let buf = &buf[ci..];
+    let (raw_value, delta) = u16::decode::<D>(buf)?;
+    let caps = CapabilitiesInfo::from_raw(raw_value);
+    Some((caps, delta))
+}
+
+// Function for Dot11ReassocReq elements
+pub fn decode_reassoc_req_elements<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Dot11ReassocReq,
+) -> Option<(Vec<ParsedElement>, usize)> {
+    decode_elements::<D>(buf, ci, &mut Dot11Beacon::default())
+}
+
+// Function for Dot11Auth elements
+pub fn decode_auth_elements<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Dot11Auth,
+) -> Option<(Vec<ParsedElement>, usize)> {
+    decode_elements::<D>(buf, ci, &mut Dot11Beacon::default())
+}
+
+// Function for Dot11Action elements
+pub fn decode_action_elements<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Dot11Action,
+) -> Option<(Vec<ParsedElement>, usize)> {
+    decode_elements::<D>(buf, ci, &mut Dot11Beacon::default())
+}
+
+// Similarly for encode functions
+pub fn encode_probe_capabilities<E: Encoder>(
+    my_layer: &Dot11ProbeResp,
+    stack: &LayerStack,
+    my_index: usize,
+    encoded_layers: &EncodingVecVec,
+) -> Vec<u8> {
+    my_layer.capabilities.value().to_raw().encode::<E>()
+}
+
+pub fn encode_probe_elements<E: Encoder>(
+    my_layer: &Dot11ProbeResp,
+    stack: &LayerStack,
+    my_index: usize,
+    encoded_layers: &EncodingVecVec,
+) -> Vec<u8> {
+    encode_elements::<E>(&Dot11Beacon::default(), stack, my_index, encoded_layers)
+}
+
+pub fn encode_assoc_req_capabilities<E: Encoder>(
+    my_layer: &Dot11AssocReq,
+    stack: &LayerStack,
+    my_index: usize,
+    encoded_layers: &EncodingVecVec,
+) -> Vec<u8> {
+    my_layer.capabilities.value().to_raw().encode::<E>()
+}
+
+pub fn encode_assoc_req_elements<E: Encoder>(
+    my_layer: &Dot11AssocReq,
+    stack: &LayerStack,
+    my_index: usize,
+    encoded_layers: &EncodingVecVec,
+) -> Vec<u8> {
+    encode_elements::<E>(&Dot11Beacon::default(), stack, my_index, encoded_layers)
+}
+
+pub fn encode_assoc_resp_capabilities<E: Encoder>(
+    my_layer: &Dot11AssocResp,
+    stack: &LayerStack,
+    my_index: usize,
+    encoded_layers: &EncodingVecVec,
+) -> Vec<u8> {
+    my_layer.capabilities.value().to_raw().encode::<E>()
+}
+
+pub fn encode_assoc_resp_elements<E: Encoder>(
+    my_layer: &Dot11AssocResp,
+    stack: &LayerStack,
+    my_index: usize,
+    encoded_layers: &EncodingVecVec,
+) -> Vec<u8> {
+    encode_elements::<E>(&Dot11Beacon::default(), stack, my_index, encoded_layers)
+}
+
+pub fn encode_reassoc_req_capabilities<E: Encoder>(
+    my_layer: &Dot11ReassocReq,
+    stack: &LayerStack,
+    my_index: usize,
+    encoded_layers: &EncodingVecVec,
+) -> Vec<u8> {
+    my_layer.capabilities.value().to_raw().encode::<E>()
+}
+
+pub fn encode_reassoc_req_elements<E: Encoder>(
+    my_layer: &Dot11ReassocReq,
+    stack: &LayerStack,
+    my_index: usize,
+    encoded_layers: &EncodingVecVec,
+) -> Vec<u8> {
+    encode_elements::<E>(&Dot11Beacon::default(), stack, my_index, encoded_layers)
+}
+
+pub fn encode_auth_elements<E: Encoder>(
+    my_layer: &Dot11Auth,
+    stack: &LayerStack,
+    my_index: usize,
+    encoded_layers: &EncodingVecVec,
+) -> Vec<u8> {
+    encode_elements::<E>(&Dot11Beacon::default(), stack, my_index, encoded_layers)
+}
+
+pub fn encode_action_elements<E: Encoder>(
+    my_layer: &Dot11Action,
+    stack: &LayerStack,
+    my_index: usize,
+    encoded_layers: &EncodingVecVec,
+) -> Vec<u8> {
+    encode_elements::<E>(&Dot11Beacon::default(), stack, my_index, encoded_layers)
+}
+
+// Fix for Dot11Data class to handle Option types correctly
+// Implementation of From for Option<Value<MacAddr>>
+impl From<Option<Value<MacAddr>>> for Value<MacAddr> {
+    fn from(opt: Option<Value<MacAddr>>) -> Self {
+        match opt {
+            Some(val) => val,
+            None => Value::Auto,
+        }
+    }
+}
+
+// Implementation of From for Option<Value<u16>>
+impl From<Option<Value<u16>>> for Value<u16> {
+    fn from(opt: Option<Value<u16>>) -> Self {
+        match opt {
+            Some(val) => val,
+            None => Value::Auto,
+        }
+    }
+}
+
+// Implementation of From for Option<Value<u32>>
+impl From<Option<Value<u32>>> for Value<u32> {
+    fn from(opt: Option<Value<u32>>) -> Self {
+        match opt {
+            Some(val) => val,
+            None => Value::Auto,
+        }
+    }
+}
+
+// For Value<T> where T might be Value<U>, implement Distribution
+impl<T: Clone + std::default::Default> Distribution<Value<T>> for Standard 
+where 
+    Standard: Distribution<T>
+{
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Value<T> {
+        match rng.gen_range(0..4) {
+            0 => Value::Auto,
+            1 => Value::Random,
+            2 => Value::Func(|| Standard.sample(rng)),
+            _ => Value::Set(Standard.sample(rng)),
+        }
+    }
+}
+
+// Helper function for optional fields in Dot11Data
+fn decode_option_value<D: Decoder, T: Decode>(
+    buf: &[u8], 
+    ci: usize
+) -> Option<(Option<Value<T>>, usize)> {
+    if ci + 2 <= buf.len() {
+        let (val, size) = T::decode::<D>(&buf[ci..])?;
+        Some((Some(Value::Set(val)), size))
+    } else {
+        Some((None, 0))
+    }
+}
