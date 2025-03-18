@@ -1,3 +1,5 @@
+use crate::encdec::binary_little_endian::BinaryLittleEndian;
+
 // Scan a PCAP file for 802.11 beacon frames and return a list of networks
 pub fn scan_pcap_for_networks(pcap_data: &[u8]) -> Vec<NetworkInfo> {
     use std::collections::HashMap;
@@ -272,7 +274,9 @@ pub fn print_packet_details(packet_data: &[u8]) -> String {
             output.push_str("Radiotap Header:\n");
             output.push_str(&format!("  Version: {}\n", radiotap.version.value()));
             output.push_str(&format!("  Length: {} bytes\n", radiotap.length.value()));
-            output.push_str(&format!("  Present flags: 0x{:08x}\n", radiotap.present_flags.value()));
+            for fff in &radiotap.present_flags {
+                output.push_str(&format!("  Present flags: 0x{:08x}\n", fff));
+            }
             
             for field in &radiotap.fields {
                 match field {
@@ -1444,7 +1448,7 @@ pub struct Radiotap {
     #[nproto(encode = encode_radiotap_length, decode = decode_radiotap_length)]
     pub length: Value<u16>,
     #[nproto(encode = encode_radiotap_present, decode = decode_radiotap_present)]
-    pub present_flags: Value<u32>,
+    pub present_flags: Vec<u32>,
     #[nproto(decode = decode_radiotap_fields)]
     pub fields: Vec<RadiotapField>,
 }
@@ -1526,7 +1530,7 @@ fn encode_radiotap_length<E: Encoder>(
     my_index: usize,
     encoded_layers: &EncodingVecVec,
 ) -> Vec<u8> {
-    my_layer.length.value().encode::<E>()
+    my_layer.length.value().encode::<BinaryLittleEndian>()
 }
 
 fn decode_radiotap_length<D: Decoder>(
@@ -1535,7 +1539,7 @@ fn decode_radiotap_length<D: Decoder>(
     me: &mut Radiotap,
 ) -> Option<(u16, usize)> {
     let buf = &buf[ci..];
-    u16::decode::<D>(buf)
+    u16::decode::<BinaryLittleEndian>(buf)
 }
 
 fn encode_radiotap_present<E: Encoder>(
@@ -1544,16 +1548,38 @@ fn encode_radiotap_present<E: Encoder>(
     my_index: usize,
     encoded_layers: &EncodingVecVec,
 ) -> Vec<u8> {
-    my_layer.present_flags.value().encode::<E>()
+    let mut out: Vec<u8> = vec![];
+    for v in &my_layer.present_flags {
+      out.extend(v.encode::<BinaryLittleEndian>())
+    }
+    out
 }
 
 fn decode_radiotap_present<D: Decoder>(
     buf: &[u8],
     ci: usize,
     me: &mut Radiotap,
-) -> Option<(u32, usize)> {
+) -> Option<(Vec<u32>, usize)> {
     let buf = &buf[ci..];
-    u32::decode::<D>(buf)
+    let mut out: Vec<u32> = vec![];
+    let mut consumed = 0;
+    let mut offs = 0;
+    loop {
+      let buf = &buf[offs..];
+      if let Some((val, nbytes)) = u32::decode::<BinaryLittleEndian>(buf) {
+         out.push(val);
+         consumed += nbytes;
+         if val & radiotap_flags::EXT == 0 {
+           println!("EXT missing");
+           break;
+         }
+         offs += nbytes;
+      } else {
+         println!("Error while decode radiotap present");
+         return None;
+      }
+    }
+    Some((out, consumed))
 }
 
 fn decode_radiotap_fields<D: Decoder>(
@@ -1564,32 +1590,10 @@ fn decode_radiotap_fields<D: Decoder>(
     let buf = &buf[ci..];
     let radiotap_len = me.length.value() as usize;
     
-    if radiotap_len <= 8 || ci + radiotap_len > buf.len() {
-        // Not enough data for radiotap header
-        return Some((Vec::new(), 0));
-    }
-
     let mut fields = Vec::new();
-    let mut present = me.present_flags.value();
-    let mut present_bitmaps = vec![present];
-    let mut bitmap_idx = 0;
+    let mut present_bitmaps = me.present_flags.clone();
     
-    // Check for extended bitmaps
-    while present & radiotap_flags::EXT != 0 && bitmap_idx < 8 {
-        bitmap_idx += 1;
-        let offset = 4 + (bitmap_idx * 4);
-        if ci + offset + 4 > buf.len() {
-            break;
-        }
-        
-        let next_present = u32::from_le_bytes([
-            buf[offset], buf[offset+1], buf[offset+2], buf[offset+3]
-        ]);
-        present_bitmaps.push(next_present);
-    }
-    
-    // Start parsing after the last present flag bitmap
-    let mut offset = 8 + (bitmap_idx * 4);
+    let mut offset = 0;
     
     // 4-byte alignment for certain fields
     let align_offset = |off: usize| -> usize {
@@ -1600,14 +1604,7 @@ fn decode_radiotap_fields<D: Decoder>(
     for (idx, present) in present_bitmaps.iter().enumerate() {
         let base_bit = idx * 32;
         
-        // Skip the extended bit
-        let parse_bits = if *present & radiotap_flags::EXT != 0 {
-            31
-        } else {
-            32
-        };
-        
-        for bit in 0..parse_bits {
+        for bit in 0..31 {
             // Skip extended bitmap bit
             if bit == 31 {
                 continue;
@@ -1620,8 +1617,9 @@ fn decode_radiotap_fields<D: Decoder>(
             
             // Parse based on the bit position
             let global_bit = base_bit + bit;
+            println!("bit: {} offset: {} value: {:x?}", &bit, offset, buf[offset]);
             
-            match global_bit {
+            match bit {
                 0 => { // TSFT
                     offset = align_offset(offset);
                     if offset + 8 <= radiotap_len {
@@ -1646,7 +1644,8 @@ fn decode_radiotap_fields<D: Decoder>(
                     }
                 },
                 3 => { // CHANNEL
-                    offset = align_offset(offset);
+                    // AYXX - offset = align_offset(offset);
+                    println!("aligned offset: {}", &offset);
                     if offset + 4 <= radiotap_len {
                         let freq = u16::from_le_bytes([buf[offset], buf[offset+1]]);
                         let flags = u16::from_le_bytes([buf[offset+2], buf[offset+3]]);
@@ -1721,7 +1720,7 @@ fn decode_radiotap_fields<D: Decoder>(
                     }
                 },
                 14 => { // RX_FLAGS
-                    offset = align_offset(offset);
+                    // AYXX  offset = align_offset(offset);
                     if offset + 2 <= radiotap_len {
                         let flags = u16::from_le_bytes([buf[offset], buf[offset+1]]);
                         fields.push(RadiotapField::RxFlags(flags));
@@ -1850,9 +1849,11 @@ pub fn decode_802_11_frame(buf: &[u8], has_fcs: bool) -> Option<(LayerStack, usi
     if buf.len() >= 4 && buf[0] == 0x00 && buf[1] == 0x00 { // Radiotap magic
         let radiotap = Radiotap::default();
         if let Some((radiotap_decoded, radiotap_offset)) = radiotap.decode_with_decoder::<BinaryBigEndian>(&buf) {
+            println!("RADIOTAP: {:?}", &radiotap_decoded);
             stack.layers.extend(radiotap_decoded.layers);
             offset += radiotap_offset;
         } else {
+            println!("No radiotap header");
             return None;
         }
     }
@@ -1861,10 +1862,11 @@ pub fn decode_802_11_frame(buf: &[u8], has_fcs: bool) -> Option<(LayerStack, usi
     let data_end = if has_fcs { buf.len() - 4 } else { buf.len() };
     
     // Next, decode the 802.11 header and appropriate frame type
-    if let Some((dot11_decoded, dot11_offset)) = decode_dot11_management_frame(&buf[offset..data_end]) {
+    if let Some((dot11_decoded, dot11_offset)) = decode_dot11_frame(&buf[offset..data_end]) {
         stack.layers.extend(dot11_decoded.layers);
         offset += dot11_offset;
     } else {
+        println!("No 802.11 header");
         return None;
     }
     
@@ -2256,6 +2258,8 @@ pub fn decode_dot11_frame(buf: &[u8]) -> Option<(LayerStack, usize)> {
         }
         
         return Some((dot11_decoded, offset));
+    } else {
+        println!("Could not decode dot11");
     }
     
     None
@@ -3486,14 +3490,6 @@ fn decode_option_value<D: Decoder, T: Decode>(
     }
 }
 
-
-// Fix for the missing decode_dot11_management_frame function
-// It looks like this function has been renamed to decode_dot11_frame in the implementation,
-// but the old name is still being referenced. Here's a compatibility wrapper:
-
-pub fn decode_dot11_management_frame(buf: &[u8]) -> Option<(LayerStack, usize)> {
-    decode_dot11_frame(buf)
-}
 
 // Fix for the Value::decode issue in Dot11Data
 // We need to implement a decode function for Value<T> where T: Decode
