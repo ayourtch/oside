@@ -1326,7 +1326,8 @@ fn decode_frame_control<D: Decoder>(
     me: &mut Dot11,
 ) -> Option<(FrameControl, usize)> {
     let buf = &buf[ci..];
-    let (raw_value, delta) = u16::decode::<D>(buf)?;
+    let (raw_value, delta) = u16::decode::<BinaryLittleEndian>(buf)?;
+    println!("FRAME CONTROL: {:x?}", &raw_value);
     let fc = FrameControl::from_raw(raw_value);
     Some((fc, delta))
 }
@@ -1337,7 +1338,7 @@ fn encode_seq_control<E: Encoder>(
     my_index: usize,
     encoded_layers: &EncodingVecVec,
 ) -> Vec<u8> {
-    my_layer.seq_control.value().encode::<E>()
+    my_layer.seq_control.value().encode::<BinaryLittleEndian>()
 }
 
 fn decode_seq_control<D: Decoder>(
@@ -1570,7 +1571,7 @@ fn decode_radiotap_present<D: Decoder>(
          out.push(val);
          consumed += nbytes;
          if val & radiotap_flags::EXT == 0 {
-           println!("EXT missing");
+           //println!("EXT missing");
            break;
          }
          offs += nbytes;
@@ -1617,7 +1618,6 @@ fn decode_radiotap_fields<D: Decoder>(
             
             // Parse based on the bit position
             let global_bit = base_bit + bit;
-            println!("bit: {} offset: {} value: {:x?}", &bit, offset, buf[offset]);
             
             match bit {
                 0 => { // TSFT
@@ -1645,7 +1645,7 @@ fn decode_radiotap_fields<D: Decoder>(
                 },
                 3 => { // CHANNEL
                     // AYXX - offset = align_offset(offset);
-                    println!("aligned offset: {}", &offset);
+                    // println!("aligned offset: {}", &offset);
                     if offset + 4 <= radiotap_len {
                         let freq = u16::from_le_bytes([buf[offset], buf[offset+1]]);
                         let flags = u16::from_le_bytes([buf[offset+2], buf[offset+3]]);
@@ -1672,7 +1672,7 @@ fn decode_radiotap_fields<D: Decoder>(
                     }
                 },
                 7 => { // LOCK_QUALITY
-                    offset = align_offset(offset);
+                    // offset = align_offset(offset);
                     if offset + 2 <= radiotap_len {
                         let quality = u16::from_le_bytes([buf[offset], buf[offset+1]]);
                         fields.push(RadiotapField::LockQuality(quality));
@@ -1680,7 +1680,7 @@ fn decode_radiotap_fields<D: Decoder>(
                     }
                 },
                 8 => { // TX_ATTENUATION
-                    offset = align_offset(offset);
+                    // offset = align_offset(offset);
                     if offset + 2 <= radiotap_len {
                         let atten = u16::from_le_bytes([buf[offset], buf[offset+1]]);
                         fields.push(RadiotapField::TxAttenuation(atten));
@@ -1688,7 +1688,7 @@ fn decode_radiotap_fields<D: Decoder>(
                     }
                 },
                 9 => { // DB_TX_ATTENUATION
-                    offset = align_offset(offset);
+                    // offset = align_offset(offset);
                     if offset + 2 <= radiotap_len {
                         let atten = u16::from_le_bytes([buf[offset], buf[offset+1]]);
                         fields.push(RadiotapField::DBTxAttenuation(atten));
@@ -1728,7 +1728,7 @@ fn decode_radiotap_fields<D: Decoder>(
                     }
                 },
                 15 => { // TX_FLAGS
-                    offset = align_offset(offset);
+                    // offset = align_offset(offset);
                     if offset + 2 <= radiotap_len {
                         let flags = u16::from_le_bytes([buf[offset], buf[offset+1]]);
                         fields.push(RadiotapField::TxFlags(flags));
@@ -1748,7 +1748,7 @@ fn decode_radiotap_fields<D: Decoder>(
                     }
                 },
                 18 => { // XCHANNEL
-                    offset = align_offset(offset);
+                    // offset = align_offset(offset);
                     if offset + 8 <= radiotap_len {
                         let flags = u32::from_le_bytes([
                             buf[offset], buf[offset+1], buf[offset+2], buf[offset+3]
@@ -1770,7 +1770,7 @@ fn decode_radiotap_fields<D: Decoder>(
                     }
                 },
                 20 => { // AMPDU_STATUS
-                    offset = align_offset(offset);
+                    // offset = align_offset(offset);
                     if offset + 8 <= radiotap_len {
                         let reference = u32::from_le_bytes([
                             buf[offset], buf[offset+1], buf[offset+2], buf[offset+3]
@@ -1798,7 +1798,7 @@ fn decode_radiotap_fields<D: Decoder>(
                 22..=26 => { // HE fields
                     // Skip complex HE fields for now, they have variable size
                     // and depend on the specific 802.11ax implementation
-                    offset = align_offset(offset);
+                    // offset = align_offset(offset);
                     if offset + 4 <= radiotap_len {
                         let data1 = u16::from_le_bytes([buf[offset], buf[offset+1]]);
                         let data2 = u16::from_le_bytes([buf[offset+2], buf[offset+3]]);
@@ -1812,7 +1812,7 @@ fn decode_radiotap_fields<D: Decoder>(
                     // No length defined, must be followed by another namespace
                 },
                 30 => { // VENDOR_NAMESPACE
-                    offset = align_offset(offset);
+                    // offset = align_offset(offset);
                     if offset + 6 <= radiotap_len {
                         let oui_len = u16::from_le_bytes([buf[offset+4], buf[offset+5]]) as usize;
                         if offset + 6 + oui_len <= radiotap_len {
@@ -1848,9 +1848,9 @@ pub fn decode_802_11_frame(buf: &[u8], has_fcs: bool) -> Option<(LayerStack, usi
     // First, check if we have a radiotap header
     if buf.len() >= 4 && buf[0] == 0x00 && buf[1] == 0x00 { // Radiotap magic
         let radiotap = Radiotap::default();
-        if let Some((radiotap_decoded, radiotap_offset)) = radiotap.decode_with_decoder::<BinaryBigEndian>(&buf) {
-            println!("RADIOTAP: {:?}", &radiotap_decoded);
-            stack.layers.extend(radiotap_decoded.layers);
+        if let Some((radiotap_decoded, radiotap_offset)) = Radiotap::decode::<BinaryBigEndian>(&buf) { // radiotap.decode_with_decoder::<BinaryBigEndian>(&buf) {
+            // println!("RADIOTAP: {:?}", &radiotap_decoded);
+            stack.layers.push(Box::new(radiotap_decoded));
             offset += radiotap_offset;
         } else {
             println!("No radiotap header");
