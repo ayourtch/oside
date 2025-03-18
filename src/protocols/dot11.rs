@@ -3481,3 +3481,91 @@ fn decode_option_value<D: Decoder, T: Decode>(
         Some((None, 0))
     }
 }
+
+
+// Fix for the missing decode_dot11_management_frame function
+// It looks like this function has been renamed to decode_dot11_frame in the implementation,
+// but the old name is still being referenced. Here's a compatibility wrapper:
+
+pub fn decode_dot11_management_frame(buf: &[u8]) -> Option<(LayerStack, usize)> {
+    decode_dot11_frame(buf)
+}
+
+// Fix for the Value::decode issue in Dot11Data
+// We need to implement a decode function for Value<T> where T: Decode
+
+impl<T: Decode + Clone + std::default::Default> Decode for Value<T>
+where
+    Standard: Distribution<T>,
+{
+    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
+        if let Some((val, size)) = T::decode::<D>(buf) {
+            Some((Value::Set(val), size))
+        } else {
+            None
+        }
+    }
+}
+
+// Additionally, we need to implement Decode for Option<Value<T>>
+impl<T: Decode + Clone + std::default::Default> Decode for Option<Value<T>>
+where
+    Standard: Distribution<T>,
+{
+    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
+        if buf.is_empty() {
+            return Some((None, 0));
+        }
+        
+        if let Some((val, size)) = Value::<T>::decode::<D>(buf) {
+            Some((Some(val), size))
+        } else {
+            Some((None, 0))
+        }
+    }
+}
+
+// We also need to ensure we have the appropriate implementations for MacAddr, u16, and u32
+// Here we cover the specific cases needed for Dot11Data
+
+impl Decode for Option<Value<MacAddr>> {
+    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
+        if buf.is_empty() {
+            return Some((None, 0));
+        }
+        
+        if let Some((mac, size)) = MacAddr::decode::<D>(buf) {
+            Some((Some(Value::Set(mac)), size))
+        } else {
+            Some((None, 0))
+        }
+    }
+}
+
+impl Decode for Option<Value<u16>> {
+    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
+        if buf.is_empty() {
+            return Some((None, 0));
+        }
+        
+        if let Some((val, size)) = u16::decode::<D>(buf) {
+            Some((Some(Value::Set(val)), size))
+        } else {
+            Some((None, 0))
+        }
+    }
+}
+
+impl Decode for Option<Value<u32>> {
+    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
+        if buf.is_empty() {
+            return Some((None, 0));
+        }
+        
+        if let Some((val, size)) = u32::decode::<D>(buf) {
+            Some((Some(Value::Set(val)), size))
+        } else {
+            Some((None, 0))
+        }
+    }
+}
