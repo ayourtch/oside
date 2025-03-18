@@ -928,9 +928,143 @@ static FCS_TABLE: [u32; 256] = [
     0xb3667a2e, 0xc4614ab8, 0x5d681b02, 0x2a6f2b94, 0xb40bbe37, 0xc30c8ea1, 0x5a05df1b, 0x2d02ef8d
 ];
 
-// Create a layer decoder that determines the appropriate management frame type
-// based on the frame control field's subtype
-pub fn decode_dot11_management_frame(buf: &[u8]) -> Option<(LayerStack, usize)> {
+// Control frame subtypes
+pub mod control_frame_subtypes {
+    pub const CTS: u8 = 12;
+    pub const ACK: u8 = 13;
+    pub const RTS: u8 = 11;
+    pub const BLOCK_ACK_REQ: u8 = 8;
+    pub const BLOCK_ACK: u8 = 9;
+    pub const PS_POLL: u8 = 10;
+    pub const CF_END: u8 = 14;
+    pub const CF_END_ACK: u8 = 15;
+}
+
+// Data frame subtypes
+pub mod data_frame_subtypes {
+    pub const DATA: u8 = 0;
+    pub const DATA_CF_ACK: u8 = 1;
+    pub const DATA_CF_POLL: u8 = 2;
+    pub const DATA_CF_ACK_POLL: u8 = 3;
+    pub const NULL: u8 = 4;
+    pub const CF_ACK: u8 = 5;
+    pub const CF_POLL: u8 = 6;
+    pub const CF_ACK_POLL: u8 = 7;
+    pub const QOS_DATA: u8 = 8;
+    pub const QOS_DATA_CF_ACK: u8 = 9;
+    pub const QOS_DATA_CF_POLL: u8 = 10;
+    pub const QOS_DATA_CF_ACK_POLL: u8 = 11;
+    pub const QOS_NULL: u8 = 12;
+    pub const QOS_CF_POLL: u8 = 14;
+    pub const QOS_CF_ACK_POLL: u8 = 15;
+}
+
+// IEEE 802.11 Control Frame Implementations
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(encode_suppress)]
+pub struct Dot11RTS {
+    // RTS has no additional fields beyond the Dot11 header
+}
+
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(encode_suppress)]
+pub struct Dot11CTS {
+    // CTS has no additional fields beyond the Dot11 header
+}
+
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(encode_suppress)]
+pub struct Dot11ACK {
+    // ACK has no additional fields beyond the Dot11 header
+}
+
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(encode_suppress)]
+pub struct Dot11BlockAckReq {
+    pub bar_control: Value<u16>,
+    pub sequence_control: Value<u16>,
+}
+
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(encode_suppress)]
+pub struct Dot11BlockAck {
+    pub ba_control: Value<u16>,
+    pub sequence_control: Value<u16>,
+    pub bitmap: Vec<u8>,
+}
+
+// IEEE 802.11 Data Frame Implementation
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(encode_suppress)]
+pub struct Dot11Data {
+    pub addr4: Option<Value<MacAddr>>, // Only present if ToDS and FromDS are both set
+    #[nproto(encode = encode_qos_control, decode = decode_qos_control)]
+    pub qos_control: Option<Value<u16>>, // Only present in QoS data frames
+    #[nproto(encode = encode_ht_control, decode = decode_ht_control)]
+    pub ht_control: Option<Value<u32>>, // Only present if Order bit is set
+    pub payload: Vec<u8>, // Data payload
+}
+
+fn encode_qos_control<E: Encoder>(
+    my_layer: &Dot11Data,
+    stack: &LayerStack,
+    my_index: usize,
+    encoded_layers: &EncodingVecVec,
+) -> Vec<u8> {
+    if let Some(qos_control) = &my_layer.qos_control {
+        qos_control.value().encode::<E>()
+    } else {
+        vec![]
+    }
+}
+
+fn decode_qos_control<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Dot11Data,
+) -> Option<(Option<Value<u16>>, usize)> {
+    // This should be used conditionally based on frame subtype
+    // The caller should determine if QoS field is present
+    if ci + 2 <= buf.len() {
+        let buf = &buf[ci..];
+        if let Some((qos, size)) = u16::decode::<D>(buf) {
+            return Some((Some(Value::Set(qos)), size));
+        }
+    }
+    Some((None, 0))
+}
+
+fn encode_ht_control<E: Encoder>(
+    my_layer: &Dot11Data,
+    stack: &LayerStack,
+    my_index: usize,
+    encoded_layers: &EncodingVecVec,
+) -> Vec<u8> {
+    if let Some(ht_control) = &my_layer.ht_control {
+        ht_control.value().encode::<E>()
+    } else {
+        vec![]
+    }
+}
+
+fn decode_ht_control<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Dot11Data,
+) -> Option<(Option<Value<u32>>, usize)> {
+    // This should be used conditionally based on Order bit
+    // The caller should determine if HT Control field is present
+    if ci + 4 <= buf.len() {
+        let buf = &buf[ci..];
+        if let Some((ht, size)) = u32::decode::<D>(buf) {
+            return Some((Some(Value::Set(ht)), size));
+        }
+    }
+    Some((None, 0))
+}
+
+// Create a decoder for all 802.11 frame types
+pub fn decode_dot11_frame(buf: &[u8]) -> Option<(LayerStack, usize)> {
     // First decode the Dot11 header to get the frame control field
     let dot11 = Dot11::default();
     if let Some((mut dot11_decoded, mut offset)) = dot11.decode_with_decoder::<BinaryBigEndian>(buf) {
@@ -938,88 +1072,39 @@ pub fn decode_dot11_management_frame(buf: &[u8]) -> Option<(LayerStack, usize)> 
             if let Some(dot11) = dot11_layer.downcast_ref::<Dot11>() {
                 let fc = dot11.frame_control.value();
                 
-                // Check if it's a management frame
-                if fc.frame_type == frame_types::MANAGEMENT {
-                    // Based on the subtype, decode the appropriate management frame
-                    match fc.frame_subtype {
-                        frame_types::BEACON => {
-                            let beacon = Dot11Beacon::default();
-                            if let Some((beacon_decoded, beacon_offset)) = beacon.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
-                                dot11_decoded.layers.extend(beacon_decoded.layers);
-                                offset += beacon_offset;
-                            }
-                        },
-                        frame_types::PROBE_REQ => {
-                            let probe_req = Dot11ProbeReq::default();
-                            if let Some((probe_req_decoded, probe_req_offset)) = probe_req.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
-                                dot11_decoded.layers.extend(probe_req_decoded.layers);
-                                offset += probe_req_offset;
-                            }
-                        },
-                        frame_types::PROBE_RESP => {
-                            let probe_resp = Dot11ProbeResp::default();
-                            if let Some((probe_resp_decoded, probe_resp_offset)) = probe_resp.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
-                                dot11_decoded.layers.extend(probe_resp_decoded.layers);
-                                offset += probe_resp_offset;
-                            }
-                        },
-                        frame_types::ASSOC_REQ => {
-                            let assoc_req = Dot11AssocReq::default();
-                            if let Some((assoc_req_decoded, assoc_req_offset)) = assoc_req.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
-                                dot11_decoded.layers.extend(assoc_req_decoded.layers);
-                                offset += assoc_req_offset;
-                            }
-                        },
-                        frame_types::ASSOC_RESP => {
-                            let assoc_resp = Dot11AssocResp::default();
-                            if let Some((assoc_resp_decoded, assoc_resp_offset)) = assoc_resp.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
-                                dot11_decoded.layers.extend(assoc_resp_decoded.layers);
-                                offset += assoc_resp_offset;
-                            }
-                        },
-                        frame_types::REASSOC_REQ => {
-                            let reassoc_req = Dot11ReassocReq::default();
-                            if let Some((reassoc_req_decoded, reassoc_req_offset)) = reassoc_req.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
-                                dot11_decoded.layers.extend(reassoc_req_decoded.layers);
-                                offset += reassoc_req_offset;
-                            }
-                        },
-                        frame_types::AUTH => {
-                            let auth = Dot11Auth::default();
-                            if let Some((auth_decoded, auth_offset)) = auth.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
-                                dot11_decoded.layers.extend(auth_decoded.layers);
-                                offset += auth_offset;
-                            }
-                        },
-                        frame_types::DEAUTH => {
-                            let deauth = Dot11Deauth::default();
-                            if let Some((deauth_decoded, deauth_offset)) = deauth.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
-                                dot11_decoded.layers.extend(deauth_decoded.layers);
-                                offset += deauth_offset;
-                            }
-                        },
-                        frame_types::ACTION => {
-                            let action = Dot11Action::default();
-                            if let Some((action_decoded, action_offset)) = action.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
-                                dot11_decoded.layers.extend(action_decoded.layers);
-                                offset += action_offset;
-                            }
-                        },
-                        _ => {
-                            // Unknown management frame subtype
-                            // Just return the Dot11 header
-                        }
-                    }
-                }
-                // Add support for control and data frames as needed
-            }
-        }
-        
-        return Some((dot11_decoded, offset));
-    }
-    
-    None
-}
+                match fc.frame_type {
+                    // Management frames
+                    frame_types::MANAGEMENT => {
+                        match fc.frame_subtype {
+                            frame_types::BEACON => {
+                                let beacon = Dot11Beacon::default();
+                                if let Some((beacon_decoded, beacon_offset)) = beacon.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                    dot11_decoded.layers.extend(beacon_decoded.layers);
+                                    offset += beacon_offset;
+                                }
+                            },
+                            frame_types::PROBE_REQ => {
+                                let probe_req = Dot11ProbeReq::default();
+                                if let Some((probe_req_decoded, probe_req_offset)) = probe_req.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                    dot11_decoded.layers.extend(probe_req_decoded.layers);
+                                    offset += probe_req_offset;
+                                }
+                            },
+                            frame_types::PROBE_RESP => {
+                                let probe_resp = Dot11ProbeResp::default();
+                                if let Some((probe_resp_decoded, probe_resp_offset)) = probe_resp.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                    dot11_decoded.layers.extend(probe_resp_decoded.layers);
+                                    offset += probe_resp_offset;
+                                }
+                            },
+                            frame_types::ASSOC_REQ => {
+                                let assoc_req = Dot11AssocReq::default();
+                                if let Some((assoc_req_decoded, assoc_req_offset)) = assoc_req.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                    dot11_decoded.layers.extend(assoc_req_decoded.layers);
+                                    offset += assoc_req_offset;
+                                }
+                            },
+                            frame_types::ASSOC
 
 // Helper functions for creating common management frames
 
