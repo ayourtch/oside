@@ -615,7 +615,540 @@ pub fn print_packet_details(packet_data: &[u8]) -> String {
                             let mut offset = 2;
                             
                             // Group Cipher Suite
-                            ifuse crate::*;
+                            if offset + 4 <= vendor.data.len() {
+                                let group_oui = [vendor.data[offset], vendor.data[offset+1], vendor.data[offset+2]];
+                                let group_suite_type = vendor.data[offset+3];
+                                
+                                let suite_type_str = match group_suite_type {
+                                    1 => "WEP-40",
+                                    2 => "TKIP",
+                                    4 => "CCMP (AES)",
+                                    5 => "WEP-104",
+                                    _ => "Unknown",
+                                };
+                                
+                                output.push_str(&format!("        Group Cipher: {}\n", suite_type_str));
+                                offset += 4;
+                                
+                                // Pairwise Cipher Suite Count
+                                if offset + 2 <= vendor.data.len() {
+                                    let count = u16::from_le_bytes([vendor.data[offset], vendor.data[offset+1]]) as usize;
+                                    offset += 2;
+                                    
+                                    output.push_str(&format!("        Pairwise Ciphers ({}):\n", count));
+                                    
+                                    // Pairwise Cipher Suites
+                                    for i in 0..count {
+                                        if offset + 4 <= vendor.data.len() {
+                                            let oui = [vendor.data[offset], vendor.data[offset+1], vendor.data[offset+2]];
+                                            let suite_type = vendor.data[offset+3];
+                                            
+                                            let suite_type_str = match suite_type {
+                                                1 => "WEP-40",
+                                                2 => "TKIP",
+                                                4 => "CCMP (AES)",
+                                                5 => "WEP-104",
+                                                _ => "Unknown",
+                                            };
+                                            
+                                            output.push_str(&format!("          {}\n", suite_type_str));
+                                            offset += 4;
+                                        }
+                                    }
+                                    
+                                    // AKM Suite Count
+                                    if offset + 2 <= vendor.data.len() {
+                                        let count = u16::from_le_bytes([vendor.data[offset], vendor.data[offset+1]]) as usize;
+                                        offset += 2;
+                                        
+                                        output.push_str(&format!("        Authentication Key Management ({}):\n", count));
+                                        
+                                        // AKM Suites
+                                        for i in 0..count {
+                                            if offset + 4 <= vendor.data.len() {
+                                                let oui = [vendor.data[offset], vendor.data[offset+1], vendor.data[offset+2]];
+                                                let suite_type = vendor.data[offset+3];
+                                                
+                                                let suite_type_str = match suite_type {
+                                                    1 => "802.1X",
+                                                    2 => "PSK",
+                                                    _ => "Unknown",
+                                                };
+                                                
+                                                output.push_str(&format!("          {}\n", suite_type_str));
+                                                offset += 4;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    _ => {},
+                }
+            }
+        }
+        
+        // Print Probe Request information
+        if let Some(probe_req) = stack.get_layer(Dot11ProbeReq::default()) {
+            output.push_str("\nProbe Request:\n");
+            
+            for element in &probe_req.elements {
+                if let ParsedElement::SSID(ssid) = element {
+                    output.push_str(&format!("  Requested SSID: {}\n", ssid));
+                }
+            }
+        }
+        
+        // Print Probe Response information
+        if let Some(probe_resp) = stack.get_layer(Dot11ProbeResp::default()) {
+            output.push_str("\nProbe Response:\n");
+            output.push_str(&format!("  Timestamp: {}\n", probe_resp.timestamp.value()));
+            output.push_str(&format!("  Interval: {} TU ({} ms)\n", 
+                           probe_resp.beacon_interval.value(),
+                           probe_resp.beacon_interval.value() * 1024 / 1000));
+            
+            let caps = probe_resp.capabilities.value();
+            output.push_str(&format!("  Capabilities: 0x{:04x}\n", caps.to_raw()));
+            
+            output.push_str("\n  Information Elements:\n");
+            for element in &probe_resp.elements {
+                if let ParsedElement::SSID(ssid) = element {
+                    output.push_str(&format!("    SSID: {}\n", ssid));
+                }
+            }
+        }
+        
+        // Print Association Request information
+        if let Some(assoc_req) = stack.get_layer(Dot11AssocReq::default()) {
+            output.push_str("\nAssociation Request:\n");
+            
+            let caps = assoc_req.capabilities.value();
+            output.push_str(&format!("  Capabilities: 0x{:04x}\n", caps.to_raw()));
+            output.push_str(&format!("  Listen Interval: {}\n", assoc_req.listen_interval.value()));
+            
+            output.push_str("\n  Information Elements:\n");
+            for element in &assoc_req.elements {
+                if let ParsedElement::SSID(ssid) = element {
+                    output.push_str(&format!("    SSID: {}\n", ssid));
+                }
+            }
+        }
+        
+        // Print Authentication Frame information
+        if let Some(auth) = stack.get_layer(Dot11Auth::default()) {
+            output.push_str("\nAuthentication Frame:\n");
+            
+            let auth_alg = match auth.auth_algorithm.value() {
+                0 => "Open System",
+                1 => "Shared Key",
+                2 => "Fast BSS Transition",
+                3 => "SAE",
+                _ => "Unknown",
+            };
+            
+            output.push_str(&format!("  Authentication Algorithm: {} ({})\n", 
+                           auth.auth_algorithm.value(), auth_alg));
+            output.push_str(&format!("  Authentication Sequence: {}\n", auth.auth_seq.value()));
+            
+            let status = match auth.status_code.value() {
+                0 => "Success",
+                1 => "Failure",
+                10 => "Cannot support all requested capabilities",
+                11 => "Reassociation denied, could not confirm association exists",
+                12 => "Association denied for reason outside standard",
+                13 => "Responding station does not support authentication algorithm",
+                14 => "Received an authentication frame with unexpected sequence number",
+                15 => "Authentication rejected, challenge failure",
+                16 => "Authentication rejected, timeout",
+                17 => "Association denied, too many stations",
+                18 => "Basic rate support denied",
+                _ => "Unknown",
+            };
+            
+            output.push_str(&format!("  Status Code: {} ({})\n", auth.status_code.value(), status));
+        }
+        
+        // Print Data Frame information
+        if let Some(data) = stack.get_layer(Dot11Data::default()) {
+            output.push_str("\nData Frame:\n");
+            
+            if let Some(addr4) = &data.addr4 {
+                output.push_str(&format!("  Address 4: {}\n", addr4.value()));
+            }
+            
+            if let Some(qos) = &data.qos_control {
+                output.push_str(&format!("  QoS Control: 0x{:04x}\n", qos.value()));
+                
+                let tid = qos.value() & 0x000F;
+                let eosp = (qos.value() & 0x0010) != 0;
+                let ack_policy = (qos.value() >> 5) & 0x0003;
+                
+                output.push_str(&format!("    TID: {}\n", tid));
+                output.push_str(&format!("    End of Service Period: {}\n", eosp));
+                
+                let ack_str = match ack_policy {
+                    0 => "Normal ACK",
+                    1 => "No ACK",
+                    2 => "No explicit ACK",
+                    3 => "Block ACK",
+                    _ => "Unknown",
+                };
+                
+                output.push_str(&format!("    ACK Policy: {}\n", ack_str));
+            }
+            
+            if let Some(ht) = &data.ht_control {
+                output.push_str(&format!("  HT Control: 0x{:08x}\n", ht.value()));
+            }
+            
+            output.push_str(&format!("  Data Length: {} bytes\n", data.payload.len()));
+        }
+        
+        // Print FCS if present
+        if let Some(fcs) = stack.get_layer(Dot11FCS::default()) {
+            output.push_str(&format!("\nFCS: 0x{:08x}\n", fcs.fcs.value()));
+        }
+    } else {
+        output.push_str("Failed to decode 802.11 frame");
+    }
+    
+    output
+}
+
+// Helper function to create a WPA beacon
+pub fn create_wpa_beacon(
+    src_mac: MacAddr,
+    bssid: MacAddr,
+    ssid: &str,
+    channel: u8,
+    interval: u16,
+) -> LayerStack {
+    // Create capabilities with Privacy bit set
+    let mut capabilities = CapabilitiesInfo::default();
+    capabilities.ess = true;
+    capabilities.privacy = true;
+    
+    // Create WPA Vendor Specific element
+    let mut wpa_data = Vec::new();
+    
+    // Version
+    wpa_data.extend_from_slice(&[0x01, 0x00]); // Version 1
+    
+    // Group Cipher Suite
+    wpa_data.extend_from_slice(&[0x00, 0x50, 0xF2, 0x02]); // TKIP
+    
+    // Pairwise Cipher Suite Count
+    wpa_data.extend_from_slice(&[0x01, 0x00]); // 1 suite
+    
+    // Pairwise Cipher Suite
+    wpa_data.extend_from_slice(&[0x00, 0x50, 0xF2, 0x02]); // TKIP
+    
+    // AKM Suite Count
+    wpa_data.extend_from_slice(&[0x01, 0x00]); // 1 suite
+    
+    // AKM Suite
+    wpa_data.extend_from_slice(&[0x00, 0x50, 0xF2, 0x02]); // PSK
+    
+    let wpa_element = VendorSpecificElement {
+        oui: [0x00, 0x50, 0xF2], // Microsoft OUI
+        vendor_type: 1,          // WPA IE
+        data: wpa_data,
+    };
+    
+    // Standard rates for 802.11g
+    let rates = vec![0x82, 0x84, 0x8B, 0x96, 0x0C, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6C];
+    
+    // Create beacon with WPA element
+    create_beacon_with_elements(
+        src_mac,
+        bssid,
+        ssid,
+        channel,
+        rates,
+        interval,
+        capabilities,
+        vec![ParsedElement::VendorSpecific(wpa_element)],
+    )
+}
+
+// Helper function to create a hidden SSID beacon
+pub fn create_hidden_ssid_beacon(
+    src_mac: MacAddr,
+    bssid: MacAddr,
+    channel: u8,
+    interval: u16,
+    security_type: &str,
+) -> LayerStack {
+    let mut capabilities = CapabilitiesInfo::default();
+    capabilities.ess = true;
+    
+    let mut additional_elements = Vec::new();
+    
+    if security_type == "WPA" || security_type == "WPA2" || security_type == "WPA3" {
+        capabilities.privacy = true;
+        
+        if security_type == "WPA" {
+            // Add WPA vendor element
+            let mut wpa_data = Vec::new();
+            wpa_data.extend_from_slice(&[0x01, 0x00]); // Version 1
+            wpa_data.extend_from_slice(&[0x00, 0x50, 0xF2, 0x02]); // TKIP
+            wpa_data.extend_from_slice(&[0x01, 0x00]); // 1 pairwise suite
+            wpa_data.extend_from_slice(&[0x00, 0x50, 0xF2, 0x02]); // TKIP
+            wpa_data.extend_from_slice(&[0x01, 0x00]); // 1 AKM suite
+            wpa_data.extend_from_slice(&[0x00, 0x50, 0xF2, 0x02]); // PSK
+            
+            let wpa_element = VendorSpecificElement {
+                oui: [0x00, 0x50, 0xF2], // Microsoft OUI
+                vendor_type: 1,          // WPA IE
+                data: wpa_data,
+            };
+            
+            additional_elements.push(ParsedElement::VendorSpecific(wpa_element));
+        } else if security_type == "WPA2" || security_type == "WPA3" {
+            // Create RSN element
+            let mut rsn = RSNElement {
+                version: 1,
+                group_cipher_suite: CipherSuite {
+                    oui: [0x00, 0x0F, 0xAC], // IEEE 802.11 OUI
+                    suite_type: 4,          // CCMP (AES)
+                },
+                pairwise_cipher_suites: vec![CipherSuite {
+                    oui: [0x00, 0x0F, 0xAC], // IEEE 802.11 OUI
+                    suite_type: 4,          // CCMP (AES)
+                }],
+                akm_suites: Vec::new(),
+                rsn_capabilities: 0,
+                pmkid_count: None,
+                pmkid_list: Vec::new(),
+                group_management_cipher_suite: None,
+            };
+            
+            if security_type == "WPA2" {
+                rsn.akm_suites.push(AKMSuite {
+                    oui: [0x00, 0x0F, 0xAC], // IEEE 802.11 OUI
+                    suite_type: 2,          // PSK
+                });
+            } else { // WPA3
+                rsn.akm_suites.push(AKMSuite {
+                    oui: [0x00, 0x0F, 0xAC], // IEEE 802.11 OUI
+                    suite_type: 8,          // SAE
+                });
+            }
+            
+            additional_elements.push(ParsedElement::RSN(rsn));
+        }
+    }
+    
+    // Standard rates for 802.11g
+    let rates = vec![0x82, 0x84, 0x8B, 0x96, 0x0C, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6C];
+    
+    // Create beacon with empty SSID
+    create_beacon_with_elements(
+        src_mac,
+        bssid,
+        "",  // Empty SSID for hidden network
+        channel,
+        rates,
+        interval,
+        capabilities,
+        additional_elements,
+    )
+}
+
+// Helper function to create a collection of beacon frames from different networks
+pub fn create_network_simulation(networks: &[(&str, u8, &str)]) -> Vec<LayerStack> {
+    let mut beacons = Vec::new();
+    
+    for (i, &(ssid, channel, security_type)) in networks.iter().enumerate() {
+        // Create a unique MAC address for each network
+        let mac_bytes = [0x12, 0x34, 0x56, 0x78, 0x90, i as u8];
+        let mac = MacAddr::from(mac_bytes);
+        
+        // Create the appropriate beacon based on security type
+        let beacon = match security_type {
+            "Open" => {
+                let mut capabilities = CapabilitiesInfo::default();
+                capabilities.ess = true;
+                
+                // Standard rates for 802.11g
+                let rates = vec![0x82, 0x84, 0x8B, 0x96, 0x0C, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6C];
+                
+                create_beacon_with_elements(
+                    mac.clone(),
+                    mac.clone(),
+                    ssid,
+                    channel,
+                    rates,
+                    100, // 100 TU = ~102.4ms
+                    capabilities,
+                    Vec::new(),
+                )
+            },
+            "WEP" => {
+                let mut capabilities = CapabilitiesInfo::default();
+                capabilities.ess = true;
+                capabilities.privacy = true;
+                
+                // Standard rates for 802.11g
+                let rates = vec![0x82, 0x84, 0x8B, 0x96, 0x0C, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6C];
+                
+                create_beacon_with_elements(
+                    mac.clone(),
+                    mac.clone(),
+                    ssid,
+                    channel,
+                    rates,
+                    100, // 100 TU = ~102.4ms
+                    capabilities,
+                    Vec::new(),
+                )
+            },
+            "WPA" => {
+                create_wpa_beacon(
+                    mac.clone(),
+                    mac.clone(),
+                    ssid,
+                    channel,
+                    100, // 100 TU = ~102.4ms
+                )
+            },
+            "WPA2" => {
+                create_wpa2_beacon(
+                    mac.clone(),
+                    mac.clone(),
+                    ssid,
+                    channel,
+                    100, // 100 TU = ~102.4ms
+                )
+            },
+            "WPA3" => {
+                // Create capabilities with Privacy bit set
+                let mut capabilities = CapabilitiesInfo::default();
+                capabilities.ess = true;
+                capabilities.privacy = true;
+                
+                // Create RSN element for WPA3
+                let group_cipher = CipherSuite {
+                    oui: [0x00, 0x0F, 0xAC], // IEEE 802.11 OUI
+                    suite_type: 4,          // CCMP (AES)
+                };
+                
+                let pairwise_cipher = CipherSuite {
+                    oui: [0x00, 0x0F, 0xAC], // IEEE 802.11 OUI
+                    suite_type: 4,          // CCMP (AES)
+                };
+                
+                let akm_suite = AKMSuite {
+                    oui: [0x00, 0x0F, 0xAC], // IEEE 802.11 OUI
+                    suite_type: 8,          // SAE (WPA3)
+                };
+                
+                let rsn = RSNElement {
+                    version: 1,
+                    group_cipher_suite: group_cipher,
+                    pairwise_cipher_suites: vec![pairwise_cipher],
+                    akm_suites: vec![akm_suite],
+                    rsn_capabilities: 0, // No special capabilities
+                    pmkid_count: None,
+                    pmkid_list: Vec::new(),
+                    group_management_cipher_suite: None,
+                };
+                
+                // Standard rates for 802.11g
+                let rates = vec![0x82, 0x84, 0x8B, 0x96, 0x0C, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6C];
+                
+                create_beacon_with_elements(
+                    mac.clone(),
+                    mac.clone(),
+                    ssid,
+                    channel,
+                    rates,
+                    100, // 100 TU = ~102.4ms
+                    capabilities,
+                    vec![ParsedElement::RSN(rsn)],
+                )
+            },
+            "Hidden" => {
+                create_hidden_ssid_beacon(
+                    mac.clone(),
+                    mac.clone(),
+                    channel,
+                    100, // 100 TU = ~102.4ms
+                    "WPA2",
+                )
+            },
+            _ => {
+                // Default to Open
+                let mut capabilities = CapabilitiesInfo::default();
+                capabilities.ess = true;
+                
+                // Standard rates for 802.11g
+                let rates = vec![0x82, 0x84, 0x8B, 0x96, 0x0C, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6C];
+                
+                create_beacon_with_elements(
+                    mac.clone(),
+                    mac.clone(),
+                    ssid,
+                    channel,
+                    rates,
+                    100, // 100 TU = ~102.4ms
+                    capabilities,
+                    Vec::new(),
+                )
+            },
+        };
+        
+        beacons.push(beacon);
+    }
+    
+    beacons
+}
+
+// Convert WlanType (frequency band) to string representation
+pub fn wlan_type_to_string(channel: u8) -> &'static str {
+    if channel <= 14 {
+        "802.11b/g/n (2.4 GHz)"
+    } else if channel >= 36 {
+        "802.11a/n/ac/ax (5 GHz)"
+    } else {
+        "Unknown"
+    }
+}
+
+// Convert channel number to frequency in MHz
+pub fn channel_to_frequency(channel: u8) -> u16 {
+    if channel <= 14 {
+        // 2.4 GHz band
+        if channel == 14 {
+            2484 // Special case for channel 14
+        } else {
+            2407 + channel as u16 * 5
+        }
+    } else if channel >= 36 && channel <= 165 {
+        // 5 GHz band
+        5000 + channel as u16 * 5
+    } else {
+        0 // Invalid channel
+    }
+}
+
+// Convert frequency in MHz to channel number
+pub fn frequency_to_channel(frequency: u16) -> u8 {
+    if frequency >= 2412 && frequency <= 2472 {
+        // 2.4 GHz band, channels 1-13
+        ((frequency - 2407) / 5) as u8
+    } else if frequency == 2484 {
+        // Channel 14
+        14
+    } else if frequency >= 5180 && frequency <= 5825 {
+        // 5 GHz band
+        ((frequency - 5000) / 5) as u8
+    } else {
+        0 // Unknown frequency
+    }
+}
+use crate::*;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use crate::typ::string::FixedSizeString;
