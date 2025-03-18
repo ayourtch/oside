@@ -148,6 +148,13 @@ impl Decode for Ipv4Address {
     }
 }
 
+impl fmt::Display for MacAddr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&format!("{:x?}", &self.0))
+    }
+}
+
+
 impl Decode for MacAddr {
     fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
         if let Some((mac_vec, count)) = D::decode_vec(buf, 6) {
