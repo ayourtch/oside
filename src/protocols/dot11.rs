@@ -1493,7 +1493,6 @@ fn decode_frame_control<D: Decoder>(
 ) -> Option<(FrameControl, usize)> {
     let buf = &buf[ci..];
     let (raw_value, delta) = u16::decode::<BinaryLittleEndian>(buf)?;
-    println!("FRAME CONTROL: {:x?}", &raw_value);
     let fc = FrameControl::from_raw(raw_value);
     Some((fc, delta))
 }
