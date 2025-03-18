@@ -37,7 +37,7 @@ fn main() {
         } else {
             Ether!().ldecode(&p.data).unwrap().0
         };
-        let j = serde_json::to_string_pretty(&pkt.layers).unwrap();
+        let j = serde_json::to_string(&pkt.layers).unwrap();
         println!("{}", j);
     }
     println!("]");
