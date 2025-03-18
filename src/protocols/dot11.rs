@@ -114,6 +114,7 @@ pub fn scan_pcap_for_networks(pcap_data: &[u8]) -> Vec<NetworkInfo> {
                                 first_seen: ts_sec,
                                 last_seen: ts_sec,
                                 signal_sum: signal,
+				signal_strength: 0, // FIXME AYXX
                                 signal_count,
                                 is_privacy_enabled: beacon.capabilities.value().privacy,
                             });
@@ -1360,9 +1361,9 @@ pub struct Dot11Beacon {
 pub struct Dot11ProbeResp {
     pub timestamp: Value<u64>,
     pub beacon_interval: Value<u16>,
-    #[nproto(encode = encode_capabilities, decode = decode_capabilities)]
+    #[nproto(encode = encode_probe_resp_capabilities, decode = decode_probe_resp_capabilities)]
     pub capabilities: Value<CapabilitiesInfo>,
-    #[nproto(decode = decode_elements, encode = encode_elements)]
+    #[nproto(decode = decode_probe_resp_elements, encode = encode_probe_resp_elements)]
     pub elements: Vec<ParsedElement>,
 }
 
@@ -1370,10 +1371,10 @@ pub struct Dot11ProbeResp {
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(encode_suppress)]
 pub struct Dot11AssocReq {
-    #[nproto(encode = encode_capabilities, decode = decode_capabilities)]
+    #[nproto(encode = encode_assoc_req_capabilities, decode = decode_assoc_req_capabilities)]
     pub capabilities: Value<CapabilitiesInfo>,
     pub listen_interval: Value<u16>,
-    #[nproto(decode = decode_elements, encode = encode_elements)]
+    #[nproto(decode = decode_assoc_req_elements, encode = encode_assoc_req_elements)]
     pub elements: Vec<ParsedElement>,
 }
 
@@ -1381,11 +1382,11 @@ pub struct Dot11AssocReq {
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(encode_suppress)]
 pub struct Dot11AssocResp {
-    #[nproto(encode = encode_capabilities, decode = decode_capabilities)]
+    #[nproto(encode = encode_assoc_resp_capabilities, decode = decode_assoc_resp_capabilities)]
     pub capabilities: Value<CapabilitiesInfo>,
     pub status_code: Value<u16>,
     pub association_id: Value<u16>,
-    #[nproto(decode = decode_elements, encode = encode_elements)]
+    #[nproto(decode = decode_assoc_resp_elements, encode = encode_assoc_resp_elements)]
     pub elements: Vec<ParsedElement>,
 }
 
@@ -1393,11 +1394,11 @@ pub struct Dot11AssocResp {
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(encode_suppress)]
 pub struct Dot11ReassocReq {
-    #[nproto(encode = encode_capabilities, decode = decode_capabilities)]
+    #[nproto(encode = encode_reassoc_req_capabilities, decode = decode_reassoc_req_capabilities)]
     pub capabilities: Value<CapabilitiesInfo>,
     pub listen_interval: Value<u16>,
     pub current_ap: Value<MacAddr>,
-    #[nproto(decode = decode_elements, encode = encode_elements)]
+    #[nproto(decode = decode_reassoc_req_elements, encode = encode_reassoc_req_elements)]
     pub elements: Vec<ParsedElement>,
 }
 
@@ -1408,7 +1409,7 @@ pub struct Dot11Auth {
     pub auth_algorithm: Value<u16>,
     pub auth_seq: Value<u16>,
     pub status_code: Value<u16>,
-    #[nproto(decode = decode_elements, encode = encode_elements)]
+    #[nproto(decode = decode_auth_elements, encode = encode_auth_elements)]
     pub elements: Vec<ParsedElement>,
 }
 
@@ -1425,7 +1426,7 @@ pub struct Dot11Deauth {
 pub struct Dot11Action {
     pub category: Value<u8>,
     pub action: Value<u8>,
-    #[nproto(decode = decode_elements, encode = encode_elements)]
+    #[nproto(decode = decode_action_elements, encode = encode_action_elements)]
     pub elements: Vec<ParsedElement>,
 }
 
@@ -2244,6 +2245,8 @@ pub fn decode_dot11_frame(buf: &[u8]) -> Option<(LayerStack, usize)> {
                         // These are complex 802.11ax/be frames, not implementing for now
                         // Just return the Dot11 header
                     },
+
+                    4_u8..=u8::MAX => todo!(),
                 }
             }
         }
@@ -2817,7 +2820,7 @@ fn encode_elements<E: Encoder>(
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(encode_suppress)]
 pub struct Dot11ProbeReq {
-    #[nproto(decode = decode_elements, encode = encode_elements)]
+    #[nproto(decode = decode_probe_req_elements, encode = encode_probe_req_elements)]
     pub elements: Vec<ParsedElement>,
 }
 
@@ -3209,8 +3212,26 @@ impl AutoEncodeAsSequence for Vec<RadiotapField> {}
 // Each frame type needs its own decode_capabilities and decode_elements functions
 // Rather than using the ones from Dot11Beacon
 
+// Function for Dot11ProbeReq elements
+pub fn decode_probe_req_elements<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Dot11ProbeReq,
+) -> Option<(Vec<ParsedElement>, usize)> {
+    decode_elements::<D>(buf, ci, &mut Dot11Beacon::default())
+}
+
+pub fn encode_probe_req_elements<E: Encoder>(
+    my_layer: &Dot11ProbeReq,
+    stack: &LayerStack,
+    my_index: usize,
+    encoded_layers: &EncodingVecVec,
+) -> Vec<u8> {
+    encode_elements::<E>(&Dot11Beacon::default(), stack, my_index, encoded_layers)
+}
+
 // Function for Dot11ProbeResp capabilities
-pub fn decode_probe_capabilities<D: Decoder>(
+pub fn decode_probe_resp_capabilities<D: Decoder>(
     buf: &[u8],
     ci: usize,
     me: &mut Dot11ProbeResp,
@@ -3222,7 +3243,7 @@ pub fn decode_probe_capabilities<D: Decoder>(
 }
 
 // Function for Dot11ProbeResp elements
-pub fn decode_probe_elements<D: Decoder>(
+pub fn decode_probe_resp_elements<D: Decoder>(
     buf: &[u8],
     ci: usize,
     me: &mut Dot11ProbeResp,
@@ -3312,7 +3333,7 @@ pub fn decode_action_elements<D: Decoder>(
 }
 
 // Similarly for encode functions
-pub fn encode_probe_capabilities<E: Encoder>(
+pub fn encode_probe_resp_capabilities<E: Encoder>(
     my_layer: &Dot11ProbeResp,
     stack: &LayerStack,
     my_index: usize,
@@ -3321,7 +3342,7 @@ pub fn encode_probe_capabilities<E: Encoder>(
     my_layer.capabilities.value().to_raw().encode::<E>()
 }
 
-pub fn encode_probe_elements<E: Encoder>(
+pub fn encode_probe_resp_elements<E: Encoder>(
     my_layer: &Dot11ProbeResp,
     stack: &LayerStack,
     my_index: usize,
