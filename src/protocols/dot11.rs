@@ -2070,7 +2070,8 @@ fn decode_ht_control<D: Decoder>(
 pub fn decode_dot11_frame(buf: &[u8]) -> Option<(LayerStack, usize)> {
     // First decode the Dot11 header to get the frame control field
     let dot11 = Dot11::default();
-    if let Some((mut dot11_decoded, mut offset)) = dot11.decode_with_decoder::<BinaryBigEndian>(buf) {
+    if let Some((mut dot11_decoded, mut offset)) = Dot11::decode::<BinaryBigEndian>(buf) {
+        let mut dot11_decoded = dot11_decoded.to_stack();
         if let Some(dot11_layer) = dot11_decoded.layers.first() {
             if let Some(dot11) = dot11_layer.downcast_ref::<Dot11>() {
                 let fc = dot11.frame_control.value();
