@@ -357,6 +357,378 @@ pub struct Dot11Beacon {
     pub elements: Vec<ParsedElement>,
 }
 
+// IEEE 802.11 Probe Response Implementation
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(encode_suppress)]
+pub struct Dot11ProbeResp {
+    pub timestamp: Value<u64>,
+    pub beacon_interval: Value<u16>,
+    #[nproto(encode = encode_capabilities, decode = decode_capabilities)]
+    pub capabilities: Value<CapabilitiesInfo>,
+    #[nproto(decode = decode_elements, encode = encode_elements)]
+    pub elements: Vec<ParsedElement>,
+}
+
+// IEEE 802.11 Association Request Implementation
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(encode_suppress)]
+pub struct Dot11AssocReq {
+    #[nproto(encode = encode_capabilities, decode = decode_capabilities)]
+    pub capabilities: Value<CapabilitiesInfo>,
+    pub listen_interval: Value<u16>,
+    #[nproto(decode = decode_elements, encode = encode_elements)]
+    pub elements: Vec<ParsedElement>,
+}
+
+// IEEE 802.11 Association Response Implementation
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(encode_suppress)]
+pub struct Dot11AssocResp {
+    #[nproto(encode = encode_capabilities, decode = decode_capabilities)]
+    pub capabilities: Value<CapabilitiesInfo>,
+    pub status_code: Value<u16>,
+    pub association_id: Value<u16>,
+    #[nproto(decode = decode_elements, encode = encode_elements)]
+    pub elements: Vec<ParsedElement>,
+}
+
+// IEEE 802.11 Reassociation Request Implementation
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(encode_suppress)]
+pub struct Dot11ReassocReq {
+    #[nproto(encode = encode_capabilities, decode = decode_capabilities)]
+    pub capabilities: Value<CapabilitiesInfo>,
+    pub listen_interval: Value<u16>,
+    pub current_ap: Value<MacAddr>,
+    #[nproto(decode = decode_elements, encode = encode_elements)]
+    pub elements: Vec<ParsedElement>,
+}
+
+// IEEE 802.11 Authentication Frame Implementation
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(encode_suppress)]
+pub struct Dot11Auth {
+    pub auth_algorithm: Value<u16>,
+    pub auth_seq: Value<u16>,
+    pub status_code: Value<u16>,
+    #[nproto(decode = decode_elements, encode = encode_elements)]
+    pub elements: Vec<ParsedElement>,
+}
+
+// IEEE 802.11 Deauthentication Frame Implementation
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(encode_suppress)]
+pub struct Dot11Deauth {
+    pub reason_code: Value<u16>,
+}
+
+// IEEE 802.11 Action Frame Implementation
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(encode_suppress)]
+pub struct Dot11Action {
+    pub category: Value<u8>,
+    pub action: Value<u8>,
+    #[nproto(decode = decode_elements, encode = encode_elements)]
+    pub elements: Vec<ParsedElement>,
+}
+
+// Helpers for working with IEEE 802.11 frames
+
+// Create a layer decoder that determines the appropriate management frame type
+// based on the frame control field's subtype
+pub fn decode_dot11_management_frame(buf: &[u8]) -> Option<(LayerStack, usize)> {
+    // First decode the Dot11 header to get the frame control field
+    let dot11 = Dot11::default();
+    if let Some((mut dot11_decoded, mut offset)) = dot11.decode_with_decoder::<BinaryBigEndian>(buf) {
+        if let Some(dot11_layer) = dot11_decoded.layers.first() {
+            if let Some(dot11) = dot11_layer.downcast_ref::<Dot11>() {
+                let fc = dot11.frame_control.value();
+                
+                // Check if it's a management frame
+                if fc.frame_type == frame_types::MANAGEMENT {
+                    // Based on the subtype, decode the appropriate management frame
+                    match fc.frame_subtype {
+                        frame_types::BEACON => {
+                            let beacon = Dot11Beacon::default();
+                            if let Some((beacon_decoded, beacon_offset)) = beacon.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                dot11_decoded.layers.extend(beacon_decoded.layers);
+                                offset += beacon_offset;
+                            }
+                        },
+                        frame_types::PROBE_REQ => {
+                            let probe_req = Dot11ProbeReq::default();
+                            if let Some((probe_req_decoded, probe_req_offset)) = probe_req.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                dot11_decoded.layers.extend(probe_req_decoded.layers);
+                                offset += probe_req_offset;
+                            }
+                        },
+                        frame_types::PROBE_RESP => {
+                            let probe_resp = Dot11ProbeResp::default();
+                            if let Some((probe_resp_decoded, probe_resp_offset)) = probe_resp.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                dot11_decoded.layers.extend(probe_resp_decoded.layers);
+                                offset += probe_resp_offset;
+                            }
+                        },
+                        frame_types::ASSOC_REQ => {
+                            let assoc_req = Dot11AssocReq::default();
+                            if let Some((assoc_req_decoded, assoc_req_offset)) = assoc_req.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                dot11_decoded.layers.extend(assoc_req_decoded.layers);
+                                offset += assoc_req_offset;
+                            }
+                        },
+                        frame_types::ASSOC_RESP => {
+                            let assoc_resp = Dot11AssocResp::default();
+                            if let Some((assoc_resp_decoded, assoc_resp_offset)) = assoc_resp.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                dot11_decoded.layers.extend(assoc_resp_decoded.layers);
+                                offset += assoc_resp_offset;
+                            }
+                        },
+                        frame_types::REASSOC_REQ => {
+                            let reassoc_req = Dot11ReassocReq::default();
+                            if let Some((reassoc_req_decoded, reassoc_req_offset)) = reassoc_req.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                dot11_decoded.layers.extend(reassoc_req_decoded.layers);
+                                offset += reassoc_req_offset;
+                            }
+                        },
+                        frame_types::AUTH => {
+                            let auth = Dot11Auth::default();
+                            if let Some((auth_decoded, auth_offset)) = auth.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                dot11_decoded.layers.extend(auth_decoded.layers);
+                                offset += auth_offset;
+                            }
+                        },
+                        frame_types::DEAUTH => {
+                            let deauth = Dot11Deauth::default();
+                            if let Some((deauth_decoded, deauth_offset)) = deauth.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                dot11_decoded.layers.extend(deauth_decoded.layers);
+                                offset += deauth_offset;
+                            }
+                        },
+                        frame_types::ACTION => {
+                            let action = Dot11Action::default();
+                            if let Some((action_decoded, action_offset)) = action.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                dot11_decoded.layers.extend(action_decoded.layers);
+                                offset += action_offset;
+                            }
+                        },
+                        _ => {
+                            // Unknown management frame subtype
+                            // Just return the Dot11 header
+                        }
+                    }
+                }
+                // Add support for control and data frames as needed
+            }
+        }
+        
+        return Some((dot11_decoded, offset));
+    }
+    
+    None
+}
+
+// Helper functions for creating common management frames
+
+// Create a beacon frame
+pub fn create_beacon(
+    src_mac: MacAddr,
+    bssid: MacAddr,
+    ssid: &str,
+    channel: u8,
+    capabilities: CapabilitiesInfo,
+    beacon_interval: u16,
+) -> LayerStack {
+    // Create the Dot11 header
+    let mut dot11 = Dot11::default();
+    let fc = FrameControl::new(0, frame_types::MANAGEMENT, frame_types::BEACON, false, false, false, false, false, false, false, false);
+    dot11 = dot11.frame_control(fc);
+    dot11 = dot11.addr1(MacAddr::new(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF)); // Broadcast
+    dot11 = dot11.addr2(src_mac.clone());
+    dot11 = dot11.addr3(bssid.clone());
+    dot11 = dot11.seq_control(0); // Sequence number and fragment number
+
+    // Create the beacon frame
+    let mut beacon = Dot11Beacon::default();
+    beacon = beacon.timestamp(0); // Will be filled by the hardware
+    beacon = beacon.beacon_interval(beacon_interval);
+    beacon = beacon.capabilities(capabilities);
+
+    // Add elements
+    let mut elements = Vec::new();
+    
+    // SSID
+    elements.push(ParsedElement::SSID(ssid.to_string()));
+    
+    // Supported rates
+    elements.push(ParsedElement::SupportedRates(vec![0x82, 0x84, 0x8B, 0x96, 0x24, 0x30, 0x48, 0x6C]));
+    
+    // DS Parameter (channel)
+    elements.push(ParsedElement::DSParameter(channel));
+    
+    beacon = beacon.set_elements(elements);
+
+    // Build the layerstack
+    dot11.to_stack() / beacon
+}
+
+// Create a probe response frame
+pub fn create_probe_response(
+    dst_mac: MacAddr,
+    src_mac: MacAddr,
+    bssid: MacAddr,
+    ssid: &str,
+    channel: u8,
+    capabilities: CapabilitiesInfo,
+    beacon_interval: u16,
+) -> LayerStack {
+    // Create the Dot11 header
+    let mut dot11 = Dot11::default();
+    let fc = FrameControl::new(0, frame_types::MANAGEMENT, frame_types::PROBE_RESP, false, false, false, false, false, false, false, false);
+    dot11 = dot11.frame_control(fc);
+    dot11 = dot11.addr1(dst_mac);
+    dot11 = dot11.addr2(src_mac.clone());
+    dot11 = dot11.addr3(bssid.clone());
+    dot11 = dot11.seq_control(0); // Sequence number and fragment number
+
+    // Create the probe response frame
+    let mut probe_resp = Dot11ProbeResp::default();
+    probe_resp = probe_resp.timestamp(0); // Will be filled by the hardware
+    probe_resp = probe_resp.beacon_interval(beacon_interval);
+    probe_resp = probe_resp.capabilities(capabilities);
+
+    // Add elements
+    let mut elements = Vec::new();
+    
+    // SSID
+    elements.push(ParsedElement::SSID(ssid.to_string()));
+    
+    // Supported rates
+    elements.push(ParsedElement::SupportedRates(vec![0x82, 0x84, 0x8B, 0x96, 0x24, 0x30, 0x48, 0x6C]));
+    
+    // DS Parameter (channel)
+    elements.push(ParsedElement::DSParameter(channel));
+    
+    probe_resp = probe_resp.set_elements(elements);
+
+    // Build the layerstack
+    dot11.to_stack() / probe_resp
+}
+
+// Helper functions for parsing and working with elements
+
+// Extract the SSID from a beacon or probe response
+pub fn get_ssid(elements: &[ParsedElement]) -> Option<String> {
+    for element in elements {
+        if let ParsedElement::SSID(ssid) = element {
+            return Some(ssid.clone());
+        }
+    }
+    None
+}
+
+// Extract the channel from a beacon or probe response
+pub fn get_channel(elements: &[ParsedElement]) -> Option<u8> {
+    for element in elements {
+        if let ParsedElement::DSParameter(channel) = element {
+            return Some(*channel);
+        }
+    }
+    None
+}
+
+// Extract the supported rates from a beacon or probe response
+pub fn get_supported_rates(elements: &[ParsedElement]) -> Vec<u8> {
+    let mut rates = Vec::new();
+    
+    for element in elements {
+        if let ParsedElement::SupportedRates(r) = element {
+            rates.extend_from_slice(r);
+        } else if let ParsedElement::ExtendedRates(r) = element {
+            rates.extend_from_slice(r);
+        }
+    }
+    
+    rates
+}
+
+// Check if a network is using encryption
+pub fn is_encrypted(capabilities: &CapabilitiesInfo, elements: &[ParsedElement]) -> bool {
+    // Check the privacy bit in the capabilities
+    if capabilities.privacy {
+        return true;
+    }
+    
+    // Check for RSN element
+    for element in elements {
+        if let ParsedElement::RSN(_) = element {
+            return true;
+        }
+    }
+    
+    // Check for WPA in vendor specific elements
+    for element in elements {
+        if let ParsedElement::VendorSpecific(vendor) = element {
+            // WPA OUI is 00:50:F2
+            if vendor.oui == [0x00, 0x50, 0xF2] && vendor.vendor_type == 0x01 {
+                return true;
+            }
+        }
+    }
+    
+    false
+}
+
+// Extract the security type (Open, WEP, WPA, WPA2, WPA3) from a beacon or probe response
+pub fn get_security_type(capabilities: &CapabilitiesInfo, elements: &[ParsedElement]) -> &'static str {
+    if !capabilities.privacy {
+        // No encryption
+        return "Open";
+    }
+    
+    let mut has_rsn = false;
+    let mut has_wpa = false;
+    let mut has_wpa3 = false;
+    
+    for element in elements {
+        match element {
+            ParsedElement::RSN(rsn) => {
+                has_rsn = true;
+                
+                // Check for WPA3 (SAE authentication)
+                for akm in &rsn.akm_suites {
+                    // IEEE 802.11 OUI is 00:0F:AC
+                    if akm.oui == [0x00, 0x0F, 0xAC] {
+                        // SAE is suite type 8
+                        if akm.suite_type == 8 {
+                            has_wpa3 = true;
+                            break;
+                        }
+                    }
+                }
+            },
+            ParsedElement::VendorSpecific(vendor) => {
+                // WPA OUI is 00:50:F2
+                if vendor.oui == [0x00, 0x50, 0xF2] && vendor.vendor_type == 0x01 {
+                    has_wpa = true;
+                }
+            },
+            _ => {}
+        }
+    }
+    
+    if has_wpa3 {
+        "WPA3"
+    } else if has_rsn {
+        "WPA2"
+    } else if has_wpa {
+        "WPA"
+    } else {
+        "WEP"
+    }
+}
+>,
+}
+
 fn encode_capabilities<E: Encoder>(
     my_layer: &Dot11Beacon,
     stack: &LayerStack,
