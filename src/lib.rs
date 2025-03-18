@@ -154,7 +154,6 @@ impl fmt::Display for MacAddr {
     }
 }
 
-
 impl Decode for MacAddr {
     fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
         if let Some((mac_vec, count)) = D::decode_vec(buf, 6) {

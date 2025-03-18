@@ -3,49 +3,53 @@ use crate::encdec::binary_little_endian::BinaryLittleEndian;
 // Scan a PCAP file for 802.11 beacon frames and return a list of networks
 pub fn scan_pcap_for_networks(pcap_data: &[u8]) -> Vec<NetworkInfo> {
     use std::collections::HashMap;
-    
+
     let mut networks: HashMap<String, NetworkInfo> = HashMap::new();
     let mut current_pos = 0;
-    
+
     // PCAP global header is at least 24 bytes
     if pcap_data.len() < 24 {
         return Vec::new();
     }
-    
+
     // Verify PCAP magic number
     let magic = u32::from_le_bytes([pcap_data[0], pcap_data[1], pcap_data[2], pcap_data[3]]);
     let is_little_endian = magic == 0xa1b2c3d4 || magic == 0xd4c3b2a1;
-    
+
     if !is_little_endian {
         return Vec::new(); // Not a valid PCAP file
     }
-    
+
     // Skip global header
     current_pos += 24;
-    
+
     // Process each packet
     while current_pos + 16 <= pcap_data.len() {
         // Read packet header
         let ts_sec = u32::from_le_bytes([
-            pcap_data[current_pos], pcap_data[current_pos+1], 
-            pcap_data[current_pos+2], pcap_data[current_pos+3]
+            pcap_data[current_pos],
+            pcap_data[current_pos + 1],
+            pcap_data[current_pos + 2],
+            pcap_data[current_pos + 3],
         ]);
-        
+
         let incl_len = u32::from_le_bytes([
-            pcap_data[current_pos+8], pcap_data[current_pos+9], 
-            pcap_data[current_pos+10], pcap_data[current_pos+11]
+            pcap_data[current_pos + 8],
+            pcap_data[current_pos + 9],
+            pcap_data[current_pos + 10],
+            pcap_data[current_pos + 11],
         ]) as usize;
-        
+
         // Move to packet data
         current_pos += 16;
-        
+
         if current_pos + incl_len > pcap_data.len() {
             break;
         }
-        
+
         // Get packet data
-        let packet_data = &pcap_data[current_pos..current_pos+incl_len];
-        
+        let packet_data = &pcap_data[current_pos..current_pos + incl_len];
+
         // Try to decode as 802.11 frame
         if let Some((stack, _)) = decode_802_11_frame(packet_data, false) {
             // Look for beacon frames
@@ -53,7 +57,7 @@ pub fn scan_pcap_for_networks(pcap_data: &[u8]) -> Vec<NetworkInfo> {
                 if let Some(dot11) = stack.get_layer(Dot11::default()) {
                     // Extract BSSID (MAC address)
                     let bssid = dot11.addr3.value();
-                    
+
                     // Extract SSID
                     if let Some(ssid) = get_ssid(&beacon.elements) {
                         // Skip hidden SSIDs (empty or all zeros)
@@ -61,26 +65,27 @@ pub fn scan_pcap_for_networks(pcap_data: &[u8]) -> Vec<NetworkInfo> {
                             current_pos += incl_len;
                             continue;
                         }
-                        
+
                         // Get channel
                         let channel = get_channel(&beacon.elements).unwrap_or(0);
-                        
+
                         // Get security type
-                        let security = get_security_type(&beacon.capabilities.value(), &beacon.elements);
-                        
+                        let security =
+                            get_security_type(&beacon.capabilities.value(), &beacon.elements);
+
                         // Get supported rates
                         let rates = get_supported_rates(&beacon.elements);
                         let max_rate = rates.iter().map(|&r| r & 0x7F).max().unwrap_or(0);
-                        
+
                         // Create or update network info
                         let network_key = format!("{} - {}", ssid, bssid);
-                        
+
                         if let Some(network) = networks.get_mut(&network_key) {
                             // Update the last seen timestamp
                             if ts_sec > network.last_seen {
                                 network.last_seen = ts_sec;
                             }
-                            
+
                             // Update signal strength and count if we have radiotap header
                             if let Some(radiotap) = stack.get_layer(Radiotap::default()) {
                                 for field in &radiotap.fields {
@@ -95,7 +100,7 @@ pub fn scan_pcap_for_networks(pcap_data: &[u8]) -> Vec<NetworkInfo> {
                             // Create a new network entry
                             let mut signal = 0;
                             let mut signal_count = 0;
-                            
+
                             // Get signal strength if we have radiotap header
                             if let Some(radiotap) = stack.get_layer(Radiotap::default()) {
                                 for field in &radiotap.fields {
@@ -106,37 +111,43 @@ pub fn scan_pcap_for_networks(pcap_data: &[u8]) -> Vec<NetworkInfo> {
                                     }
                                 }
                             }
-                            
-                            networks.insert(network_key, NetworkInfo {
-                                ssid: ssid.clone(),
-                                bssid: bssid.clone(),
-                                channel,
-                                security: security.to_string(),
-                                max_rate,
-                                first_seen: ts_sec,
-                                last_seen: ts_sec,
-                                signal_sum: signal,
-				signal_strength: 0, // FIXME AYXX
-                                signal_count,
-                                is_privacy_enabled: beacon.capabilities.value().privacy,
-                            });
+
+                            networks.insert(
+                                network_key,
+                                NetworkInfo {
+                                    ssid: ssid.clone(),
+                                    bssid: bssid.clone(),
+                                    channel,
+                                    security: security.to_string(),
+                                    max_rate,
+                                    first_seen: ts_sec,
+                                    last_seen: ts_sec,
+                                    signal_sum: signal,
+                                    signal_strength: 0, // FIXME AYXX
+                                    signal_count,
+                                    is_privacy_enabled: beacon.capabilities.value().privacy,
+                                },
+                            );
                         }
                     }
                 }
             }
         }
-        
+
         // Move to next packet
         current_pos += incl_len;
     }
-    
+
     // Convert HashMap to Vec and calculate average signal strength
-    networks.into_values().map(|mut network| {
-        if network.signal_count > 0 {
-            network.signal_strength = network.signal_sum / network.signal_count;
-        }
-        network
-    }).collect()
+    networks
+        .into_values()
+        .map(|mut network| {
+            if network.signal_count > 0 {
+                network.signal_strength = network.signal_sum / network.signal_count;
+            }
+            network
+        })
+        .collect()
 }
 
 // Network information structure for scan results
@@ -150,8 +161,8 @@ pub struct NetworkInfo {
     pub first_seen: u32,
     pub last_seen: u32,
     pub signal_strength: i32, // Average signal strength in dBm
-    pub signal_sum: i32,     // Internal use for calculating average
-    pub signal_count: i32,   // Internal use for calculating average
+    pub signal_sum: i32,      // Internal use for calculating average
+    pub signal_count: i32,    // Internal use for calculating average
     pub is_privacy_enabled: bool,
 }
 
@@ -168,7 +179,19 @@ pub fn create_beacon_with_elements(
 ) -> LayerStack {
     // Create the Dot11 header
     let mut dot11 = Dot11::default();
-    let fc = FrameControl::new(0, frame_types::MANAGEMENT, frame_types::BEACON, false, false, false, false, false, false, false, false);
+    let fc = FrameControl::new(
+        0,
+        frame_types::MANAGEMENT,
+        frame_types::BEACON,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+    );
     dot11 = dot11.frame_control(fc);
     dot11 = dot11.addr1(MacAddr::new(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF)); // Broadcast
     dot11 = dot11.addr2(src_mac.clone());
@@ -183,25 +206,27 @@ pub fn create_beacon_with_elements(
 
     // Basic elements
     let mut elements = Vec::new();
-    
+
     // Add SSID
     elements.push(ParsedElement::SSID(ssid.to_string()));
-    
+
     // Add supported rates (up to 8 rates)
     let supported_rates_len = std::cmp::min(8, supported_rates.len());
-    elements.push(ParsedElement::SupportedRates(supported_rates[0..supported_rates_len].to_vec()));
-    
+    elements.push(ParsedElement::SupportedRates(
+        supported_rates[0..supported_rates_len].to_vec(),
+    ));
+
     // Add DS Parameter (channel)
     elements.push(ParsedElement::DSParameter(channel));
-    
+
     // Add extended rates if we have more than 8 rates
     if supported_rates.len() > 8 {
         elements.push(ParsedElement::ExtendedRates(supported_rates[8..].to_vec()));
     }
-    
+
     // Add additional elements
     elements.extend(additional_elements);
-    
+
     beacon = beacon.set_elements(elements);
 
     // Build the layerstack
@@ -220,23 +245,23 @@ pub fn create_wpa2_beacon(
     let mut capabilities = CapabilitiesInfo::default();
     capabilities.ess = true;
     capabilities.privacy = true;
-    
+
     // Create RSN element for WPA2
     let group_cipher = CipherSuite {
         oui: [0x00, 0x0F, 0xAC], // IEEE 802.11 OUI
-        suite_type: 4,          // CCMP (AES)
+        suite_type: 4,           // CCMP (AES)
     };
-    
+
     let pairwise_cipher = CipherSuite {
         oui: [0x00, 0x0F, 0xAC], // IEEE 802.11 OUI
-        suite_type: 4,          // CCMP (AES)
+        suite_type: 4,           // CCMP (AES)
     };
-    
+
     let akm_suite = AKMSuite {
         oui: [0x00, 0x0F, 0xAC], // IEEE 802.11 OUI
-        suite_type: 2,          // PSK
+        suite_type: 2,           // PSK
     };
-    
+
     let rsn = RSNElement {
         version: 1,
         group_cipher_suite: group_cipher,
@@ -247,10 +272,12 @@ pub fn create_wpa2_beacon(
         pmkid_list: Vec::new(),
         group_management_cipher_suite: None,
     };
-    
+
     // Standard rates for 802.11g
-    let rates = vec![0x82, 0x84, 0x8B, 0x96, 0x0C, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6C];
-    
+    let rates = vec![
+        0x82, 0x84, 0x8B, 0x96, 0x0C, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6C,
+    ];
+
     // Create beacon with RSN element
     create_beacon_with_elements(
         src_mac,
@@ -267,7 +294,7 @@ pub fn create_wpa2_beacon(
 // Helper function to decode a packet and print detailed information
 pub fn print_packet_details(packet_data: &[u8]) -> String {
     let mut output = String::new();
-    
+
     if let Some((stack, _)) = decode_802_11_frame(packet_data, true) {
         // Print Radiotap header if present
         if let Some(radiotap) = stack.get_layer(Radiotap::default()) {
@@ -277,106 +304,168 @@ pub fn print_packet_details(packet_data: &[u8]) -> String {
             for fff in &radiotap.present_flags {
                 output.push_str(&format!("  Present flags: 0x{:08x}\n", fff));
             }
-            
+
             for field in &radiotap.fields {
                 match field {
                     RadiotapField::TSFT(tsft) => {
                         output.push_str(&format!("  TSFT: {} μs\n", tsft));
-                    },
+                    }
                     RadiotapField::Flags(flags) => {
                         output.push_str(&format!("  Flags: 0x{:02x}\n", flags));
-                        if (flags & 0x01) != 0 { output.push_str("    - CFP\n"); }
-                        if (flags & 0x02) != 0 { output.push_str("    - Preamble: Short\n"); }
-                        if (flags & 0x04) != 0 { output.push_str("    - WEP Encrypted\n"); }
-                        if (flags & 0x08) != 0 { output.push_str("    - Fragmented\n"); }
-                        if (flags & 0x10) != 0 { output.push_str("    - FCS included\n"); }
-                    },
+                        if (flags & 0x01) != 0 {
+                            output.push_str("    - CFP\n");
+                        }
+                        if (flags & 0x02) != 0 {
+                            output.push_str("    - Preamble: Short\n");
+                        }
+                        if (flags & 0x04) != 0 {
+                            output.push_str("    - WEP Encrypted\n");
+                        }
+                        if (flags & 0x08) != 0 {
+                            output.push_str("    - Fragmented\n");
+                        }
+                        if (flags & 0x10) != 0 {
+                            output.push_str("    - FCS included\n");
+                        }
+                    }
                     RadiotapField::Rate(rate) => {
                         output.push_str(&format!("  Rate: {}.{} Mbps\n", rate / 2, (rate % 2) * 5));
-                    },
+                    }
                     RadiotapField::Channel(freq, flags) => {
                         output.push_str(&format!("  Channel:\n"));
                         output.push_str(&format!("    Frequency: {} MHz\n", freq));
                         output.push_str(&format!("    Flags: 0x{:04x}\n", flags));
-                        if (flags & 0x0001) != 0 { output.push_str("      - Turbo\n"); }
-                        if (flags & 0x0002) != 0 { output.push_str("      - CCK\n"); }
-                        if (flags & 0x0004) != 0 { output.push_str("      - OFDM\n"); }
-                        if (flags & 0x0008) != 0 { output.push_str("      - 2 GHz\n"); }
-                        if (flags & 0x0010) != 0 { output.push_str("      - 5 GHz\n"); }
-                    },
+                        if (flags & 0x0001) != 0 {
+                            output.push_str("      - Turbo\n");
+                        }
+                        if (flags & 0x0002) != 0 {
+                            output.push_str("      - CCK\n");
+                        }
+                        if (flags & 0x0004) != 0 {
+                            output.push_str("      - OFDM\n");
+                        }
+                        if (flags & 0x0008) != 0 {
+                            output.push_str("      - 2 GHz\n");
+                        }
+                        if (flags & 0x0010) != 0 {
+                            output.push_str("      - 5 GHz\n");
+                        }
+                    }
                     RadiotapField::AntennaSignal(signal) => {
                         output.push_str(&format!("  Antenna Signal: {} dBm\n", signal));
-                    },
+                    }
                     RadiotapField::AntennaNoise(noise) => {
                         output.push_str(&format!("  Antenna Noise: {} dBm\n", noise));
-                    },
+                    }
                     RadiotapField::Antenna(antenna) => {
                         output.push_str(&format!("  Antenna: {}\n", antenna));
-                    },
+                    }
                     _ => {}
                 }
             }
         }
-        
+
         // Print 802.11 header
         if let Some(dot11) = stack.get_layer(Dot11::default()) {
             let fc = dot11.frame_control.value();
             output.push_str("\n802.11 Header:\n");
             output.push_str(&format!("  Frame Control: 0x{:04x}\n", fc.to_raw()));
             output.push_str(&format!("    Protocol Version: {}\n", fc.protocol_version));
-            
-            output.push_str(&format!("    Type: {}\n", match fc.frame_type {
-                frame_types::MANAGEMENT => "Management",
-                frame_types::CONTROL => "Control",
-                frame_types::DATA => "Data",
-                frame_types::EXTENSION => "Extension",
-                _ => "Unknown",
-            }));
-            
+
+            output.push_str(&format!(
+                "    Type: {}\n",
+                match fc.frame_type {
+                    frame_types::MANAGEMENT => "Management",
+                    frame_types::CONTROL => "Control",
+                    frame_types::DATA => "Data",
+                    frame_types::EXTENSION => "Extension",
+                    _ => "Unknown",
+                }
+            ));
+
             output.push_str(&format!("    Subtype: {}\n", fc.frame_subtype));
-            
+
             output.push_str(&format!("    Flags:"));
-            if fc.to_ds { output.push_str(" ToDS"); }
-            if fc.from_ds { output.push_str(" FromDS"); }
-            if fc.more_fragments { output.push_str(" MoreFrag"); }
-            if fc.retry { output.push_str(" Retry"); }
-            if fc.power_management { output.push_str(" PwrMgmt"); }
-            if fc.more_data { output.push_str(" MoreData"); }
-            if fc.protected { output.push_str(" Protected"); }
-            if fc.order { output.push_str(" Order"); }
+            if fc.to_ds {
+                output.push_str(" ToDS");
+            }
+            if fc.from_ds {
+                output.push_str(" FromDS");
+            }
+            if fc.more_fragments {
+                output.push_str(" MoreFrag");
+            }
+            if fc.retry {
+                output.push_str(" Retry");
+            }
+            if fc.power_management {
+                output.push_str(" PwrMgmt");
+            }
+            if fc.more_data {
+                output.push_str(" MoreData");
+            }
+            if fc.protected {
+                output.push_str(" Protected");
+            }
+            if fc.order {
+                output.push_str(" Order");
+            }
             output.push_str("\n");
-            
+
             output.push_str(&format!("  Duration: {} μs\n", dot11.duration.value()));
             output.push_str(&format!("  Address 1: {}\n", dot11.addr1.value()));
             output.push_str(&format!("  Address 2: {}\n", dot11.addr2.value()));
             output.push_str(&format!("  Address 3: {}\n", dot11.addr3.value()));
-            
+
             let seq_num = (dot11.seq_control.value() >> 4) & 0x0FFF;
             let frag_num = dot11.seq_control.value() & 0x000F;
-            output.push_str(&format!("  Sequence: {}, Fragment: {}\n", seq_num, frag_num));
+            output.push_str(&format!(
+                "  Sequence: {}, Fragment: {}\n",
+                seq_num, frag_num
+            ));
         }
-        
+
         // Print Beacon information
         if let Some(beacon) = stack.get_layer(Dot11Beacon::default()) {
             output.push_str("\nBeacon Frame:\n");
             output.push_str(&format!("  Timestamp: {}\n", beacon.timestamp.value()));
-            output.push_str(&format!("  Interval: {} TU ({} ms)\n", 
-                             beacon.beacon_interval.value(),
-                             beacon.beacon_interval.value() * 1024 / 1000));
-            
+            output.push_str(&format!(
+                "  Interval: {} TU ({} ms)\n",
+                beacon.beacon_interval.value(),
+                beacon.beacon_interval.value() * 1024 / 1000
+            ));
+
             let caps = beacon.capabilities.value();
             output.push_str(&format!("  Capabilities: 0x{:04x}\n", caps.to_raw()));
-            output.push_str(&format!("    Infrastructure: {}\n", if caps.ess { "ESS" } else if caps.ibss { "IBSS" } else { "Unknown" }));
-            output.push_str(&format!("    Privacy: {}\n", if caps.privacy { "Enabled" } else { "Disabled" }));
-            output.push_str(&format!("    Short Preamble: {}\n", if caps.short_preamble { "Yes" } else { "No" }));
-            output.push_str(&format!("    Short Slot Time: {}\n", if caps.short_slot_time { "Yes" } else { "No" }));
-            
+            output.push_str(&format!(
+                "    Infrastructure: {}\n",
+                if caps.ess {
+                    "ESS"
+                } else if caps.ibss {
+                    "IBSS"
+                } else {
+                    "Unknown"
+                }
+            ));
+            output.push_str(&format!(
+                "    Privacy: {}\n",
+                if caps.privacy { "Enabled" } else { "Disabled" }
+            ));
+            output.push_str(&format!(
+                "    Short Preamble: {}\n",
+                if caps.short_preamble { "Yes" } else { "No" }
+            ));
+            output.push_str(&format!(
+                "    Short Slot Time: {}\n",
+                if caps.short_slot_time { "Yes" } else { "No" }
+            ));
+
             output.push_str("\n  Information Elements:\n");
             for element in &beacon.elements {
                 match element {
                     ParsedElement::SSID(ssid) => {
                         output.push_str(&format!("    SSID: {}\n", ssid));
-                    },
+                    }
                     ParsedElement::SupportedRates(rates) => {
                         output.push_str("    Supported Rates:");
                         for &rate in rates {
@@ -390,28 +479,32 @@ pub fn print_packet_details(packet_data: &[u8]) -> String {
                             }
                         }
                         output.push_str(" Mbps\n");
-                    },
+                    }
                     ParsedElement::DSParameter(channel) => {
                         output.push_str(&format!("    DS Parameter - Channel: {}\n", channel));
-                    },
+                    }
                     ParsedElement::TIM(tim) => {
-                        output.push_str(&format!("    TIM: DTIM Count: {}, DTIM Period: {}\n", 
-                                      tim.dtim_count, tim.dtim_period));
-                    },
+                        output.push_str(&format!(
+                            "    TIM: DTIM Count: {}, DTIM Period: {}\n",
+                            tim.dtim_count, tim.dtim_period
+                        ));
+                    }
                     ParsedElement::Country(country) => {
                         let country_code = String::from_utf8_lossy(&country.country_code);
                         output.push_str(&format!("    Country: {}\n", country_code));
                         for triplet in &country.triplets {
-                            output.push_str(&format!("      Channels {}-{}, Max TX Power: {} dBm\n",
-                                          triplet.first_channel,
-                                          triplet.first_channel + triplet.num_channels - 1,
-                                          triplet.max_tx_power));
+                            output.push_str(&format!(
+                                "      Channels {}-{}, Max TX Power: {} dBm\n",
+                                triplet.first_channel,
+                                triplet.first_channel + triplet.num_channels - 1,
+                                triplet.max_tx_power
+                            ));
                         }
-                    },
+                    }
                     ParsedElement::RSN(rsn) => {
                         output.push_str(&format!("    RSN Information:\n"));
                         output.push_str(&format!("      Version: {}\n", rsn.version));
-                        
+
                         // Group Cipher
                         let group_suite_type = match rsn.group_cipher_suite.suite_type {
                             0 => "Use Group Cipher Suite",
@@ -422,9 +515,12 @@ pub fn print_packet_details(packet_data: &[u8]) -> String {
                             _ => "Unknown",
                         };
                         output.push_str(&format!("      Group Cipher: {}\n", group_suite_type));
-                        
+
                         // Pairwise Ciphers
-                        output.push_str(&format!("      Pairwise Ciphers ({}):\n", rsn.pairwise_cipher_suites.len()));
+                        output.push_str(&format!(
+                            "      Pairwise Ciphers ({}):\n",
+                            rsn.pairwise_cipher_suites.len()
+                        ));
                         for suite in &rsn.pairwise_cipher_suites {
                             let suite_type = match suite.suite_type {
                                 0 => "Use Group Cipher Suite",
@@ -436,9 +532,12 @@ pub fn print_packet_details(packet_data: &[u8]) -> String {
                             };
                             output.push_str(&format!("        {}\n", suite_type));
                         }
-                        
+
                         // AKM Suites
-                        output.push_str(&format!("      Authentication Key Management ({}):\n", rsn.akm_suites.len()));
+                        output.push_str(&format!(
+                            "      Authentication Key Management ({}):\n",
+                            rsn.akm_suites.len()
+                        ));
                         for suite in &rsn.akm_suites {
                             let suite_type = match suite.suite_type {
                                 1 => "802.1X",
@@ -454,23 +553,32 @@ pub fn print_packet_details(packet_data: &[u8]) -> String {
                             };
                             output.push_str(&format!("        {}\n", suite_type));
                         }
-                    },
+                    }
                     ParsedElement::VendorSpecific(vendor) => {
-                        output.push_str(&format!("    Vendor Specific: OUI: {:02x}:{:02x}:{:02x}, Type: {}\n",
-                                     vendor.oui[0], vendor.oui[1], vendor.oui[2], vendor.vendor_type));
-                        
+                        output.push_str(&format!(
+                            "    Vendor Specific: OUI: {:02x}:{:02x}:{:02x}, Type: {}\n",
+                            vendor.oui[0], vendor.oui[1], vendor.oui[2], vendor.vendor_type
+                        ));
+
                         // Check if this is a WPA element (OUI: 00:50:F2, Type: 01)
-                        if vendor.oui == [0x00, 0x50, 0xF2] && vendor.vendor_type == 1 && vendor.data.len() >= 6 {
+                        if vendor.oui == [0x00, 0x50, 0xF2]
+                            && vendor.vendor_type == 1
+                            && vendor.data.len() >= 6
+                        {
                             output.push_str("      WPA Information:\n");
-                            
+
                             // Skip version (2 bytes)
                             let mut offset = 2;
-                            
+
                             // Group Cipher Suite
                             if offset + 4 <= vendor.data.len() {
-                                let group_oui = [vendor.data[offset], vendor.data[offset+1], vendor.data[offset+2]];
-                                let group_suite_type = vendor.data[offset+3];
-                                
+                                let group_oui = [
+                                    vendor.data[offset],
+                                    vendor.data[offset + 1],
+                                    vendor.data[offset + 2],
+                                ];
+                                let group_suite_type = vendor.data[offset + 3];
+
                                 let suite_type_str = match group_suite_type {
                                     1 => "WEP-40",
                                     2 => "TKIP",
@@ -478,23 +586,36 @@ pub fn print_packet_details(packet_data: &[u8]) -> String {
                                     5 => "WEP-104",
                                     _ => "Unknown",
                                 };
-                                
-                                output.push_str(&format!("        Group Cipher: {}\n", suite_type_str));
+
+                                output.push_str(&format!(
+                                    "        Group Cipher: {}\n",
+                                    suite_type_str
+                                ));
                                 offset += 4;
-                                
+
                                 // Pairwise Cipher Suite Count
                                 if offset + 2 <= vendor.data.len() {
-                                    let count = u16::from_le_bytes([vendor.data[offset], vendor.data[offset+1]]) as usize;
+                                    let count = u16::from_le_bytes([
+                                        vendor.data[offset],
+                                        vendor.data[offset + 1],
+                                    ]) as usize;
                                     offset += 2;
-                                    
-                                    output.push_str(&format!("        Pairwise Ciphers ({}):\n", count));
-                                    
+
+                                    output.push_str(&format!(
+                                        "        Pairwise Ciphers ({}):\n",
+                                        count
+                                    ));
+
                                     // Pairwise Cipher Suites
                                     for i in 0..count {
                                         if offset + 4 <= vendor.data.len() {
-                                            let oui = [vendor.data[offset], vendor.data[offset+1], vendor.data[offset+2]];
-                                            let suite_type = vendor.data[offset+3];
-                                            
+                                            let oui = [
+                                                vendor.data[offset],
+                                                vendor.data[offset + 1],
+                                                vendor.data[offset + 2],
+                                            ];
+                                            let suite_type = vendor.data[offset + 3];
+
                                             let suite_type_str = match suite_type {
                                                 1 => "WEP-40",
                                                 2 => "TKIP",
@@ -502,32 +623,49 @@ pub fn print_packet_details(packet_data: &[u8]) -> String {
                                                 5 => "WEP-104",
                                                 _ => "Unknown",
                                             };
-                                            
-                                            output.push_str(&format!("          {}\n", suite_type_str));
+
+                                            output.push_str(&format!(
+                                                "          {}\n",
+                                                suite_type_str
+                                            ));
                                             offset += 4;
                                         }
                                     }
-                                    
+
                                     // AKM Suite Count
                                     if offset + 2 <= vendor.data.len() {
-                                        let count = u16::from_le_bytes([vendor.data[offset], vendor.data[offset+1]]) as usize;
+                                        let count = u16::from_le_bytes([
+                                            vendor.data[offset],
+                                            vendor.data[offset + 1],
+                                        ])
+                                            as usize;
                                         offset += 2;
-                                        
-                                        output.push_str(&format!("        Authentication Key Management ({}):\n", count));
-                                        
+
+                                        output.push_str(&format!(
+                                            "        Authentication Key Management ({}):\n",
+                                            count
+                                        ));
+
                                         // AKM Suites
                                         for i in 0..count {
                                             if offset + 4 <= vendor.data.len() {
-                                                let oui = [vendor.data[offset], vendor.data[offset+1], vendor.data[offset+2]];
-                                                let suite_type = vendor.data[offset+3];
-                                                
+                                                let oui = [
+                                                    vendor.data[offset],
+                                                    vendor.data[offset + 1],
+                                                    vendor.data[offset + 2],
+                                                ];
+                                                let suite_type = vendor.data[offset + 3];
+
                                                 let suite_type_str = match suite_type {
                                                     1 => "802.1X",
                                                     2 => "PSK",
                                                     _ => "Unknown",
                                                 };
-                                                
-                                                output.push_str(&format!("          {}\n", suite_type_str));
+
+                                                output.push_str(&format!(
+                                                    "          {}\n",
+                                                    suite_type_str
+                                                ));
                                                 offset += 4;
                                             }
                                         }
@@ -535,34 +673,36 @@ pub fn print_packet_details(packet_data: &[u8]) -> String {
                                 }
                             }
                         }
-                    },
-                    _ => {},
+                    }
+                    _ => {}
                 }
             }
         }
-        
+
         // Print Probe Request information
         if let Some(probe_req) = stack.get_layer(Dot11ProbeReq::default()) {
             output.push_str("\nProbe Request:\n");
-            
+
             for element in &probe_req.elements {
                 if let ParsedElement::SSID(ssid) = element {
                     output.push_str(&format!("  Requested SSID: {}\n", ssid));
                 }
             }
         }
-        
+
         // Print Probe Response information
         if let Some(probe_resp) = stack.get_layer(Dot11ProbeResp::default()) {
             output.push_str("\nProbe Response:\n");
             output.push_str(&format!("  Timestamp: {}\n", probe_resp.timestamp.value()));
-            output.push_str(&format!("  Interval: {} TU ({} ms)\n", 
-                           probe_resp.beacon_interval.value(),
-                           probe_resp.beacon_interval.value() * 1024 / 1000));
-            
+            output.push_str(&format!(
+                "  Interval: {} TU ({} ms)\n",
+                probe_resp.beacon_interval.value(),
+                probe_resp.beacon_interval.value() * 1024 / 1000
+            ));
+
             let caps = probe_resp.capabilities.value();
             output.push_str(&format!("  Capabilities: 0x{:04x}\n", caps.to_raw()));
-            
+
             output.push_str("\n  Information Elements:\n");
             for element in &probe_resp.elements {
                 if let ParsedElement::SSID(ssid) = element {
@@ -570,15 +710,18 @@ pub fn print_packet_details(packet_data: &[u8]) -> String {
                 }
             }
         }
-        
+
         // Print Association Request information
         if let Some(assoc_req) = stack.get_layer(Dot11AssocReq::default()) {
             output.push_str("\nAssociation Request:\n");
-            
+
             let caps = assoc_req.capabilities.value();
             output.push_str(&format!("  Capabilities: 0x{:04x}\n", caps.to_raw()));
-            output.push_str(&format!("  Listen Interval: {}\n", assoc_req.listen_interval.value()));
-            
+            output.push_str(&format!(
+                "  Listen Interval: {}\n",
+                assoc_req.listen_interval.value()
+            ));
+
             output.push_str("\n  Information Elements:\n");
             for element in &assoc_req.elements {
                 if let ParsedElement::SSID(ssid) = element {
@@ -586,11 +729,11 @@ pub fn print_packet_details(packet_data: &[u8]) -> String {
                 }
             }
         }
-        
+
         // Print Authentication Frame information
         if let Some(auth) = stack.get_layer(Dot11Auth::default()) {
             output.push_str("\nAuthentication Frame:\n");
-            
+
             let auth_alg = match auth.auth_algorithm.value() {
                 0 => "Open System",
                 1 => "Shared Key",
@@ -598,11 +741,17 @@ pub fn print_packet_details(packet_data: &[u8]) -> String {
                 3 => "SAE",
                 _ => "Unknown",
             };
-            
-            output.push_str(&format!("  Authentication Algorithm: {} ({})\n", 
-                           auth.auth_algorithm.value(), auth_alg));
-            output.push_str(&format!("  Authentication Sequence: {}\n", auth.auth_seq.value()));
-            
+
+            output.push_str(&format!(
+                "  Authentication Algorithm: {} ({})\n",
+                auth.auth_algorithm.value(),
+                auth_alg
+            ));
+            output.push_str(&format!(
+                "  Authentication Sequence: {}\n",
+                auth.auth_seq.value()
+            ));
+
             let status = match auth.status_code.value() {
                 0 => "Success",
                 1 => "Failure",
@@ -617,29 +766,33 @@ pub fn print_packet_details(packet_data: &[u8]) -> String {
                 18 => "Basic rate support denied",
                 _ => "Unknown",
             };
-            
-            output.push_str(&format!("  Status Code: {} ({})\n", auth.status_code.value(), status));
+
+            output.push_str(&format!(
+                "  Status Code: {} ({})\n",
+                auth.status_code.value(),
+                status
+            ));
         }
-        
+
         // Print Data Frame information
         /* FIXME AYXX
         if let Some(data) = stack.get_layer(Dot11Data::default()) {
             output.push_str("\nData Frame:\n");
-            
+
             if let Some(addr4) = &data.addr4 {
                 output.push_str(&format!("  Address 4: {}\n", addr4.value()));
             }
-            
+
             if let Some(qos) = &data.qos_control {
                 output.push_str(&format!("  QoS Control: 0x{:04x}\n", qos.value()));
-                
+
                 let tid = qos.value() & 0x000F;
                 let eosp = (qos.value() & 0x0010) != 0;
                 let ack_policy = (qos.value() >> 5) & 0x0003;
-                
+
                 output.push_str(&format!("    TID: {}\n", tid));
                 output.push_str(&format!("    End of Service Period: {}\n", eosp));
-                
+
                 let ack_str = match ack_policy {
                     0 => "Normal ACK",
                     1 => "No ACK",
@@ -647,18 +800,18 @@ pub fn print_packet_details(packet_data: &[u8]) -> String {
                     3 => "Block ACK",
                     _ => "Unknown",
                 };
-                
+
                 output.push_str(&format!("    ACK Policy: {}\n", ack_str));
             }
-            
+
             if let Some(ht) = &data.ht_control {
                 output.push_str(&format!("  HT Control: 0x{:08x}\n", ht.value()));
             }
-            
+
             output.push_str(&format!("  Data Length: {} bytes\n", data.payload.len()));
         }
         */
-        
+
         // Print FCS if present
         if let Some(fcs) = stack.get_layer(Dot11FCS::default()) {
             output.push_str(&format!("\nFCS: 0x{:08x}\n", fcs.fcs.value()));
@@ -666,7 +819,7 @@ pub fn print_packet_details(packet_data: &[u8]) -> String {
     } else {
         output.push_str("Failed to decode 802.11 frame");
     }
-    
+
     output
 }
 
@@ -682,37 +835,39 @@ pub fn create_wpa_beacon(
     let mut capabilities = CapabilitiesInfo::default();
     capabilities.ess = true;
     capabilities.privacy = true;
-    
+
     // Create WPA Vendor Specific element
     let mut wpa_data = Vec::new();
-    
+
     // Version
     wpa_data.extend_from_slice(&[0x01, 0x00]); // Version 1
-    
+
     // Group Cipher Suite
     wpa_data.extend_from_slice(&[0x00, 0x50, 0xF2, 0x02]); // TKIP
-    
+
     // Pairwise Cipher Suite Count
     wpa_data.extend_from_slice(&[0x01, 0x00]); // 1 suite
-    
+
     // Pairwise Cipher Suite
     wpa_data.extend_from_slice(&[0x00, 0x50, 0xF2, 0x02]); // TKIP
-    
+
     // AKM Suite Count
     wpa_data.extend_from_slice(&[0x01, 0x00]); // 1 suite
-    
+
     // AKM Suite
     wpa_data.extend_from_slice(&[0x00, 0x50, 0xF2, 0x02]); // PSK
-    
+
     let wpa_element = VendorSpecificElement {
         oui: [0x00, 0x50, 0xF2], // Microsoft OUI
         vendor_type: 1,          // WPA IE
         data: wpa_data,
     };
-    
+
     // Standard rates for 802.11g
-    let rates = vec![0x82, 0x84, 0x8B, 0x96, 0x0C, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6C];
-    
+    let rates = vec![
+        0x82, 0x84, 0x8B, 0x96, 0x0C, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6C,
+    ];
+
     // Create beacon with WPA element
     create_beacon_with_elements(
         src_mac,
@@ -736,12 +891,12 @@ pub fn create_hidden_ssid_beacon(
 ) -> LayerStack {
     let mut capabilities = CapabilitiesInfo::default();
     capabilities.ess = true;
-    
+
     let mut additional_elements = Vec::new();
-    
+
     if security_type == "WPA" || security_type == "WPA2" || security_type == "WPA3" {
         capabilities.privacy = true;
-        
+
         if security_type == "WPA" {
             // Add WPA vendor element
             let mut wpa_data = Vec::new();
@@ -751,13 +906,13 @@ pub fn create_hidden_ssid_beacon(
             wpa_data.extend_from_slice(&[0x00, 0x50, 0xF2, 0x02]); // TKIP
             wpa_data.extend_from_slice(&[0x01, 0x00]); // 1 AKM suite
             wpa_data.extend_from_slice(&[0x00, 0x50, 0xF2, 0x02]); // PSK
-            
+
             let wpa_element = VendorSpecificElement {
                 oui: [0x00, 0x50, 0xF2], // Microsoft OUI
                 vendor_type: 1,          // WPA IE
                 data: wpa_data,
             };
-            
+
             additional_elements.push(ParsedElement::VendorSpecific(wpa_element));
         } else if security_type == "WPA2" || security_type == "WPA3" {
             // Create RSN element
@@ -765,11 +920,11 @@ pub fn create_hidden_ssid_beacon(
                 version: 1,
                 group_cipher_suite: CipherSuite {
                     oui: [0x00, 0x0F, 0xAC], // IEEE 802.11 OUI
-                    suite_type: 4,          // CCMP (AES)
+                    suite_type: 4,           // CCMP (AES)
                 },
                 pairwise_cipher_suites: vec![CipherSuite {
                     oui: [0x00, 0x0F, 0xAC], // IEEE 802.11 OUI
-                    suite_type: 4,          // CCMP (AES)
+                    suite_type: 4,           // CCMP (AES)
                 }],
                 akm_suites: Vec::new(),
                 rsn_capabilities: 0,
@@ -777,31 +932,34 @@ pub fn create_hidden_ssid_beacon(
                 pmkid_list: Vec::new(),
                 group_management_cipher_suite: None,
             };
-            
+
             if security_type == "WPA2" {
                 rsn.akm_suites.push(AKMSuite {
                     oui: [0x00, 0x0F, 0xAC], // IEEE 802.11 OUI
-                    suite_type: 2,          // PSK
+                    suite_type: 2,           // PSK
                 });
-            } else { // WPA3
+            } else {
+                // WPA3
                 rsn.akm_suites.push(AKMSuite {
                     oui: [0x00, 0x0F, 0xAC], // IEEE 802.11 OUI
-                    suite_type: 8,          // SAE
+                    suite_type: 8,           // SAE
                 });
             }
-            
+
             additional_elements.push(ParsedElement::RSN(rsn));
         }
     }
-    
+
     // Standard rates for 802.11g
-    let rates = vec![0x82, 0x84, 0x8B, 0x96, 0x0C, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6C];
-    
+    let rates = vec![
+        0x82, 0x84, 0x8B, 0x96, 0x0C, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6C,
+    ];
+
     // Create beacon with empty SSID
     create_beacon_with_elements(
         src_mac,
         bssid,
-        "",  // Empty SSID for hidden network
+        "", // Empty SSID for hidden network
         channel,
         rates,
         interval,
@@ -813,21 +971,23 @@ pub fn create_hidden_ssid_beacon(
 // Helper function to create a collection of beacon frames from different networks
 pub fn create_network_simulation(networks: &[(&str, u8, &str)]) -> Vec<LayerStack> {
     let mut beacons = Vec::new();
-    
+
     for (i, &(ssid, channel, security_type)) in networks.iter().enumerate() {
         // Create a unique MAC address for each network
         let mac_bytes = [0x12, 0x34, 0x56, 0x78, 0x90, i as u8];
         let mac = MacAddr::from(mac_bytes);
-        
+
         // Create the appropriate beacon based on security type
         let beacon = match security_type {
             "Open" => {
                 let mut capabilities = CapabilitiesInfo::default();
                 capabilities.ess = true;
-                
+
                 // Standard rates for 802.11g
-                let rates = vec![0x82, 0x84, 0x8B, 0x96, 0x0C, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6C];
-                
+                let rates = vec![
+                    0x82, 0x84, 0x8B, 0x96, 0x0C, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6C,
+                ];
+
                 create_beacon_with_elements(
                     mac.clone(),
                     mac.clone(),
@@ -838,15 +998,17 @@ pub fn create_network_simulation(networks: &[(&str, u8, &str)]) -> Vec<LayerStac
                     capabilities,
                     Vec::new(),
                 )
-            },
+            }
             "WEP" => {
                 let mut capabilities = CapabilitiesInfo::default();
                 capabilities.ess = true;
                 capabilities.privacy = true;
-                
+
                 // Standard rates for 802.11g
-                let rates = vec![0x82, 0x84, 0x8B, 0x96, 0x0C, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6C];
-                
+                let rates = vec![
+                    0x82, 0x84, 0x8B, 0x96, 0x0C, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6C,
+                ];
+
                 create_beacon_with_elements(
                     mac.clone(),
                     mac.clone(),
@@ -857,7 +1019,7 @@ pub fn create_network_simulation(networks: &[(&str, u8, &str)]) -> Vec<LayerStac
                     capabilities,
                     Vec::new(),
                 )
-            },
+            }
             "WPA" => {
                 create_wpa_beacon(
                     mac.clone(),
@@ -866,7 +1028,7 @@ pub fn create_network_simulation(networks: &[(&str, u8, &str)]) -> Vec<LayerStac
                     channel,
                     100, // 100 TU = ~102.4ms
                 )
-            },
+            }
             "WPA2" => {
                 create_wpa2_beacon(
                     mac.clone(),
@@ -875,29 +1037,29 @@ pub fn create_network_simulation(networks: &[(&str, u8, &str)]) -> Vec<LayerStac
                     channel,
                     100, // 100 TU = ~102.4ms
                 )
-            },
+            }
             "WPA3" => {
                 // Create capabilities with Privacy bit set
                 let mut capabilities = CapabilitiesInfo::default();
                 capabilities.ess = true;
                 capabilities.privacy = true;
-                
+
                 // Create RSN element for WPA3
                 let group_cipher = CipherSuite {
                     oui: [0x00, 0x0F, 0xAC], // IEEE 802.11 OUI
-                    suite_type: 4,          // CCMP (AES)
+                    suite_type: 4,           // CCMP (AES)
                 };
-                
+
                 let pairwise_cipher = CipherSuite {
                     oui: [0x00, 0x0F, 0xAC], // IEEE 802.11 OUI
-                    suite_type: 4,          // CCMP (AES)
+                    suite_type: 4,           // CCMP (AES)
                 };
-                
+
                 let akm_suite = AKMSuite {
                     oui: [0x00, 0x0F, 0xAC], // IEEE 802.11 OUI
-                    suite_type: 8,          // SAE (WPA3)
+                    suite_type: 8,           // SAE (WPA3)
                 };
-                
+
                 let rsn = RSNElement {
                     version: 1,
                     group_cipher_suite: group_cipher,
@@ -908,10 +1070,12 @@ pub fn create_network_simulation(networks: &[(&str, u8, &str)]) -> Vec<LayerStac
                     pmkid_list: Vec::new(),
                     group_management_cipher_suite: None,
                 };
-                
+
                 // Standard rates for 802.11g
-                let rates = vec![0x82, 0x84, 0x8B, 0x96, 0x0C, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6C];
-                
+                let rates = vec![
+                    0x82, 0x84, 0x8B, 0x96, 0x0C, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6C,
+                ];
+
                 create_beacon_with_elements(
                     mac.clone(),
                     mac.clone(),
@@ -922,7 +1086,7 @@ pub fn create_network_simulation(networks: &[(&str, u8, &str)]) -> Vec<LayerStac
                     capabilities,
                     vec![ParsedElement::RSN(rsn)],
                 )
-            },
+            }
             "Hidden" => {
                 create_hidden_ssid_beacon(
                     mac.clone(),
@@ -931,15 +1095,17 @@ pub fn create_network_simulation(networks: &[(&str, u8, &str)]) -> Vec<LayerStac
                     100, // 100 TU = ~102.4ms
                     "WPA2",
                 )
-            },
+            }
             _ => {
                 // Default to Open
                 let mut capabilities = CapabilitiesInfo::default();
                 capabilities.ess = true;
-                
+
                 // Standard rates for 802.11g
-                let rates = vec![0x82, 0x84, 0x8B, 0x96, 0x0C, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6C];
-                
+                let rates = vec![
+                    0x82, 0x84, 0x8B, 0x96, 0x0C, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6C,
+                ];
+
                 create_beacon_with_elements(
                     mac.clone(),
                     mac.clone(),
@@ -950,12 +1116,12 @@ pub fn create_network_simulation(networks: &[(&str, u8, &str)]) -> Vec<LayerStac
                     capabilities,
                     Vec::new(),
                 )
-            },
+            }
         };
-        
+
         beacons.push(beacon);
     }
-    
+
     beacons
 }
 
@@ -1002,10 +1168,10 @@ pub fn frequency_to_channel(frequency: u16) -> u8 {
         0 // Unknown frequency
     }
 }
+use crate::typ::string::FixedSizeString;
 use crate::*;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
-use crate::typ::string::FixedSizeString;
 use typenum::U32;
 
 // Frame Control field components
@@ -1341,11 +1507,7 @@ fn encode_seq_control<E: Encoder>(
     my_layer.seq_control.value().encode::<BinaryLittleEndian>()
 }
 
-fn decode_seq_control<D: Decoder>(
-    buf: &[u8],
-    ci: usize,
-    me: &mut Dot11,
-) -> Option<(u16, usize)> {
+fn decode_seq_control<D: Decoder>(buf: &[u8], ci: usize, me: &mut Dot11) -> Option<(u16, usize)> {
     let buf = &buf[ci..];
     u16::decode::<D>(buf)
 }
@@ -1474,16 +1636,16 @@ pub enum RadiotapField {
     TxFlags(u16),
     RtsRetries(u8),
     DataRetries(u8),
-    XChannel(u32, u16, u8), // flags, freq, channel
-    MCS(u8, u8, u8), // known, flags, mcs
+    XChannel(u32, u16, u8),        // flags, freq, channel
+    MCS(u8, u8, u8),               // known, flags, mcs
     AMPDUStatus(u32, u16, u8, u8), // reference number, flags, delimiter CRC, reserved
-    VHT(u16, u8, u8, Vec<u8>), // known, flags, bandwidth, mcs_nss, coding
-    HEData1(u16, u16), // data1, data2
-    HEData2(u16, u16), // data3, data4
-    HEData3(u16, u16), // data5, data6
-    HEData4(u8, u8, u8, u8), // data7-data10
-    HEData5(u8, u8, u8, u8), // data11-data14
-    HEData6(u8, u8), // data15-data16
+    VHT(u16, u8, u8, Vec<u8>),     // known, flags, bandwidth, mcs_nss, coding
+    HEData1(u16, u16),             // data1, data2
+    HEData2(u16, u16),             // data3, data4
+    HEData3(u16, u16),             // data5, data6
+    HEData4(u8, u8, u8, u8),       // data7-data10
+    HEData5(u8, u8, u8, u8),       // data11-data14
+    HEData6(u8, u8),               // data15-data16
     RadiotapNamespace(),
     VendorNamespace(Vec<u8>),
     ExtendedBitmap(u32),
@@ -1551,7 +1713,7 @@ fn encode_radiotap_present<E: Encoder>(
 ) -> Vec<u8> {
     let mut out: Vec<u8> = vec![];
     for v in &my_layer.present_flags {
-      out.extend(v.encode::<BinaryLittleEndian>())
+        out.extend(v.encode::<BinaryLittleEndian>())
     }
     out
 }
@@ -1566,19 +1728,19 @@ fn decode_radiotap_present<D: Decoder>(
     let mut consumed = 0;
     let mut offs = 0;
     loop {
-      let buf = &buf[offs..];
-      if let Some((val, nbytes)) = u32::decode::<BinaryLittleEndian>(buf) {
-         out.push(val);
-         consumed += nbytes;
-         if val & radiotap_flags::EXT == 0 {
-           //println!("EXT missing");
-           break;
-         }
-         offs += nbytes;
-      } else {
-         println!("Error while decode radiotap present");
-         return None;
-      }
+        let buf = &buf[offs..];
+        if let Some((val, nbytes)) = u32::decode::<BinaryLittleEndian>(buf) {
+            out.push(val);
+            consumed += nbytes;
+            if val & radiotap_flags::EXT == 0 {
+                //println!("EXT missing");
+                break;
+            }
+            offs += nbytes;
+        } else {
+            println!("Error while decode radiotap present");
+            return None;
+        }
     }
     Some((out, consumed))
 }
@@ -1590,238 +1752,279 @@ fn decode_radiotap_fields<D: Decoder>(
 ) -> Option<(Vec<RadiotapField>, usize)> {
     let buf = &buf[ci..];
     let radiotap_len = me.length.value() as usize;
-    
+
     let mut fields = Vec::new();
     let mut present_bitmaps = me.present_flags.clone();
-    
+
     let mut offset = 0;
-    
+
     // 4-byte alignment for certain fields
-    let align_offset = |off: usize| -> usize {
-        (off + 3) & !3
-    };
-    
+    let align_offset = |off: usize| -> usize { (off + 3) & !3 };
+
     // Parse each bitmap
     for (idx, present) in present_bitmaps.iter().enumerate() {
         let base_bit = idx * 32;
-        
+
         for bit in 0..31 {
             // Skip extended bitmap bit
             if bit == 31 {
                 continue;
             }
-            
+
             let flag = 1 << bit;
             if present & flag == 0 {
                 continue;
             }
-            
+
             // Parse based on the bit position
             let global_bit = base_bit + bit;
-            
+
             match bit {
-                0 => { // TSFT
+                0 => {
+                    // TSFT
                     offset = align_offset(offset);
                     if offset + 8 <= radiotap_len {
                         let tsft = u64::from_le_bytes([
-                            buf[offset], buf[offset+1], buf[offset+2], buf[offset+3],
-                            buf[offset+4], buf[offset+5], buf[offset+6], buf[offset+7]
+                            buf[offset],
+                            buf[offset + 1],
+                            buf[offset + 2],
+                            buf[offset + 3],
+                            buf[offset + 4],
+                            buf[offset + 5],
+                            buf[offset + 6],
+                            buf[offset + 7],
                         ]);
                         fields.push(RadiotapField::TSFT(tsft));
                         offset += 8;
                     }
-                },
-                1 => { // FLAGS
+                }
+                1 => {
+                    // FLAGS
                     if offset < radiotap_len {
                         fields.push(RadiotapField::Flags(buf[offset]));
                         offset += 1;
                     }
-                },
-                2 => { // RATE
+                }
+                2 => {
+                    // RATE
                     if offset < radiotap_len {
                         fields.push(RadiotapField::Rate(buf[offset]));
                         offset += 1;
                     }
-                },
-                3 => { // CHANNEL
+                }
+                3 => {
+                    // CHANNEL
                     // AYXX - offset = align_offset(offset);
                     // println!("aligned offset: {}", &offset);
                     if offset + 4 <= radiotap_len {
-                        let freq = u16::from_le_bytes([buf[offset], buf[offset+1]]);
-                        let flags = u16::from_le_bytes([buf[offset+2], buf[offset+3]]);
+                        let freq = u16::from_le_bytes([buf[offset], buf[offset + 1]]);
+                        let flags = u16::from_le_bytes([buf[offset + 2], buf[offset + 3]]);
                         fields.push(RadiotapField::Channel(freq, flags));
                         offset += 4;
                     }
-                },
-                4 => { // FHSS
+                }
+                4 => {
+                    // FHSS
                     if offset + 2 <= radiotap_len {
-                        fields.push(RadiotapField::FHSS(buf[offset], buf[offset+1]));
+                        fields.push(RadiotapField::FHSS(buf[offset], buf[offset + 1]));
                         offset += 2;
                     }
-                },
-                5 => { // DBM_ANTSIGNAL
+                }
+                5 => {
+                    // DBM_ANTSIGNAL
                     if offset < radiotap_len {
                         fields.push(RadiotapField::AntennaSignal(buf[offset] as i8));
                         offset += 1;
                     }
-                },
-                6 => { // DBM_ANTNOISE
+                }
+                6 => {
+                    // DBM_ANTNOISE
                     if offset < radiotap_len {
                         fields.push(RadiotapField::AntennaNoise(buf[offset] as i8));
                         offset += 1;
                     }
-                },
-                7 => { // LOCK_QUALITY
+                }
+                7 => {
+                    // LOCK_QUALITY
                     // offset = align_offset(offset);
                     if offset + 2 <= radiotap_len {
-                        let quality = u16::from_le_bytes([buf[offset], buf[offset+1]]);
+                        let quality = u16::from_le_bytes([buf[offset], buf[offset + 1]]);
                         fields.push(RadiotapField::LockQuality(quality));
                         offset += 2;
                     }
-                },
-                8 => { // TX_ATTENUATION
+                }
+                8 => {
+                    // TX_ATTENUATION
                     // offset = align_offset(offset);
                     if offset + 2 <= radiotap_len {
-                        let atten = u16::from_le_bytes([buf[offset], buf[offset+1]]);
+                        let atten = u16::from_le_bytes([buf[offset], buf[offset + 1]]);
                         fields.push(RadiotapField::TxAttenuation(atten));
                         offset += 2;
                     }
-                },
-                9 => { // DB_TX_ATTENUATION
+                }
+                9 => {
+                    // DB_TX_ATTENUATION
                     // offset = align_offset(offset);
                     if offset + 2 <= radiotap_len {
-                        let atten = u16::from_le_bytes([buf[offset], buf[offset+1]]);
+                        let atten = u16::from_le_bytes([buf[offset], buf[offset + 1]]);
                         fields.push(RadiotapField::DBTxAttenuation(atten));
                         offset += 2;
                     }
-                },
-                10 => { // DBM_TX_POWER
+                }
+                10 => {
+                    // DBM_TX_POWER
                     if offset < radiotap_len {
                         fields.push(RadiotapField::DBmTxPower(buf[offset] as i8));
                         offset += 1;
                     }
-                },
-                11 => { // ANTENNA
+                }
+                11 => {
+                    // ANTENNA
                     if offset < radiotap_len {
                         fields.push(RadiotapField::Antenna(buf[offset]));
                         offset += 1;
                     }
-                },
-                12 => { // DB_ANTSIGNAL
+                }
+                12 => {
+                    // DB_ANTSIGNAL
                     if offset < radiotap_len {
                         fields.push(RadiotapField::DBAntennaSignal(buf[offset]));
                         offset += 1;
                     }
-                },
-                13 => { // DB_ANTNOISE
+                }
+                13 => {
+                    // DB_ANTNOISE
                     if offset < radiotap_len {
                         fields.push(RadiotapField::DBAntennaNoise(buf[offset]));
                         offset += 1;
                     }
-                },
-                14 => { // RX_FLAGS
+                }
+                14 => {
+                    // RX_FLAGS
                     // AYXX  offset = align_offset(offset);
                     if offset + 2 <= radiotap_len {
-                        let flags = u16::from_le_bytes([buf[offset], buf[offset+1]]);
+                        let flags = u16::from_le_bytes([buf[offset], buf[offset + 1]]);
                         fields.push(RadiotapField::RxFlags(flags));
                         offset += 2;
                     }
-                },
-                15 => { // TX_FLAGS
+                }
+                15 => {
+                    // TX_FLAGS
                     // offset = align_offset(offset);
                     if offset + 2 <= radiotap_len {
-                        let flags = u16::from_le_bytes([buf[offset], buf[offset+1]]);
+                        let flags = u16::from_le_bytes([buf[offset], buf[offset + 1]]);
                         fields.push(RadiotapField::TxFlags(flags));
                         offset += 2;
                     }
-                },
-                16 => { // RTS_RETRIES
+                }
+                16 => {
+                    // RTS_RETRIES
                     if offset < radiotap_len {
                         fields.push(RadiotapField::RtsRetries(buf[offset]));
                         offset += 1;
                     }
-                },
-                17 => { // DATA_RETRIES
+                }
+                17 => {
+                    // DATA_RETRIES
                     if offset < radiotap_len {
                         fields.push(RadiotapField::DataRetries(buf[offset]));
                         offset += 1;
                     }
-                },
-                18 => { // XCHANNEL
+                }
+                18 => {
+                    // XCHANNEL
                     // offset = align_offset(offset);
                     if offset + 8 <= radiotap_len {
                         let flags = u32::from_le_bytes([
-                            buf[offset], buf[offset+1], buf[offset+2], buf[offset+3]
+                            buf[offset],
+                            buf[offset + 1],
+                            buf[offset + 2],
+                            buf[offset + 3],
                         ]);
-                        let freq = u16::from_le_bytes([buf[offset+4], buf[offset+5]]);
-                        let channel = buf[offset+6];
-                        let max_power = buf[offset+7];
+                        let freq = u16::from_le_bytes([buf[offset + 4], buf[offset + 5]]);
+                        let channel = buf[offset + 6];
+                        let max_power = buf[offset + 7];
                         fields.push(RadiotapField::XChannel(flags, freq, channel));
                         offset += 8;
                     }
-                },
-                19 => { // MCS
+                }
+                19 => {
+                    // MCS
                     if offset + 3 <= radiotap_len {
                         let known = buf[offset];
-                        let flags = buf[offset+1];
-                        let mcs = buf[offset+2];
+                        let flags = buf[offset + 1];
+                        let mcs = buf[offset + 2];
                         fields.push(RadiotapField::MCS(known, flags, mcs));
                         offset += 3;
                     }
-                },
-                20 => { // AMPDU_STATUS
+                }
+                20 => {
+                    // AMPDU_STATUS
                     // offset = align_offset(offset);
                     if offset + 8 <= radiotap_len {
                         let reference = u32::from_le_bytes([
-                            buf[offset], buf[offset+1], buf[offset+2], buf[offset+3]
+                            buf[offset],
+                            buf[offset + 1],
+                            buf[offset + 2],
+                            buf[offset + 3],
                         ]);
-                        let flags = u16::from_le_bytes([buf[offset+4], buf[offset+5]]);
-                        let delimiter_crc = buf[offset+6];
-                        let reserved = buf[offset+7];
-                        fields.push(RadiotapField::AMPDUStatus(reference, flags, delimiter_crc, reserved));
+                        let flags = u16::from_le_bytes([buf[offset + 4], buf[offset + 5]]);
+                        let delimiter_crc = buf[offset + 6];
+                        let reserved = buf[offset + 7];
+                        fields.push(RadiotapField::AMPDUStatus(
+                            reference,
+                            flags,
+                            delimiter_crc,
+                            reserved,
+                        ));
                         offset += 8;
                     }
-                },
-                21 => { // VHT
+                }
+                21 => {
+                    // VHT
                     if offset + 12 <= radiotap_len {
-                        let known = u16::from_le_bytes([buf[offset], buf[offset+1]]);
-                        let flags = buf[offset+2];
-                        let bandwidth = buf[offset+3];
-                        let mcs_nss = Vec::from(&buf[offset+4..offset+8]);
-                        let coding = buf[offset+8];
-                        let group_id = buf[offset+9];
-                        let partial_aid = u16::from_le_bytes([buf[offset+10], buf[offset+11]]);
+                        let known = u16::from_le_bytes([buf[offset], buf[offset + 1]]);
+                        let flags = buf[offset + 2];
+                        let bandwidth = buf[offset + 3];
+                        let mcs_nss = Vec::from(&buf[offset + 4..offset + 8]);
+                        let coding = buf[offset + 8];
+                        let group_id = buf[offset + 9];
+                        let partial_aid = u16::from_le_bytes([buf[offset + 10], buf[offset + 11]]);
                         fields.push(RadiotapField::VHT(known, flags, bandwidth, mcs_nss));
                         offset += 12;
                     }
-                },
-                22..=26 => { // HE fields
+                }
+                22..=26 => {
+                    // HE fields
                     // Skip complex HE fields for now, they have variable size
                     // and depend on the specific 802.11ax implementation
                     // offset = align_offset(offset);
                     if offset + 4 <= radiotap_len {
-                        let data1 = u16::from_le_bytes([buf[offset], buf[offset+1]]);
-                        let data2 = u16::from_le_bytes([buf[offset+2], buf[offset+3]]);
+                        let data1 = u16::from_le_bytes([buf[offset], buf[offset + 1]]);
+                        let data2 = u16::from_le_bytes([buf[offset + 2], buf[offset + 3]]);
                         fields.push(RadiotapField::HEData1(data1, data2));
                         offset += 4;
                     }
                     // Skip the rest of the HE data for simplicity
-                },
-                29 => { // RADIOTAP_NAMESPACE
+                }
+                29 => {
+                    // RADIOTAP_NAMESPACE
                     fields.push(RadiotapField::RadiotapNamespace());
                     // No length defined, must be followed by another namespace
-                },
-                30 => { // VENDOR_NAMESPACE
+                }
+                30 => {
+                    // VENDOR_NAMESPACE
                     // offset = align_offset(offset);
                     if offset + 6 <= radiotap_len {
-                        let oui_len = u16::from_le_bytes([buf[offset+4], buf[offset+5]]) as usize;
+                        let oui_len =
+                            u16::from_le_bytes([buf[offset + 4], buf[offset + 5]]) as usize;
                         if offset + 6 + oui_len <= radiotap_len {
-                            let data = Vec::from(&buf[offset..offset+6+oui_len]);
+                            let data = Vec::from(&buf[offset..offset + 6 + oui_len]);
                             fields.push(RadiotapField::VendorNamespace(data));
                             offset += 6 + oui_len;
                         }
                     }
-                },
+                }
                 _ => {
                     // Unknown field, store the bit position
                     fields.push(RadiotapField::Unknown(global_bit as u32, Vec::new()));
@@ -1829,7 +2032,7 @@ fn decode_radiotap_fields<D: Decoder>(
             }
         }
     }
-    
+
     Some((fields, radiotap_len - ci))
 }
 
@@ -1843,12 +2046,18 @@ pub struct Dot11FCS {
 // Decode a complete 802.11 frame from a raw buffer (possibly with radiotap header and FCS)
 pub fn decode_802_11_frame(buf: &[u8], has_fcs: bool) -> Option<(LayerStack, usize)> {
     let mut offset = 0;
-    let mut stack = LayerStack { layers: Vec::new(), filled: true };
-    
+    let mut stack = LayerStack {
+        layers: Vec::new(),
+        filled: true,
+    };
+
     // First, check if we have a radiotap header
-    if buf.len() >= 4 && buf[0] == 0x00 && buf[1] == 0x00 { // Radiotap magic
+    if buf.len() >= 4 && buf[0] == 0x00 && buf[1] == 0x00 {
+        // Radiotap magic
         let radiotap = Radiotap::default();
-        if let Some((radiotap_decoded, radiotap_offset)) = Radiotap::decode::<BinaryBigEndian>(&buf) { // radiotap.decode_with_decoder::<BinaryBigEndian>(&buf) {
+        if let Some((radiotap_decoded, radiotap_offset)) = Radiotap::decode::<BinaryBigEndian>(&buf)
+        {
+            // radiotap.decode_with_decoder::<BinaryBigEndian>(&buf) {
             // println!("RADIOTAP: {:?}", &radiotap_decoded);
             stack.layers.push(Box::new(radiotap_decoded));
             offset += radiotap_offset;
@@ -1857,10 +2066,10 @@ pub fn decode_802_11_frame(buf: &[u8], has_fcs: bool) -> Option<(LayerStack, usi
             return None;
         }
     }
-    
+
     // Calculate the length to the end of the frame, taking into account FCS if present
     let data_end = if has_fcs { buf.len() - 4 } else { buf.len() };
-    
+
     // Next, decode the 802.11 header and appropriate frame type
     if let Some((dot11_decoded, dot11_offset)) = decode_dot11_frame(&buf[offset..data_end]) {
         stack.layers.extend(dot11_decoded.layers);
@@ -1869,19 +2078,22 @@ pub fn decode_802_11_frame(buf: &[u8], has_fcs: bool) -> Option<(LayerStack, usi
         println!("No 802.11 header");
         return None;
     }
-    
+
     // If we have an FCS, decode it
     if has_fcs && buf.len() >= 4 {
         let fcs_start = buf.len() - 4;
         let fcs_value = u32::from_le_bytes([
-            buf[fcs_start], buf[fcs_start+1], buf[fcs_start+2], buf[fcs_start+3]
+            buf[fcs_start],
+            buf[fcs_start + 1],
+            buf[fcs_start + 2],
+            buf[fcs_start + 3],
         ]);
-        
+
         let mut fcs = Dot11FCS::default();
         fcs = fcs.fcs(fcs_value);
         stack.layers.push(Box::new(fcs));
     }
-    
+
     Some((stack, buf.len()))
 }
 
@@ -1927,7 +2139,7 @@ static FCS_TABLE: [u32; 256] = [
     0xa00ae278, 0xd70dd2ee, 0x4e048354, 0x3903b3c2, 0xa7672661, 0xd06016f7, 0x4969474d, 0x3e6e77db,
     0xaed16a4a, 0xd9d65adc, 0x40df0b66, 0x37d83bf0, 0xa9bcae53, 0xdebb9ec5, 0x47b2cf7f, 0x30b5ffe9,
     0xbdbdf21c, 0xcabac28a, 0x53b39330, 0x24b4a3a6, 0xbad03605, 0xcdd70693, 0x54de5729, 0x23d967bf,
-    0xb3667a2e, 0xc4614ab8, 0x5d681b02, 0x2a6f2b94, 0xb40bbe37, 0xc30c8ea1, 0x5a05df1b, 0x2d02ef8d
+    0xb3667a2e, 0xc4614ab8, 0x5d681b02, 0x2a6f2b94, 0xb40bbe37, 0xc30c8ea1, 0x5a05df1b, 0x2d02ef8d,
 ];
 
 // Control frame subtypes
@@ -2005,7 +2217,7 @@ pub struct Dot11Data {
     pub qos_control: Option<Value<u16>>, // Only present in QoS data frames
     // #[nproto(encode = encode_ht_control, decode = decode_ht_control)]
     pub ht_control: Option<Value<u32>>, // Only present if Order bit is set
-    pub payload: Vec<u8>, // Data payload
+    pub payload: Vec<u8>,               // Data payload
 }
 
 fn encode_qos_control<E: Encoder>(
@@ -2075,126 +2287,156 @@ pub fn decode_dot11_frame(buf: &[u8]) -> Option<(LayerStack, usize)> {
         if let Some(dot11_layer) = dot11_decoded.layers.first() {
             if let Some(dot11) = dot11_layer.downcast_ref::<Dot11>() {
                 let fc = dot11.frame_control.value();
-                
+
                 match fc.frame_type {
                     // Management frames
                     frame_types::MANAGEMENT => {
                         match fc.frame_subtype {
                             frame_types::BEACON => {
                                 let beacon = Dot11Beacon::default();
-                                if let Some((beacon_decoded, beacon_offset)) = beacon.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                if let Some((beacon_decoded, beacon_offset)) =
+                                    beacon.decode_with_decoder::<BinaryBigEndian>(&buf[offset..])
+                                {
                                     dot11_decoded.layers.extend(beacon_decoded.layers);
                                     offset += beacon_offset;
                                 }
-                            },
+                            }
                             frame_types::PROBE_REQ => {
                                 let probe_req = Dot11ProbeReq::default();
-                                if let Some((probe_req_decoded, probe_req_offset)) = probe_req.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                if let Some((probe_req_decoded, probe_req_offset)) =
+                                    probe_req.decode_with_decoder::<BinaryBigEndian>(&buf[offset..])
+                                {
                                     dot11_decoded.layers.extend(probe_req_decoded.layers);
                                     offset += probe_req_offset;
                                 }
-                            },
+                            }
                             frame_types::PROBE_RESP => {
                                 let probe_resp = Dot11ProbeResp::default();
-                                if let Some((probe_resp_decoded, probe_resp_offset)) = probe_resp.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                if let Some((probe_resp_decoded, probe_resp_offset)) =
+                                    probe_resp
+                                        .decode_with_decoder::<BinaryBigEndian>(&buf[offset..])
+                                {
                                     dot11_decoded.layers.extend(probe_resp_decoded.layers);
                                     offset += probe_resp_offset;
                                 }
-                            },
+                            }
                             frame_types::ASSOC_REQ => {
                                 let assoc_req = Dot11AssocReq::default();
-                                if let Some((assoc_req_decoded, assoc_req_offset)) = assoc_req.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                if let Some((assoc_req_decoded, assoc_req_offset)) =
+                                    assoc_req.decode_with_decoder::<BinaryBigEndian>(&buf[offset..])
+                                {
                                     dot11_decoded.layers.extend(assoc_req_decoded.layers);
                                     offset += assoc_req_offset;
                                 }
-                            },
+                            }
                             frame_types::ASSOC_RESP => {
                                 let assoc_resp = Dot11AssocResp::default();
-                                if let Some((assoc_resp_decoded, assoc_resp_offset)) = assoc_resp.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                if let Some((assoc_resp_decoded, assoc_resp_offset)) =
+                                    assoc_resp
+                                        .decode_with_decoder::<BinaryBigEndian>(&buf[offset..])
+                                {
                                     dot11_decoded.layers.extend(assoc_resp_decoded.layers);
                                     offset += assoc_resp_offset;
                                 }
-                            },
+                            }
                             frame_types::REASSOC_REQ => {
                                 let reassoc_req = Dot11ReassocReq::default();
-                                if let Some((reassoc_req_decoded, reassoc_req_offset)) = reassoc_req.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                if let Some((reassoc_req_decoded, reassoc_req_offset)) = reassoc_req
+                                    .decode_with_decoder::<BinaryBigEndian>(&buf[offset..])
+                                {
                                     dot11_decoded.layers.extend(reassoc_req_decoded.layers);
                                     offset += reassoc_req_offset;
                                 }
-                            },
+                            }
                             frame_types::AUTH => {
                                 let auth = Dot11Auth::default();
-                                if let Some((auth_decoded, auth_offset)) = auth.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                if let Some((auth_decoded, auth_offset)) =
+                                    auth.decode_with_decoder::<BinaryBigEndian>(&buf[offset..])
+                                {
                                     dot11_decoded.layers.extend(auth_decoded.layers);
                                     offset += auth_offset;
                                 }
-                            },
+                            }
                             frame_types::DEAUTH => {
                                 let deauth = Dot11Deauth::default();
-                                if let Some((deauth_decoded, deauth_offset)) = deauth.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                if let Some((deauth_decoded, deauth_offset)) =
+                                    deauth.decode_with_decoder::<BinaryBigEndian>(&buf[offset..])
+                                {
                                     dot11_decoded.layers.extend(deauth_decoded.layers);
                                     offset += deauth_offset;
                                 }
-                            },
+                            }
                             frame_types::ACTION => {
                                 let action = Dot11Action::default();
-                                if let Some((action_decoded, action_offset)) = action.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                if let Some((action_decoded, action_offset)) =
+                                    action.decode_with_decoder::<BinaryBigEndian>(&buf[offset..])
+                                {
                                     dot11_decoded.layers.extend(action_decoded.layers);
                                     offset += action_offset;
                                 }
-                            },
+                            }
                             _ => {
                                 // Unknown management frame subtype
                                 // Just return the Dot11 header
                             }
                         }
-                    },
-                    
+                    }
+
                     // Control frames
                     frame_types::CONTROL => {
                         match fc.frame_subtype {
                             control_frame_subtypes::RTS => {
                                 let rts = Dot11RTS::default();
-                                if let Some((rts_decoded, rts_offset)) = rts.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                if let Some((rts_decoded, rts_offset)) =
+                                    rts.decode_with_decoder::<BinaryBigEndian>(&buf[offset..])
+                                {
                                     dot11_decoded.layers.extend(rts_decoded.layers);
                                     offset += rts_offset;
                                 }
-                            },
+                            }
                             control_frame_subtypes::CTS => {
                                 let cts = Dot11CTS::default();
-                                if let Some((cts_decoded, cts_offset)) = cts.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                if let Some((cts_decoded, cts_offset)) =
+                                    cts.decode_with_decoder::<BinaryBigEndian>(&buf[offset..])
+                                {
                                     dot11_decoded.layers.extend(cts_decoded.layers);
                                     offset += cts_offset;
                                 }
-                            },
+                            }
                             control_frame_subtypes::ACK => {
                                 let ack = Dot11ACK::default();
-                                if let Some((ack_decoded, ack_offset)) = ack.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                if let Some((ack_decoded, ack_offset)) =
+                                    ack.decode_with_decoder::<BinaryBigEndian>(&buf[offset..])
+                                {
                                     dot11_decoded.layers.extend(ack_decoded.layers);
                                     offset += ack_offset;
                                 }
-                            },
+                            }
                             control_frame_subtypes::BLOCK_ACK_REQ => {
                                 let bar = Dot11BlockAckReq::default();
-                                if let Some((bar_decoded, bar_offset)) = bar.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                if let Some((bar_decoded, bar_offset)) =
+                                    bar.decode_with_decoder::<BinaryBigEndian>(&buf[offset..])
+                                {
                                     dot11_decoded.layers.extend(bar_decoded.layers);
                                     offset += bar_offset;
                                 }
-                            },
+                            }
                             control_frame_subtypes::BLOCK_ACK => {
                                 let ba = Dot11BlockAck::default();
-                                if let Some((ba_decoded, ba_offset)) = ba.decode_with_decoder::<BinaryBigEndian>(&buf[offset..]) {
+                                if let Some((ba_decoded, ba_offset)) =
+                                    ba.decode_with_decoder::<BinaryBigEndian>(&buf[offset..])
+                                {
                                     dot11_decoded.layers.extend(ba_decoded.layers);
                                     offset += ba_offset;
                                 }
-                            },
+                            }
                             _ => {
                                 // Unknown control frame subtype
                                 // Just return the Dot11 header
                             }
                         }
-                    },
-                    
+                    }
+
                     // Data frames
                     frame_types::DATA => {
                         // Create a data frame with the appropriate fields based on the frame control
@@ -2204,65 +2446,73 @@ pub fn decode_dot11_frame(buf: &[u8]) -> Option<(LayerStack, usize)> {
                             ht_control: None,
                             payload: Vec::new(),
                         };
-                        
+
                         let mut data_offset = 0;
-                        
+
                         // If both ToDS and FromDS are set, there's a 4th address
                         if fc.to_ds && fc.from_ds {
                             if offset + 6 <= buf.len() {
-                                let addr4_bytes = &buf[offset..offset+6];
+                                let addr4_bytes = &buf[offset..offset + 6];
                                 let addr4 = MacAddr::from(addr4_bytes);
                                 data.addr4 = Some(Value::Set(addr4));
                                 data_offset += 6;
                             }
                         }
-                        
+
                         // QoS Data frames have a QoS control field
-                        if fc.frame_subtype >= data_frame_subtypes::QOS_DATA && fc.frame_subtype <= data_frame_subtypes::QOS_CF_ACK_POLL {
+                        if fc.frame_subtype >= data_frame_subtypes::QOS_DATA
+                            && fc.frame_subtype <= data_frame_subtypes::QOS_CF_ACK_POLL
+                        {
                             if offset + data_offset + 2 <= buf.len() {
-                                let qos_bytes = &buf[offset+data_offset..offset+data_offset+2];
+                                let qos_bytes =
+                                    &buf[offset + data_offset..offset + data_offset + 2];
                                 let qos = u16::from_le_bytes([qos_bytes[0], qos_bytes[1]]);
                                 data.qos_control = Some(Value::Set(qos));
                                 data_offset += 2;
                             }
                         }
-                        
+
                         // Frames with Order bit set have an HT Control field
                         if fc.order {
                             if offset + data_offset + 4 <= buf.len() {
-                                let ht_bytes = &buf[offset+data_offset..offset+data_offset+4];
-                                let ht = u32::from_le_bytes([ht_bytes[0], ht_bytes[1], ht_bytes[2], ht_bytes[3]]);
+                                let ht_bytes = &buf[offset + data_offset..offset + data_offset + 4];
+                                let ht = u32::from_le_bytes([
+                                    ht_bytes[0],
+                                    ht_bytes[1],
+                                    ht_bytes[2],
+                                    ht_bytes[3],
+                                ]);
                                 data.ht_control = Some(Value::Set(ht));
                                 data_offset += 4;
                             }
                         }
-                        
+
                         // The rest of the frame is payload
                         if offset + data_offset < buf.len() {
-                            data.payload = buf[offset+data_offset..].to_vec();
+                            data.payload = buf[offset + data_offset..].to_vec();
                         }
-                        
+
                         // FIXME dot11_decoded.layers.push(Box::new(data));
-			todo!();
+                        todo!();
                         offset = buf.len(); // We've consumed the entire buffer
-                    },
-                    
+                    }
+
                     // Extension frames
                     frame_types::EXTENSION => {
                         // These are complex 802.11ax/be frames, not implementing for now
                         // Just return the Dot11 header
-                    },
+                    }
 
                     4_u8..=u8::MAX => todo!(),
                 }
             }
         }
-        
+
         return Some((dot11_decoded, offset));
     } else {
         println!("Could not decode dot11");
     }
-    
+
     None
 }
 
@@ -2279,7 +2529,19 @@ pub fn create_beacon(
 ) -> LayerStack {
     // Create the Dot11 header
     let mut dot11 = Dot11::default();
-    let fc = FrameControl::new(0, frame_types::MANAGEMENT, frame_types::BEACON, false, false, false, false, false, false, false, false);
+    let fc = FrameControl::new(
+        0,
+        frame_types::MANAGEMENT,
+        frame_types::BEACON,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+    );
     dot11 = dot11.frame_control(fc);
     dot11 = dot11.addr1(MacAddr::new(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF)); // Broadcast
     dot11 = dot11.addr2(src_mac.clone());
@@ -2294,16 +2556,18 @@ pub fn create_beacon(
 
     // Add elements
     let mut elements = Vec::new();
-    
+
     // SSID
     elements.push(ParsedElement::SSID(ssid.to_string()));
-    
+
     // Supported rates
-    elements.push(ParsedElement::SupportedRates(vec![0x82, 0x84, 0x8B, 0x96, 0x24, 0x30, 0x48, 0x6C]));
-    
+    elements.push(ParsedElement::SupportedRates(vec![
+        0x82, 0x84, 0x8B, 0x96, 0x24, 0x30, 0x48, 0x6C,
+    ]));
+
     // DS Parameter (channel)
     elements.push(ParsedElement::DSParameter(channel));
-    
+
     beacon = beacon.set_elements(elements);
 
     // Build the layerstack
@@ -2322,7 +2586,19 @@ pub fn create_probe_response(
 ) -> LayerStack {
     // Create the Dot11 header
     let mut dot11 = Dot11::default();
-    let fc = FrameControl::new(0, frame_types::MANAGEMENT, frame_types::PROBE_RESP, false, false, false, false, false, false, false, false);
+    let fc = FrameControl::new(
+        0,
+        frame_types::MANAGEMENT,
+        frame_types::PROBE_RESP,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+    );
     dot11 = dot11.frame_control(fc);
     dot11 = dot11.addr1(dst_mac);
     dot11 = dot11.addr2(src_mac.clone());
@@ -2337,16 +2613,18 @@ pub fn create_probe_response(
 
     // Add elements
     let mut elements = Vec::new();
-    
+
     // SSID
     elements.push(ParsedElement::SSID(ssid.to_string()));
-    
+
     // Supported rates
-    elements.push(ParsedElement::SupportedRates(vec![0x82, 0x84, 0x8B, 0x96, 0x24, 0x30, 0x48, 0x6C]));
-    
+    elements.push(ParsedElement::SupportedRates(vec![
+        0x82, 0x84, 0x8B, 0x96, 0x24, 0x30, 0x48, 0x6C,
+    ]));
+
     // DS Parameter (channel)
     elements.push(ParsedElement::DSParameter(channel));
-    
+
     probe_resp = probe_resp.set_elements(elements);
 
     // Build the layerstack
@@ -2378,7 +2656,7 @@ pub fn get_channel(elements: &[ParsedElement]) -> Option<u8> {
 // Extract the supported rates from a beacon or probe response
 pub fn get_supported_rates(elements: &[ParsedElement]) -> Vec<u8> {
     let mut rates = Vec::new();
-    
+
     for element in elements {
         if let ParsedElement::SupportedRates(r) = element {
             rates.extend_from_slice(r);
@@ -2386,7 +2664,7 @@ pub fn get_supported_rates(elements: &[ParsedElement]) -> Vec<u8> {
             rates.extend_from_slice(r);
         }
     }
-    
+
     rates
 }
 
@@ -2396,14 +2674,14 @@ pub fn is_encrypted(capabilities: &CapabilitiesInfo, elements: &[ParsedElement])
     if capabilities.privacy {
         return true;
     }
-    
+
     // Check for RSN element
     for element in elements {
         if let ParsedElement::RSN(_) = element {
             return true;
         }
     }
-    
+
     // Check for WPA in vendor specific elements
     for element in elements {
         if let ParsedElement::VendorSpecific(vendor) = element {
@@ -2413,26 +2691,29 @@ pub fn is_encrypted(capabilities: &CapabilitiesInfo, elements: &[ParsedElement])
             }
         }
     }
-    
+
     false
 }
 
 // Extract the security type (Open, WEP, WPA, WPA2, WPA3) from a beacon or probe response
-pub fn get_security_type(capabilities: &CapabilitiesInfo, elements: &[ParsedElement]) -> &'static str {
+pub fn get_security_type(
+    capabilities: &CapabilitiesInfo,
+    elements: &[ParsedElement],
+) -> &'static str {
     if !capabilities.privacy {
         // No encryption
         return "Open";
     }
-    
+
     let mut has_rsn = false;
     let mut has_wpa = false;
     let mut has_wpa3 = false;
-    
+
     for element in elements {
         match element {
             ParsedElement::RSN(rsn) => {
                 has_rsn = true;
-                
+
                 // Check for WPA3 (SAE authentication)
                 for akm in &rsn.akm_suites {
                     // IEEE 802.11 OUI is 00:0F:AC
@@ -2444,17 +2725,17 @@ pub fn get_security_type(capabilities: &CapabilitiesInfo, elements: &[ParsedElem
                         }
                     }
                 }
-            },
+            }
             ParsedElement::VendorSpecific(vendor) => {
                 // WPA OUI is 00:50:F2
                 if vendor.oui == [0x00, 0x50, 0xF2] && vendor.vendor_type == 0x01 {
                     has_wpa = true;
                 }
-            },
+            }
             _ => {}
         }
     }
-    
+
     if has_wpa3 {
         "WPA3"
     } else if has_rsn {
@@ -2518,27 +2799,31 @@ fn decode_elements<D: Decoder>(
 
         // Parse the element based on its ID
         let parsed_element = match element_id {
-            0 => { // SSID
+            0 => {
+                // SSID
                 let ssid = String::from_utf8_lossy(&element_data).to_string();
                 ParsedElement::SSID(ssid)
-            },
-            1 => { // Supported Rates
+            }
+            1 => {
+                // Supported Rates
                 ParsedElement::SupportedRates(element_data)
-            },
-            3 => { // DS Parameter Set
+            }
+            3 => {
+                // DS Parameter Set
                 if element_data.len() == 1 {
                     ParsedElement::DSParameter(element_data[0])
                 } else {
                     ParsedElement::Unknown(Element::new(element_id, element_data))
                 }
-            },
-            5 => { // TIM
+            }
+            5 => {
+                // TIM
                 if element_data.len() >= 3 {
                     let dtim_count = element_data[0];
                     let dtim_period = element_data[1];
                     let bitmap_control = element_data[2];
                     let partial_virtual_bitmap = element_data[3..].to_vec();
-                    
+
                     ParsedElement::TIM(TIMElement {
                         dtim_count,
                         dtim_period,
@@ -2548,127 +2833,153 @@ fn decode_elements<D: Decoder>(
                 } else {
                     ParsedElement::Unknown(Element::new(element_id, element_data))
                 }
-            },
-            7 => { // Country
+            }
+            7 => {
+                // Country
                 if element_data.len() >= 3 {
                     let mut country = CountryElement {
                         country_code: [element_data[0], element_data[1]],
                         environment: element_data[2],
                         triplets: Vec::new(),
                     };
-                    
+
                     let mut i = 3;
                     while i + 2 < element_data.len() {
                         country.triplets.push(CountryTriplet {
                             first_channel: element_data[i],
-                            num_channels: element_data[i+1],
-                            max_tx_power: element_data[i+2],
+                            num_channels: element_data[i + 1],
+                            max_tx_power: element_data[i + 2],
                         });
                         i += 3;
                     }
-                    
+
                     ParsedElement::Country(country)
                 } else {
                     ParsedElement::Unknown(Element::new(element_id, element_data))
                 }
-            },
-            48 => { // RSN
+            }
+            48 => {
+                // RSN
                 if element_data.len() >= 4 {
                     let mut rsn = RSNElement::default();
                     let mut pos = 0;
-                    
+
                     // Version (2 bytes)
                     if pos + 2 <= element_data.len() {
-                        rsn.version = u16::from_le_bytes([element_data[pos], element_data[pos+1]]);
+                        rsn.version =
+                            u16::from_le_bytes([element_data[pos], element_data[pos + 1]]);
                         pos += 2;
                     }
-                    
+
                     // Group Cipher Suite (4 bytes)
                     if pos + 4 <= element_data.len() {
                         rsn.group_cipher_suite = CipherSuite {
-                            oui: [element_data[pos], element_data[pos+1], element_data[pos+2]],
-                            suite_type: element_data[pos+3],
+                            oui: [
+                                element_data[pos],
+                                element_data[pos + 1],
+                                element_data[pos + 2],
+                            ],
+                            suite_type: element_data[pos + 3],
                         };
                         pos += 4;
                     }
-                    
+
                     // Pairwise Cipher Suite Count (2 bytes)
                     if pos + 2 <= element_data.len() {
-                        let count = u16::from_le_bytes([element_data[pos], element_data[pos+1]]) as usize;
+                        let count =
+                            u16::from_le_bytes([element_data[pos], element_data[pos + 1]]) as usize;
                         pos += 2;
-                        
+
                         // Pairwise Cipher Suites (count * 4 bytes)
                         for _ in 0..count {
                             if pos + 4 <= element_data.len() {
                                 rsn.pairwise_cipher_suites.push(CipherSuite {
-                                    oui: [element_data[pos], element_data[pos+1], element_data[pos+2]],
-                                    suite_type: element_data[pos+3],
+                                    oui: [
+                                        element_data[pos],
+                                        element_data[pos + 1],
+                                        element_data[pos + 2],
+                                    ],
+                                    suite_type: element_data[pos + 3],
                                 });
                                 pos += 4;
                             }
                         }
                     }
-                    
+
                     // AKM Suite Count (2 bytes)
                     if pos + 2 <= element_data.len() {
-                        let count = u16::from_le_bytes([element_data[pos], element_data[pos+1]]) as usize;
+                        let count =
+                            u16::from_le_bytes([element_data[pos], element_data[pos + 1]]) as usize;
                         pos += 2;
-                        
+
                         // AKM Suites (count * 4 bytes)
                         for _ in 0..count {
                             if pos + 4 <= element_data.len() {
                                 rsn.akm_suites.push(AKMSuite {
-                                    oui: [element_data[pos], element_data[pos+1], element_data[pos+2]],
-                                    suite_type: element_data[pos+3],
+                                    oui: [
+                                        element_data[pos],
+                                        element_data[pos + 1],
+                                        element_data[pos + 2],
+                                    ],
+                                    suite_type: element_data[pos + 3],
                                 });
                                 pos += 4;
                             }
                         }
                     }
-                    
+
                     // RSN Capabilities (2 bytes)
                     if pos + 2 <= element_data.len() {
-                        rsn.rsn_capabilities = u16::from_le_bytes([element_data[pos], element_data[pos+1]]);
+                        rsn.rsn_capabilities =
+                            u16::from_le_bytes([element_data[pos], element_data[pos + 1]]);
                         pos += 2;
                     }
-                    
+
                     // Optional PMKID Count (2 bytes)
                     if pos + 2 <= element_data.len() {
-                        let pmkid_count = u16::from_le_bytes([element_data[pos], element_data[pos+1]]);
+                        let pmkid_count =
+                            u16::from_le_bytes([element_data[pos], element_data[pos + 1]]);
                         rsn.pmkid_count = Some(pmkid_count);
                         pos += 2;
-                        
+
                         // PMKID List (count * 16 bytes)
                         for _ in 0..pmkid_count {
                             if pos + 16 <= element_data.len() {
                                 let mut pmkid = [0u8; 16];
-                                pmkid.copy_from_slice(&element_data[pos..pos+16]);
+                                pmkid.copy_from_slice(&element_data[pos..pos + 16]);
                                 rsn.pmkid_list.push(pmkid);
                                 pos += 16;
                             }
                         }
                     }
-                    
+
                     // Optional Group Management Cipher Suite (4 bytes)
                     if pos + 4 <= element_data.len() {
                         rsn.group_management_cipher_suite = Some(CipherSuite {
-                            oui: [element_data[pos], element_data[pos+1], element_data[pos+2]],
-                            suite_type: element_data[pos+3],
+                            oui: [
+                                element_data[pos],
+                                element_data[pos + 1],
+                                element_data[pos + 2],
+                            ],
+                            suite_type: element_data[pos + 3],
                         });
                     }
-                    
+
                     ParsedElement::RSN(rsn)
                 } else {
                     ParsedElement::Unknown(Element::new(element_id, element_data))
                 }
-            },
-            50 => { // Extended Supported Rates
+            }
+            50 => {
+                // Extended Supported Rates
                 ParsedElement::ExtendedRates(element_data)
-            },
-            127 => { // Extended Capabilities
+            }
+            127 => {
+                // Extended Capabilities
                 ParsedElement::ExtendedCapabilities(element_data)
-            },
-            221 => { // Vendor Specific
+            }
+            221 => {
+                // Vendor Specific
                 if element_data.len() >= 4 {
                     let vendor = VendorSpecificElement {
                         oui: [element_data[0], element_data[1], element_data[2]],
@@ -2679,10 +2990,10 @@ fn decode_elements<D: Decoder>(
                 } else {
                     ParsedElement::Unknown(Element::new(element_id, element_data))
                 }
-            },
+            }
             _ => ParsedElement::Unknown(Element::new(element_id, element_data)),
         };
-        
+
         elements.push(parsed_element);
     }
 
@@ -2703,17 +3014,17 @@ fn encode_elements<E: Encoder>(
                 out.push(0); // SSID ID
                 out.push(ssid.len() as u8); // Length
                 out.extend_from_slice(ssid.as_bytes());
-            },
+            }
             ParsedElement::SupportedRates(rates) => {
                 out.push(1); // Supported Rates ID
                 out.push(rates.len() as u8); // Length
                 out.extend_from_slice(rates);
-            },
+            }
             ParsedElement::DSParameter(channel) => {
                 out.push(3); // DS Parameter ID
                 out.push(1); // Length
                 out.push(*channel);
-            },
+            }
             ParsedElement::TIM(tim) => {
                 out.push(5); // TIM ID
                 let len = 3 + tim.partial_virtual_bitmap.len();
@@ -2722,7 +3033,7 @@ fn encode_elements<E: Encoder>(
                 out.push(tim.dtim_period);
                 out.push(tim.bitmap_control);
                 out.extend_from_slice(&tim.partial_virtual_bitmap);
-            },
+            }
             ParsedElement::Country(country) => {
                 out.push(7); // Country ID
                 let len = 3 + (country.triplets.len() * 3);
@@ -2734,10 +3045,10 @@ fn encode_elements<E: Encoder>(
                     out.push(triplet.num_channels);
                     out.push(triplet.max_tx_power);
                 }
-            },
+            }
             ParsedElement::RSN(rsn) => {
                 out.push(48); // RSN ID
-                
+
                 // Calculate length first
                 let mut len = 2; // Version
                 len += 4; // Group Cipher Suite
@@ -2746,42 +3057,42 @@ fn encode_elements<E: Encoder>(
                 len += 2; // AKM Suite Count
                 len += 4 * rsn.akm_suites.len(); // AKM Suites
                 len += 2; // RSN Capabilities
-                
+
                 if rsn.pmkid_count.is_some() {
                     len += 2; // PMKID Count
                     len += 16 * rsn.pmkid_list.len(); // PMKID List
                 }
-                
+
                 if rsn.group_management_cipher_suite.is_some() {
                     len += 4; // Group Management Cipher Suite
                 }
-                
+
                 out.push(len as u8); // Length
-                
+
                 // Now encode the data
                 out.extend_from_slice(&rsn.version.to_le_bytes());
-                
+
                 // Group Cipher Suite
                 out.extend_from_slice(&rsn.group_cipher_suite.oui);
                 out.push(rsn.group_cipher_suite.suite_type);
-                
+
                 // Pairwise Cipher Suites
                 out.extend_from_slice(&(rsn.pairwise_cipher_suites.len() as u16).to_le_bytes());
                 for suite in &rsn.pairwise_cipher_suites {
                     out.extend_from_slice(&suite.oui);
                     out.push(suite.suite_type);
                 }
-                
+
                 // AKM Suites
                 out.extend_from_slice(&(rsn.akm_suites.len() as u16).to_le_bytes());
                 for suite in &rsn.akm_suites {
                     out.extend_from_slice(&suite.oui);
                     out.push(suite.suite_type);
                 }
-                
+
                 // RSN Capabilities
                 out.extend_from_slice(&rsn.rsn_capabilities.to_le_bytes());
-                
+
                 // Optional PMKID Count and List
                 if let Some(pmkid_count) = rsn.pmkid_count {
                     out.extend_from_slice(&pmkid_count.to_le_bytes());
@@ -2789,23 +3100,23 @@ fn encode_elements<E: Encoder>(
                         out.extend_from_slice(pmkid);
                     }
                 }
-                
+
                 // Optional Group Management Cipher Suite
                 if let Some(suite) = &rsn.group_management_cipher_suite {
                     out.extend_from_slice(&suite.oui);
                     out.push(suite.suite_type);
                 }
-            },
+            }
             ParsedElement::ExtendedRates(rates) => {
                 out.push(50); // Extended Supported Rates ID
                 out.push(rates.len() as u8); // Length
                 out.extend_from_slice(rates);
-            },
+            }
             ParsedElement::ExtendedCapabilities(capabilities) => {
                 out.push(127); // Extended Capabilities ID
                 out.push(capabilities.len() as u8); // Length
                 out.extend_from_slice(capabilities);
-            },
+            }
             ParsedElement::VendorSpecific(vendor) => {
                 out.push(221); // Vendor Specific ID
                 let len = 4 + vendor.data.len();
@@ -2813,12 +3124,12 @@ fn encode_elements<E: Encoder>(
                 out.extend_from_slice(&vendor.oui);
                 out.push(vendor.vendor_type);
                 out.extend_from_slice(&vendor.data);
-            },
+            }
             ParsedElement::Unknown(element) => {
                 out.push(element.id);
                 out.push(element.data.len() as u8);
                 out.extend_from_slice(&element.data);
-            },
+            }
         }
     }
 
@@ -2832,8 +3143,6 @@ pub struct Dot11ProbeReq {
     #[nproto(decode = decode_probe_req_elements, encode = encode_probe_req_elements)]
     pub elements: Vec<ParsedElement>,
 }
-
-
 
 use crate::*;
 use rand::distributions::{Distribution, Standard};
@@ -2866,13 +3175,13 @@ impl FromStr for FrameControl {
         // Parse from a string like "type=0,subtype=8,tods=0,fromds=0"
         let mut frame_control = FrameControl::default();
         let parts: Vec<&str> = s.split(',').collect();
-        
+
         for part in parts {
             let kv: Vec<&str> = part.split('=').map(|s| s.trim()).collect();
             if kv.len() != 2 {
                 return Err(ValueParseError::Error);
             }
-            
+
             match kv[0] {
                 "protocol" | "protocol_version" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
@@ -2880,81 +3189,81 @@ impl FromStr for FrameControl {
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 "type" | "frame_type" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
                         frame_control.frame_type = val;
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 "subtype" | "frame_subtype" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
                         frame_control.frame_subtype = val;
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 "tods" | "to_ds" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
                         frame_control.to_ds = val != 0;
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 "fromds" | "from_ds" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
                         frame_control.from_ds = val != 0;
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 "more_fragments" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
                         frame_control.more_fragments = val != 0;
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 "retry" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
                         frame_control.retry = val != 0;
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 "power_management" | "power_mgmt" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
                         frame_control.power_management = val != 0;
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 "more_data" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
                         frame_control.more_data = val != 0;
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 "protected" | "wep" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
                         frame_control.protected = val != 0;
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 "order" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
                         frame_control.order = val != 0;
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 _ => return Err(ValueParseError::Error),
             }
         }
-        
+
         Ok(frame_control)
     }
 }
@@ -2991,13 +3300,13 @@ impl FromStr for CapabilitiesInfo {
         // Parse from a string like "ess=1,ibss=0,privacy=1"
         let mut caps = CapabilitiesInfo::default();
         let parts: Vec<&str> = s.split(',').collect();
-        
+
         for part in parts {
             let kv: Vec<&str> = part.split('=').map(|s| s.trim()).collect();
             if kv.len() != 2 {
                 return Err(ValueParseError::Error);
             }
-            
+
             match kv[0] {
                 "ess" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
@@ -3005,116 +3314,116 @@ impl FromStr for CapabilitiesInfo {
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 "ibss" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
                         caps.ibss = val != 0;
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 "cf_pollable" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
                         caps.cf_pollable = val != 0;
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 "cf_poll_request" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
                         caps.cf_poll_request = val != 0;
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 "privacy" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
                         caps.privacy = val != 0;
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 "short_preamble" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
                         caps.short_preamble = val != 0;
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 "pbcc" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
                         caps.pbcc = val != 0;
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 "channel_agility" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
                         caps.channel_agility = val != 0;
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 "spectrum_management" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
                         caps.spectrum_management = val != 0;
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 "qos" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
                         caps.qos = val != 0;
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 "short_slot_time" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
                         caps.short_slot_time = val != 0;
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 "apsd" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
                         caps.apsd = val != 0;
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 "radio_measurement" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
                         caps.radio_measurement = val != 0;
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 "dsss_ofdm" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
                         caps.dsss_ofdm = val != 0;
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 "delayed_block_ack" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
                         caps.delayed_block_ack = val != 0;
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 "immediate_block_ack" => {
                     if let Ok(val) = kv[1].parse::<u8>() {
                         caps.immediate_block_ack = val != 0;
                     } else {
                         return Err(ValueParseError::Error);
                     }
-                },
+                }
                 _ => return Err(ValueParseError::Error),
             }
         }
-        
+
         Ok(caps)
     }
 }
@@ -3130,12 +3439,12 @@ impl Encode for RadiotapField {
                 let mut result = freq.encode::<E>();
                 result.extend_from_slice(&flags.encode::<E>());
                 result
-            },
+            }
             RadiotapField::FHSS(hop_set, hop_pattern) => {
                 let mut result = hop_set.encode::<E>();
                 result.extend_from_slice(&hop_pattern.encode::<E>());
                 result
-            },
+            }
             RadiotapField::AntennaSignal(signal) => (*signal as u8).encode::<E>(),
             RadiotapField::AntennaNoise(noise) => (*noise as u8).encode::<E>(),
             RadiotapField::LockQuality(quality) => quality.encode::<E>(),
@@ -3154,54 +3463,54 @@ impl Encode for RadiotapField {
                 result.extend_from_slice(&freq.encode::<E>());
                 result.push(*channel);
                 result
-            },
+            }
             RadiotapField::MCS(known, flags, mcs) => {
                 let mut result = known.encode::<E>();
                 result.push(*flags);
                 result.push(*mcs);
                 result
-            },
+            }
             RadiotapField::AMPDUStatus(ref_num, flags, crc, reserved) => {
                 let mut result = ref_num.encode::<E>();
                 result.extend_from_slice(&flags.encode::<E>());
                 result.push(*crc);
                 result.push(*reserved);
                 result
-            },
+            }
             RadiotapField::VHT(known, flags, bandwidth, mcs_nss) => {
                 let mut result = known.encode::<E>();
                 result.push(*flags);
                 result.push(*bandwidth);
                 result.extend_from_slice(mcs_nss);
                 result
-            },
+            }
             RadiotapField::HEData1(data1, data2) => {
                 let mut result = data1.encode::<E>();
                 result.extend_from_slice(&data2.encode::<E>());
                 result
-            },
+            }
             RadiotapField::HEData2(data3, data4) => {
                 let mut result = data3.encode::<E>();
                 result.extend_from_slice(&data4.encode::<E>());
                 result
-            },
+            }
             RadiotapField::HEData3(data5, data6) => {
                 let mut result = data5.encode::<E>();
                 result.extend_from_slice(&data6.encode::<E>());
                 result
-            },
+            }
             RadiotapField::HEData4(data7, data8, data9, data10) => {
                 let mut result = vec![*data7, *data8, *data9, *data10];
                 result
-            },
+            }
             RadiotapField::HEData5(data11, data12, data13, data14) => {
                 let mut result = vec![*data11, *data12, *data13, *data14];
                 result
-            },
+            }
             RadiotapField::HEData6(data15, data16) => {
                 let mut result = vec![*data15, *data16];
                 result
-            },
+            }
             RadiotapField::RadiotapNamespace() => Vec::new(),
             RadiotapField::VendorNamespace(data) => data.clone(),
             RadiotapField::ExtendedBitmap(bitmap) => bitmap.encode::<E>(),
@@ -3209,7 +3518,7 @@ impl Encode for RadiotapField {
                 let mut result = bit.encode::<E>();
                 result.extend_from_slice(data);
                 result
-            },
+            }
         }
     }
 }
@@ -3464,15 +3773,15 @@ impl From<Option<Value<u32>>> for Value<u32> {
 }
 
 // For Value<T> where T might be Value<U>, implement Distribution
-impl<T: Clone + std::default::Default> Distribution<Value<T>> for Standard 
-where 
-    Standard: Distribution<T>
+impl<T: Clone + std::default::Default> Distribution<Value<T>> for Standard
+where
+    Standard: Distribution<T>,
 {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Value<T> {
         match rng.gen_range(0..4) {
             0 => Value::Auto,
             1 => Value::Random,
-    //        2 => Value::Func(|| Standard.sample(rng)),
+            //        2 => Value::Func(|| Standard.sample(rng)),
             _ => Value::Set(Standard.sample(rng)),
         }
     }
@@ -3480,8 +3789,8 @@ where
 
 // Helper function for optional fields in Dot11Data
 fn decode_option_value<D: Decoder, T: Decode>(
-    buf: &[u8], 
-    ci: usize
+    buf: &[u8],
+    ci: usize,
 ) -> Option<(Option<Value<T>>, usize)> {
     if ci + 2 <= buf.len() {
         let (val, size) = T::decode::<D>(&buf[ci..])?;
@@ -3490,7 +3799,6 @@ fn decode_option_value<D: Decoder, T: Decode>(
         Some((None, 0))
     }
 }
-
 
 // Fix for the Value::decode issue in Dot11Data
 // We need to implement a decode function for Value<T> where T: Decode
@@ -3517,7 +3825,7 @@ where
         if buf.is_empty() {
             return Some((None, 0));
         }
-        
+
         if let Some((val, size)) = Value::<T>::decode::<D>(buf) {
             Some((Some(val), size))
         } else {
@@ -3525,5 +3833,3 @@ where
         }
     }
 }
-
-
