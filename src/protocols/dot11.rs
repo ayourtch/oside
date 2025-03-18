@@ -618,6 +618,7 @@ pub fn print_packet_details(packet_data: &[u8]) -> String {
         }
         
         // Print Data Frame information
+        /* FIXME AYXX
         if let Some(data) = stack.get_layer(Dot11Data::default()) {
             output.push_str("\nData Frame:\n");
             
@@ -652,6 +653,7 @@ pub fn print_packet_details(packet_data: &[u8]) -> String {
             
             output.push_str(&format!("  Data Length: {} bytes\n", data.payload.len()));
         }
+        */
         
         // Print FCS if present
         if let Some(fcs) = stack.get_layer(Dot11FCS::default()) {
@@ -1992,13 +1994,14 @@ pub struct Dot11BlockAck {
 }
 
 // IEEE 802.11 Data Frame Implementation
-#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[nproto(encode_suppress)]
+#[derive(Default, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+// #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+// #[nproto(encode_suppress)]
 pub struct Dot11Data {
     pub addr4: Option<Value<MacAddr>>, // Only present if ToDS and FromDS are both set
-    #[nproto(encode = encode_qos_control, decode = decode_qos_control)]
+    // #[nproto(encode = encode_qos_control, decode = decode_qos_control)]
     pub qos_control: Option<Value<u16>>, // Only present in QoS data frames
-    #[nproto(encode = encode_ht_control, decode = decode_ht_control)]
+    // #[nproto(encode = encode_ht_control, decode = decode_ht_control)]
     pub ht_control: Option<Value<u32>>, // Only present if Order bit is set
     pub payload: Vec<u8>, // Data payload
 }
@@ -2236,7 +2239,8 @@ pub fn decode_dot11_frame(buf: &[u8]) -> Option<(LayerStack, usize)> {
                             data.payload = buf[offset+data_offset..].to_vec();
                         }
                         
-                        dot11_decoded.layers.push(Box::new(data));
+                        // FIXME dot11_decoded.layers.push(Box::new(data));
+			todo!();
                         offset = buf.len(); // We've consumed the entire buffer
                     },
                     
@@ -3463,7 +3467,7 @@ where
         match rng.gen_range(0..4) {
             0 => Value::Auto,
             1 => Value::Random,
-            2 => Value::Func(|| Standard.sample(rng)),
+    //        2 => Value::Func(|| Standard.sample(rng)),
             _ => Value::Set(Standard.sample(rng)),
         }
     }
@@ -3525,47 +3529,4 @@ where
     }
 }
 
-// We also need to ensure we have the appropriate implementations for MacAddr, u16, and u32
-// Here we cover the specific cases needed for Dot11Data
 
-impl Decode for Option<Value<MacAddr>> {
-    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
-        if buf.is_empty() {
-            return Some((None, 0));
-        }
-        
-        if let Some((mac, size)) = MacAddr::decode::<D>(buf) {
-            Some((Some(Value::Set(mac)), size))
-        } else {
-            Some((None, 0))
-        }
-    }
-}
-
-impl Decode for Option<Value<u16>> {
-    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
-        if buf.is_empty() {
-            return Some((None, 0));
-        }
-        
-        if let Some((val, size)) = u16::decode::<D>(buf) {
-            Some((Some(Value::Set(val)), size))
-        } else {
-            Some((None, 0))
-        }
-    }
-}
-
-impl Decode for Option<Value<u32>> {
-    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
-        if buf.is_empty() {
-            return Some((None, 0));
-        }
-        
-        if let Some((val, size)) = u32::decode::<D>(buf) {
-            Some((Some(Value::Set(val)), size))
-        } else {
-            Some((None, 0))
-        }
-    }
-}
