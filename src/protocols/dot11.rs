@@ -434,7 +434,309 @@ pub struct Dot11Action {
 
 // Helpers for working with IEEE 802.11 frames
 
-// Create a layer decoder that determines the appropriate management frame type
+// IEEE 802.11 Radiotap Header Implementation
+// Used for capturing 802.11 frames with additional radio information in pcap files
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(encode_suppress)]
+pub struct Radiotap {
+    pub version: Value<u8>,
+    pub pad: Value<u8>,
+    #[nproto(encode = encode_radiotap_length, decode = decode_radiotap_length)]
+    pub length: Value<u16>,
+    #[nproto(encode = encode_radiotap_present, decode = decode_radiotap_present)]
+    pub present_flags: Value<u32>,
+    #[nproto(decode = decode_radiotap_fields)]
+    pub fields: Vec<RadiotapField>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RadiotapField {
+    TSFT(u64),
+    Flags(u8),
+    Rate(u8),
+    Channel(u16, u16), // Frequency and flags
+    FHSS(u8, u8),
+    AntennaSignal(i8),
+    AntennaNoise(i8),
+    LockQuality(u16),
+    TxAttenuation(u16),
+    DBTxAttenuation(u16),
+    DBmTxPower(i8),
+    Antenna(u8),
+    DBAntennaSignal(u8),
+    DBAntennaNoise(u8),
+    RxFlags(u16),
+    TxFlags(u16),
+    RtsRetries(u8),
+    DataRetries(u8),
+    XChannel(u32, u16, u8), // flags, freq, channel
+    MCS(u8, u8, u8), // known, flags, mcs
+    AMPDUStatus(u32, u16, u8, u8), // reference number, flags, delimiter CRC, reserved
+    VHT(u16, u8, u8, Vec<u8>), // known, flags, bandwidth, mcs_nss, coding
+    HEData1(u16, u16), // data1, data2
+    HEData2(u16, u16), // data3, data4
+    HEData3(u16, u16), // data5, data6
+    HEData4(u8, u8, u8, u8), // data7-data10
+    HEData5(u8, u8, u8, u8), // data11-data14
+    HEData6(u8, u8), // data15-data16
+    RadiotapNamespace(),
+    VendorNamespace(Vec<u8>),
+    ExtendedBitmap(u32),
+    Unknown(u32, Vec<u8>), // bit position, data
+}
+
+// Radiotap present flags
+pub mod radiotap_flags {
+    pub const TSFT: u32 = 1 << 0;
+    pub const FLAGS: u32 = 1 << 1;
+    pub const RATE: u32 = 1 << 2;
+    pub const CHANNEL: u32 = 1 << 3;
+    pub const FHSS: u32 = 1 << 4;
+    pub const DBM_ANTSIGNAL: u32 = 1 << 5;
+    pub const DBM_ANTNOISE: u32 = 1 << 6;
+    pub const LOCK_QUALITY: u32 = 1 << 7;
+    pub const TX_ATTENUATION: u32 = 1 << 8;
+    pub const DB_TX_ATTENUATION: u32 = 1 << 9;
+    pub const DBM_TX_POWER: u32 = 1 << 10;
+    pub const ANTENNA: u32 = 1 << 11;
+    pub const DB_ANTSIGNAL: u32 = 1 << 12;
+    pub const DB_ANTNOISE: u32 = 1 << 13;
+    pub const RX_FLAGS: u32 = 1 << 14;
+    pub const TX_FLAGS: u32 = 1 << 15;
+    pub const RTS_RETRIES: u32 = 1 << 16;
+    pub const DATA_RETRIES: u32 = 1 << 17;
+    pub const XCHANNEL: u32 = 1 << 18;
+    pub const MCS: u32 = 1 << 19;
+    pub const AMPDU_STATUS: u32 = 1 << 20;
+    pub const VHT: u32 = 1 << 21;
+    pub const HE: u32 = 1 << 22;
+    pub const HE_MU: u32 = 1 << 23;
+    pub const HE_MU_OTHER_USER: u32 = 1 << 24;
+    pub const ZERO_LEN_PSDU: u32 = 1 << 25;
+    pub const L_SIG: u32 = 1 << 26;
+    pub const TLV: u32 = 1 << 27;
+    pub const RADIOTAP_NAMESPACE: u32 = 1 << 29;
+    pub const VENDOR_NAMESPACE: u32 = 1 << 30;
+    pub const EXT: u32 = 1 << 31;
+}
+
+fn encode_radiotap_length<E: Encoder>(
+    my_layer: &Radiotap,
+    stack: &LayerStack,
+    my_index: usize,
+    encoded_layers: &EncodingVecVec,
+) -> Vec<u8> {
+    my_layer.length.value().encode::<E>()
+}
+
+fn decode_radiotap_length<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Radiotap,
+) -> Option<(u16, usize)> {
+    let buf = &buf[ci..];
+    u16::decode::<D>(buf)
+}
+
+fn encode_radiotap_present<E: Encoder>(
+    my_layer: &Radiotap,
+    stack: &LayerStack,
+    my_index: usize,
+    encoded_layers: &EncodingVecVec,
+) -> Vec<u8> {
+    my_layer.present_flags.value().encode::<E>()
+}
+
+fn decode_radiotap_present<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Radiotap,
+) -> Option<(u32, usize)> {
+    let buf = &buf[ci..];
+    u32::decode::<D>(buf)
+}
+
+fn decode_radiotap_fields<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Radiotap,
+) -> Option<(Vec<RadiotapField>, usize)> {
+    let buf = &buf[ci..];
+    let radiotap_len = me.length.value() as usize;
+    
+    if radiotap_len <= 8 || ci + radiotap_len > buf.len() {
+        // Not enough data for radiotap header
+        return Some((Vec::new(), 0));
+    }
+
+    let mut fields = Vec::new();
+    let mut present = me.present_flags.value();
+    let mut present_bitmaps = vec![present];
+    let mut bitmap_idx = 0;
+    
+    // Check for extended bitmaps
+    while present & radiotap_flags::EXT != 0 && bitmap_idx < 8 {
+        bitmap_idx += 1;
+        let offset = 4 + (bitmap_idx * 4);
+        if ci + offset + 4 > buf.len() {
+            break;
+        }
+        
+        let next_present = u32::from_le_bytes([
+            buf[offset], buf[offset+1], buf[offset+2], buf[offset+3]
+        ]);
+        present_bitmaps.push(next_present);
+    }
+    
+    // Start parsing after the last present flag bitmap
+    let mut offset = 8 + (bitmap_idx * 4);
+    
+    // 4-byte alignment for certain fields
+    let align_offset = |off: usize| -> usize {
+        (off + 3) & !3
+    };
+    
+    // Parse each bitmap
+    for (idx, present) in present_bitmaps.iter().enumerate() {
+        let base_bit = idx * 32;
+        
+        // Skip the extended bit
+        let parse_bits = if *present & radiotap_flags::EXT != 0 {
+            31
+        } else {
+            32
+        };
+        
+        for bit in 0..parse_bits {
+            // Skip extended bitmap bit
+            if bit == 31 {
+                continue;
+            }
+            
+            let flag = 1 << bit;
+            if present & flag == 0 {
+                continue;
+            }
+            
+            // Parse based on the bit position
+            let global_bit = base_bit + bit;
+            
+            match global_bit {
+                0 => { // TSFT
+                    offset = align_offset(offset);
+                    if offset + 8 <= radiotap_len {
+                        let tsft = u64::from_le_bytes([
+                            buf[offset], buf[offset+1], buf[offset+2], buf[offset+3],
+                            buf[offset+4], buf[offset+5], buf[offset+6], buf[offset+7]
+                        ]);
+                        fields.push(RadiotapField::TSFT(tsft));
+                        offset += 8;
+                    }
+                },
+                1 => { // FLAGS
+                    if offset < radiotap_len {
+                        fields.push(RadiotapField::Flags(buf[offset]));
+                        offset += 1;
+                    }
+                },
+                2 => { // RATE
+                    if offset < radiotap_len {
+                        fields.push(RadiotapField::Rate(buf[offset]));
+                        offset += 1;
+                    }
+                },
+                3 => { // CHANNEL
+                    offset = align_offset(offset);
+                    if offset + 4 <= radiotap_len {
+                        let freq = u16::from_le_bytes([buf[offset], buf[offset+1]]);
+                        let flags = u16::from_le_bytes([buf[offset+2], buf[offset+3]]);
+                        fields.push(RadiotapField::Channel(freq, flags));
+                        offset += 4;
+                    }
+                },
+                4 => { // FHSS
+                    if offset + 2 <= radiotap_len {
+                        fields.push(RadiotapField::FHSS(buf[offset], buf[offset+1]));
+                        offset += 2;
+                    }
+                },
+                5 => { // DBM_ANTSIGNAL
+                    if offset < radiotap_len {
+                        fields.push(RadiotapField::AntennaSignal(buf[offset] as i8));
+                        offset += 1;
+                    }
+                },
+                6 => { // DBM_ANTNOISE
+                    if offset < radiotap_len {
+                        fields.push(RadiotapField::AntennaNoise(buf[offset] as i8));
+                        offset += 1;
+                    }
+                },
+                7 => { // LOCK_QUALITY
+                    offset = align_offset(offset);
+                    if offset + 2 <= radiotap_len {
+                        let quality = u16::from_le_bytes([buf[offset], buf[offset+1]]);
+                        fields.push(RadiotapField::LockQuality(quality));
+                        offset += 2;
+                    }
+                },
+                8 => { // TX_ATTENUATION
+                    offset = align_offset(offset);
+                    if offset + 2 <= radiotap_len {
+                        let atten = u16::from_le_bytes([buf[offset], buf[offset+1]]);
+                        fields.push(RadiotapField::TxAttenuation(atten));
+                        offset += 2;
+                    }
+                },
+                9 => { // DB_TX_ATTENUATION
+                    offset = align_offset(offset);
+                    if offset + 2 <= radiotap_len {
+                        let atten = u16::from_le_bytes([buf[offset], buf[offset+1]]);
+                        fields.push(RadiotapField::DBTxAttenuation(atten));
+                        offset += 2;
+                    }
+                },
+                10 => { // DBM_TX_POWER
+                    if offset < radiotap_len {
+                        fields.push(RadiotapField::DBmTxPower(buf[offset] as i8));
+                        offset += 1;
+                    }
+                },
+                11 => { // ANTENNA
+                    if offset < radiotap_len {
+                        fields.push(RadiotapField::Antenna(buf[offset]));
+                        offset += 1;
+                    }
+                },
+                12 => { // DB_ANTSIGNAL
+                    if offset < radiotap_len {
+                        fields.push(RadiotapField::DBAntennaSignal(buf[offset]));
+                        offset += 1;
+                    }
+                },
+                13 => { // DB_ANTNOISE
+                    if offset < radiotap_len {
+                        fields.push(RadiotapField::DBAntennaNoise(buf[offset]));
+                        offset += 1;
+                    }
+                },
+                14 => { // RX_FLAGS
+                    offset = align_offset(offset);
+                    if offset + 2 <= radiotap_len {
+                        let flags = u16::from_le_bytes([buf[offset], buf[offset+1]]);
+                        fields.push(RadiotapField::RxFlags(flags));
+                        offset += 2;
+                    }
+                },
+                15 => { // TX_FLAGS
+                    offset = align_offset(offset);
+                    if offset + 2 <= radiotap_len {
+                        let flags = u16::from_le_bytes([buf[offset], buf[offset+1]]);
+                        fields.push(RadiotapField::TxFlags(flags));
+                        offset += 2;
+                    }
+                },
+                16 => { // RTS_
 // based on the frame control field's subtype
 pub fn decode_dot11_management_frame(buf: &[u8]) -> Option<(LayerStack, usize)> {
     // First decode the Dot11 header to get the frame control field
