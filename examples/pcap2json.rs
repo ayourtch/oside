@@ -14,6 +14,7 @@ fn get_file_as_byte_vec(filename: &str) -> Vec<u8> {
 }
 
 fn main() {
+ use crate::protocols::dot11::decode_802_11_frame;
     let fname = std::env::args().nth(1).unwrap();
     let bytes = get_file_as_byte_vec(&fname);
     // println!("Bytes: {:02x?}", &bytes);
@@ -29,8 +30,14 @@ fn main() {
             println!(",");
         }
         // println!("data: {:02x?}", &p.data);
-        let pkt = Ether!().ldecode(&p.data).unwrap().0;
-        let j = serde_json::to_string(&pkt.layers).unwrap();
+        let try_radiotap = p.data[0] == 0 && p.data[1] == 0;
+        
+        let pkt = if try_radiotap {
+            decode_802_11_frame(&p.data, false).unwrap().0
+        } else {
+            Ether!().ldecode(&p.data).unwrap().0
+        };
+        let j = serde_json::to_string_pretty(&pkt.layers).unwrap();
         println!("{}", j);
     }
     println!("]");
