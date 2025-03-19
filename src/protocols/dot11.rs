@@ -1713,13 +1713,214 @@ pub struct VHTTransmitPowerEnvelopeElement {
 // Reduced Neighbor Report element
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReducedNeighborReportElement {
-    pub neighbor_ap_tbtt_offset_tuples: Vec<NeighborAPTBTTOffsetTuple>,
+    pub neighbor_ap_info: Vec<NeighborAPInfo>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NeighborAPTBTTOffsetTuple {
-    pub tbtt_information_header: u8,
-    pub neighbor_ap_information: Vec<u8>, // Variable length
+pub struct NeighborAPInfo {
+    pub tbtt_information_header: u16,
+    pub neighbor_operating_class: u8,
+    pub neighbor_channel_number: u8,
+    pub tbtt: Vec<TBTTInfo>,
+}
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TBTTInfo {
+    pub tbtt_offset: Option<u8>,
+    pub bssid: Option<MacAddr>,
+    pub short_ssid: Option<u32>,
+    pub bss_parameters: Option<u8>,
+    pub psd_20mhz: Option<i8>,
+    pub mld_parameters: Option<Vec<u8>>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NeighborTBTTInfoPresent {
+    pub tbtt_offset: bool,
+    pub bssid: bool,
+    pub short_ssid: bool,
+    pub bss_parameters: bool,
+    pub psd_20mhz: bool,
+    pub mld_parameters: bool,
+}
+
+// Parsing function for Reduced Neighbor Report element
+pub fn parse_reduced_neighbor_report(data: &[u8]) -> Option<ReducedNeighborReportElement> {
+    if data.is_empty() {
+        return None;
+    }
+
+    let mut offset = 0;
+    let mut neighbor_ap_info = Vec::new();
+
+    while offset < data.len() {
+        // Need at least TBTT Information Header, Operating Class and Channel Number
+        if offset + 4 > data.len() {
+            break;
+        }
+
+        let tbtt_info_header = u16::from_le_bytes([data[offset], data[offset + 1]]);
+        offset += 2;
+
+        let operating_class = data[offset];
+        offset += 1;
+
+        let channel_number = data[offset];
+        offset += 1;
+
+        // Determine which fields are present based on the TBTT Information Length field
+        let tbtt_info_length = (tbtt_info_header >> 8) as usize;
+        let tbtt_info_count = ((tbtt_info_header >> 4) & 0x0f) as usize + 1;
+
+        // Calculate expected field length
+        let expected_length = tbtt_info_length * tbtt_info_count;
+        if offset + expected_length > data.len() {
+            break;
+        }
+
+        // Create a structure to track which fields are present
+        let mut info_present = NeighborTBTTInfoPresent::default();
+        let mut field_length = 0;
+
+        // TBTT Information Field Present field
+        if tbtt_info_length > 0 {
+            info_present.tbtt_offset = true;
+            field_length += 1;
+        }
+        if tbtt_info_length > 1 {
+            info_present.bssid = true;
+            field_length += 6;
+        }
+        if tbtt_info_length > 7 {
+            info_present.short_ssid = true;
+            field_length += 4;
+        }
+        if tbtt_info_length > 11 {
+            info_present.bss_parameters = true;
+            field_length += 1;
+        }
+        if tbtt_info_length > 12 {
+            info_present.psd_20mhz = true;
+            field_length += 1;
+        }
+        if tbtt_info_length > 13 {
+            info_present.mld_parameters = true;
+            // MLD Parameters is variable, we'll read the rest
+        }
+
+        let mut ap_info = NeighborAPInfo {
+            tbtt_information_header: tbtt_info_header,
+            neighbor_operating_class: operating_class,
+            neighbor_channel_number: channel_number,
+            tbtt: vec![],
+        };
+
+        for tbtt_i in 0..tbtt_info_count {
+            let mut tbtt = TBTTInfo {
+                tbtt_offset: None,
+                bssid: None,
+                short_ssid: None,
+                bss_parameters: None,
+                psd_20mhz: None,
+                mld_parameters: None,
+            };
+            // Parse each present field
+            if info_present.tbtt_offset && offset < data.len() {
+                tbtt.tbtt_offset = Some(data[offset]);
+                offset += 1;
+            }
+
+            if info_present.bssid && offset + 6 <= data.len() {
+                let mut bssid_bytes = [0u8; 6];
+                bssid_bytes.copy_from_slice(&data[offset..offset + 6]);
+                tbtt.bssid = Some(MacAddr::from(bssid_bytes));
+                offset += 6;
+            }
+
+            if info_present.short_ssid && offset + 4 <= data.len() {
+                let short_ssid = u32::from_le_bytes([
+                    data[offset],
+                    data[offset + 1],
+                    data[offset + 2],
+                    data[offset + 3],
+                ]);
+                tbtt.short_ssid = Some(short_ssid);
+                offset += 4;
+            }
+
+            if info_present.bss_parameters && offset < data.len() {
+                tbtt.bss_parameters = Some(data[offset]);
+                offset += 1;
+            }
+
+            if info_present.psd_20mhz && offset < data.len() {
+                tbtt.psd_20mhz = Some(data[offset] as i8);
+                offset += 1;
+            }
+
+            if info_present.mld_parameters {
+                // Calculate MLD Parameters length from remaining TBTT Information Length
+                let used_length = if info_present.tbtt_offset { 1 } else { 0 }
+                    + if info_present.bssid { 6 } else { 0 }
+                    + if info_present.short_ssid { 4 } else { 0 }
+                    + if info_present.bss_parameters { 1 } else { 0 }
+                    + if info_present.psd_20mhz { 1 } else { 0 };
+
+                let mld_length = tbtt_info_length.saturating_sub(used_length);
+
+                if mld_length > 0 && offset + mld_length <= data.len() {
+                    tbtt.mld_parameters = Some(data[offset..offset + mld_length].to_vec());
+                    offset += mld_length;
+                }
+            }
+            ap_info.tbtt.push(tbtt);
+        }
+
+        neighbor_ap_info.push(ap_info);
+    }
+
+    Some(ReducedNeighborReportElement { neighbor_ap_info })
+}
+
+// Function to encode Reduced Neighbor Report element
+pub fn encode_reduced_neighbor_report(rnr: &ReducedNeighborReportElement) -> Vec<u8> {
+    let mut result: Vec<u8> = Vec::new();
+
+    for ap_info in &rnr.neighbor_ap_info {
+        // Add TBTT Information Header, Operating Class, and Channel Number
+        result.push((ap_info.tbtt_information_header & 0xff) as u8);
+        result.push((ap_info.tbtt_information_header >> 8) as u8);
+        result.push(ap_info.neighbor_operating_class);
+        result.push(ap_info.neighbor_channel_number);
+
+        for ap_info in &ap_info.tbtt {
+            // Add optional fields if present
+            if let Some(tbtt_offset) = ap_info.tbtt_offset {
+                result.push(tbtt_offset);
+            }
+
+            if let Some(bssid) = &ap_info.bssid {
+                result.extend_from_slice(&bssid.0.bytes());
+            }
+
+            if let Some(short_ssid) = ap_info.short_ssid {
+                result.extend_from_slice(&short_ssid.to_le_bytes());
+            }
+
+            if let Some(bss_params) = ap_info.bss_parameters {
+                result.push(bss_params);
+            }
+
+            if let Some(psd) = ap_info.psd_20mhz {
+                result.push(psd as u8);
+            }
+
+            if let Some(mld_params) = &ap_info.mld_parameters {
+                result.extend_from_slice(mld_params);
+            }
+        }
+    }
+
+    result
 }
 
 // EHT Capabilities element
@@ -3384,35 +3585,11 @@ fn decode_elements<D: Decoder>(
 
             201 => {
                 // Reduced Neighbor Report
-                let mut offset = 0;
-                let mut tuples = Vec::new();
-
-                while offset < element_data.len() {
-                    if offset + 1 > element_data.len() {
-                        break;
-                    }
-
-                    let header = element_data[offset];
-                    offset += 1;
-
-                    // Calculate length based on header (depends on specific format)
-                    let length = 1; // Simplified - actual length depends on header fields
-
-                    if offset + length > element_data.len() {
-                        break;
-                    }
-
-                    tuples.push(NeighborAPTBTTOffsetTuple {
-                        tbtt_information_header: header,
-                        neighbor_ap_information: element_data[offset..offset + length].to_vec(),
-                    });
-
-                    offset += length;
+                if let Some(rnr) = parse_reduced_neighbor_report(&element_data) {
+                    ParsedElement::ReducedNeighborReport(rnr)
+                } else {
+                    ParsedElement::Unknown(Element::new(element_id, element_data))
                 }
-
-                ParsedElement::ReducedNeighborReport(ReducedNeighborReportElement {
-                    neighbor_ap_tbtt_offset_tuples: tuples,
-                })
             }
 
             255 => {
@@ -4021,13 +4198,7 @@ fn encode_elements<E: Encoder>(
 
             ParsedElement::ReducedNeighborReport(rnr) => {
                 out.push(201); // Reduced Neighbor Report ID
-                let mut data = Vec::new();
-
-                for tuple in &rnr.neighbor_ap_tbtt_offset_tuples {
-                    data.push(tuple.tbtt_information_header);
-                    data.extend_from_slice(&tuple.neighbor_ap_information);
-                }
-
+                let data = encode_reduced_neighbor_report(rnr);
                 out.push(data.len() as u8); // Length
                 out.extend_from_slice(&data);
             }
