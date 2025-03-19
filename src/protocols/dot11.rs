@@ -1400,7 +1400,7 @@ pub enum ElementID {
     BSSSelectorList = 67,
     BSSSelectorCompatibility = 68,
     OverlapBSSScanParameters = 69,
-    RICDescriptor = 70,
+    RMEnabledCapabilities = 70,
     ManagementMIC = 71,
     EventRequest = 72,
     EventReport = 73,
@@ -1547,6 +1547,13 @@ pub enum ParsedElement {
     EHTCapabilities(EHTCapabilitiesElement),
     EHTOperation(EHTOperationElement),
     MultiLink(MultiLinkElement),
+    PowerConstraint(u8),
+    TPCReport(TPCReportElement),
+    MobilityDomain(MobilityDomainElement),
+    BSSSwitchTime(BSSSwitchTimeElement),
+    RMEnabledCapabilities(RMEnabledCapabilitiesElement),
+    DMGCapabilities(DMGCapabilitiesElement),
+    FineTiming(FineTimingElement),
     Unknown(Element),
 }
 
@@ -1750,6 +1757,39 @@ pub struct CipherSuite {
 pub struct AKMSuite {
     pub oui: [u8; 3],
     pub suite_type: u8,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TPCReportElement {
+    pub tx_power: u8,
+    pub link_margin: u8,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MobilityDomainElement {
+    pub mdid: u16,
+    pub flags: u8,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BSSSwitchTimeElement {
+    pub switch_time: u16,
+    pub switch_count: u8,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RMEnabledCapabilitiesElement {
+    pub rm_capabilities: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DMGCapabilitiesElement {
+    pub dmg_capabilities: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FineTimingElement {
+    pub timing_capabilities: Vec<u8>,
 }
 
 // Vendor Specific Element
@@ -3670,6 +3710,72 @@ fn decode_elements<D: Decoder>(
                     ParsedElement::Unknown(Element::new(element_id, element_data))
                 }
             }
+            32 => {
+                // Power Constraint
+                if element_data.len() == 1 {
+                    ParsedElement::PowerConstraint(element_data[0])
+                } else {
+                    ParsedElement::Unknown(Element::new(element_id, element_data))
+                }
+            }
+            35 => {
+                // TPC Report
+                if element_data.len() >= 2 {
+                    ParsedElement::TPCReport(TPCReportElement {
+                        tx_power: element_data[0],
+                        link_margin: element_data[1],
+                    })
+                } else {
+                    ParsedElement::Unknown(Element::new(element_id, element_data))
+                }
+            }
+            54 => {
+                // Mobility Domain
+                if element_data.len() >= 3 {
+                    let mdid = u16::from_le_bytes([element_data[0], element_data[1]]);
+                    ParsedElement::MobilityDomain(MobilityDomainElement {
+                        mdid,
+                        flags: element_data[2],
+                    })
+                } else {
+                    ParsedElement::Unknown(Element::new(element_id, element_data))
+                }
+            }
+            11 => {
+                // BSS Switch Time
+                if element_data.len() >= 3 {
+                    let switch_time = u16::from_le_bytes([element_data[0], element_data[1]]);
+                    ParsedElement::BSSSwitchTime(BSSSwitchTimeElement {
+                        switch_time,
+                        switch_count: element_data[2],
+                    })
+                } else {
+                    ParsedElement::Unknown(Element::new(element_id, element_data))
+                }
+            }
+            70 => {
+                // RMEnabledCapabilities
+                if element_data.len() >= 1 {
+                    ParsedElement::RMEnabledCapabilities(RMEnabledCapabilitiesElement {
+                        rm_capabilities: element_data,
+                    })
+                } else {
+                    ParsedElement::Unknown(Element::new(element_id, element_data))
+                }
+            }
+            150 => {
+                // DMG Capabilities
+                ParsedElement::DMGCapabilities(DMGCapabilitiesElement {
+                    dmg_capabilities: element_data.to_vec(),
+                })
+            }
+            149 => {
+                // Fine Timing Measurement
+                ParsedElement::FineTiming(FineTimingElement {
+                    timing_capabilities: element_data.to_vec(),
+                })
+            }
+
             255 => {
                 // Extended Element ID
                 if element_data.len() >= 1 {
@@ -4046,6 +4152,50 @@ fn encode_elements<E: Encoder>(
                 if let Some(link_info) = &ml.link_info {
                     out.extend_from_slice(link_info);
                 }
+            }
+
+            ParsedElement::PowerConstraint(constraint) => {
+                out.push(32); // Power Constraint ID
+                out.push(1); // Length
+                out.push(*constraint);
+            }
+            ParsedElement::TPCReport(tpc) => {
+                out.push(35); // TPC Report ID
+                out.push(2); // Length
+                out.push(tpc.tx_power);
+                out.push(tpc.link_margin);
+            }
+            ParsedElement::MobilityDomain(md) => {
+                out.push(54); // Mobility Domain ID
+                out.push(3); // Length
+                out.extend_from_slice(&md.mdid.to_le_bytes());
+                out.push(md.flags);
+            }
+            ParsedElement::BSSSwitchTime(bst) => {
+                out.push(11); // BSS Switch Time ID
+                out.push(3); // Length
+                out.extend_from_slice(&bst.switch_time.to_le_bytes());
+                out.push(bst.switch_count);
+            }
+            ParsedElement::RMEnabledCapabilities(rmcs) => {
+                out.push(70); // RM Enabled Capabilities ID
+
+                // Calculate length
+                let mut length = 1; // Resource descriptor count
+                length += rmcs.rm_capabilities.len();
+
+                out.push(length as u8); // Length
+                out.extend_from_slice(&rmcs.rm_capabilities);
+            }
+            ParsedElement::DMGCapabilities(dmg) => {
+                out.push(150); // DMG Capabilities ID
+                out.push(dmg.dmg_capabilities.len() as u8); // Length
+                out.extend_from_slice(&dmg.dmg_capabilities);
+            }
+            ParsedElement::FineTiming(ftm) => {
+                out.push(149); // Fine Timing Measurement ID
+                out.push(ftm.timing_capabilities.len() as u8); // Length
+                out.extend_from_slice(&ftm.timing_capabilities);
             }
 
             // Keep this final case for unknown elements
