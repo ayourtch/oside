@@ -338,6 +338,7 @@ impl ToTokens for FillNetprotoStructField {
             }
             };
             quote! {
+                let __unconditional_setting = 1;
                 match &out.#name {
                     Value::Auto => {
                         // println!("XXX: #name {:?}", &out.#name);
@@ -361,6 +362,7 @@ impl ToTokens for FillNetprotoStructField {
         } else {
             if self.0.is_value {
                 quote! {
+                    let __setting_isvalue = 1;
                     match &out.#name {
                         Value::Auto => {
                             // try to set the auto field by the next level if possible
@@ -938,34 +940,11 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
         }
     };
 
-    let tokens = quote! {
-
-        #( #nproto_registries )*
-
-        #( #nproto_register )*
-
-        impl<T: Layer> Div<T> for #name {
-            type Output = LayerStack;
-            fn div(mut self, rhs: T) -> Self::Output {
-                let mut out = self.to_stack();
-                out.layers.push(rhs.embox());
-                out
-            }
-        }
-
-        impl Decode for #name {
-            fn decode<DDD: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
-                use std::collections::HashMap;
-                let mut ci: usize = 0;
-                let mut layer = #macroname!();
-
-                #(#decode_fields_idents)*
-
-
-                Some((layer, ci))
-            }
-        }
-
+    
+    let impl_encode = if nproto_encode_suppress {
+        quote! {}
+    } else {
+        quote! {
         impl Encode for #name {
             fn encode<EEE: Encoder>(&self) -> Vec<u8> {
                 let layer = self;
@@ -981,17 +960,33 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
                 out
             }
         }
+        }
+    };
+
+    let impl_decode = if nproto_decode_suppress {
+        quote! {}
+    } else {
+        quote! {
+        impl Decode for #name {
+            fn decode<DDD: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
+                use std::collections::HashMap;
+                let mut ci: usize = 0;
+                let mut layer = #macroname!();
+
+                #(#decode_fields_idents)*
 
 
-
-        impl #name {
-            fn encode_with_encoder<EEE: Encoder>(&self, stack: &LayerStack, my_index: usize, encoded_data: &EncodingVecVec) -> Vec<u8> {
-                let layer = self;
-                let mut out: Vec<u8> = vec![];
-                let mut skip_points: Vec<usize> = vec![];
-                #(#encode_fields_idents)*
-                out
+                Some((layer, ci))
             }
+        }
+
+        }
+    };
+
+    let decode_with_decoder = if nproto_decode_suppress {
+        quote! {}
+    } else {
+        quote! {
             fn decode_with_decoder<DDD: Decoder>(&self, buf: &[u8]) -> Option<(LayerStack, usize)> {
                 use std::collections::HashMap;
                 let mut ci: usize = 0;
@@ -1007,6 +1002,46 @@ pub fn network_protocol(input: proc_macro::TokenStream) -> proc_macro::TokenStre
 
                 Some((LayerStack { layers, filled: true }, ci))
             }
+        }
+    };
+
+    let encode_with_encoder = if nproto_encode_suppress {
+        quote! {}
+    } else {
+        quote! {
+            fn encode_with_encoder<EEE: Encoder>(&self, stack: &LayerStack, my_index: usize, encoded_data: &EncodingVecVec) -> Vec<u8> {
+                let layer = self;
+                let mut out: Vec<u8> = vec![];
+                let mut skip_points: Vec<usize> = vec![];
+                #(#encode_fields_idents)*
+                out
+            }
+        }
+    };
+
+    let tokens = quote! {
+
+        #( #nproto_registries )*
+
+        #( #nproto_register )*
+
+        impl<T: Layer> Div<T> for #name {
+            type Output = LayerStack;
+            fn div(mut self, rhs: T) -> Self::Output {
+                let mut out = self.to_stack();
+                out.layers.push(rhs.embox());
+                out
+            }
+        }
+
+        #impl_encode
+        #impl_decode
+
+
+
+        impl #name {
+            #encode_with_encoder
+            #decode_with_decoder
 
             pub fn of(stack: &LayerStack) -> Self {
                 let res = &stack[TypeId::of::<Self>()];
@@ -1450,7 +1485,7 @@ fn netproto_struct_fields(default_encoder: &TokenStream, data: &Data) -> (Vec<Ne
                                     name,
                                     conv: format_ident!("parse_pair_as_option"),
                                     add_conversion: !path_is_int(&typepath.path),
-                                    is_value: true,
+                                    is_value: false,
                                     ty: typepath.path.clone().to_token_stream(),
                                     default: nproto_default,
                                     auto: nproto_auto,
