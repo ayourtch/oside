@@ -1761,8 +1761,10 @@ fn decode_radiotap_fields<D: Decoder>(
 
     let mut offset = 0;
 
-    // 4-byte alignment for certain fields
-    let align_offset = |off: usize| -> usize { (off + 3) & !3 };
+    // alignment for certain fields
+    let align_offset_8 = |off: usize| -> usize { (off + 7) & !7 };
+    let align_offset_4 = |off: usize| -> usize { (off + 3) & !3 };
+    let align_offset_2 = |off: usize| -> usize { (off + 1) & !1 };
 
     // Parse each bitmap
     for (idx, present) in present_bitmaps.iter().enumerate() {
@@ -1785,7 +1787,7 @@ fn decode_radiotap_fields<D: Decoder>(
             match bit {
                 0 => {
                     // TSFT
-                    offset = align_offset(offset);
+                    offset = align_offset_8(offset);
                     if offset + 8 <= radiotap_len {
                         let tsft = u64::from_le_bytes([
                             buf[offset],
@@ -1816,8 +1818,8 @@ fn decode_radiotap_fields<D: Decoder>(
                     }
                 }
                 3 => {
-                    // CHANNEL
-                    // AYXX - offset = align_offset(offset);
+                    // CHANNEL = 2 * u16, so alignment is a u16
+                    offset = align_offset_2(offset);
                     // println!("aligned offset: {}", &offset);
                     if offset + 4 <= radiotap_len {
                         let freq = u16::from_le_bytes([buf[offset], buf[offset + 1]]);
@@ -1828,6 +1830,7 @@ fn decode_radiotap_fields<D: Decoder>(
                 }
                 4 => {
                     // FHSS
+                    offset = align_offset_2(offset);
                     if offset + 2 <= radiotap_len {
                         fields.push(RadiotapField::FHSS(buf[offset], buf[offset + 1]));
                         offset += 2;
@@ -1849,7 +1852,7 @@ fn decode_radiotap_fields<D: Decoder>(
                 }
                 7 => {
                     // LOCK_QUALITY
-                    // offset = align_offset(offset);
+                    offset = align_offset_2(offset);
                     if offset + 2 <= radiotap_len {
                         let quality = u16::from_le_bytes([buf[offset], buf[offset + 1]]);
                         fields.push(RadiotapField::LockQuality(quality));
@@ -1858,7 +1861,7 @@ fn decode_radiotap_fields<D: Decoder>(
                 }
                 8 => {
                     // TX_ATTENUATION
-                    // offset = align_offset(offset);
+                    offset = align_offset_2(offset);
                     if offset + 2 <= radiotap_len {
                         let atten = u16::from_le_bytes([buf[offset], buf[offset + 1]]);
                         fields.push(RadiotapField::TxAttenuation(atten));
@@ -1867,7 +1870,7 @@ fn decode_radiotap_fields<D: Decoder>(
                 }
                 9 => {
                     // DB_TX_ATTENUATION
-                    // offset = align_offset(offset);
+                    offset = align_offset_2(offset);
                     if offset + 2 <= radiotap_len {
                         let atten = u16::from_le_bytes([buf[offset], buf[offset + 1]]);
                         fields.push(RadiotapField::DBTxAttenuation(atten));
@@ -1904,7 +1907,7 @@ fn decode_radiotap_fields<D: Decoder>(
                 }
                 14 => {
                     // RX_FLAGS
-                    // AYXX  offset = align_offset(offset);
+                    offset = align_offset_2(offset);
                     if offset + 2 <= radiotap_len {
                         let flags = u16::from_le_bytes([buf[offset], buf[offset + 1]]);
                         fields.push(RadiotapField::RxFlags(flags));
@@ -1913,7 +1916,7 @@ fn decode_radiotap_fields<D: Decoder>(
                 }
                 15 => {
                     // TX_FLAGS
-                    // offset = align_offset(offset);
+                    offset = align_offset_2(offset);
                     if offset + 2 <= radiotap_len {
                         let flags = u16::from_le_bytes([buf[offset], buf[offset + 1]]);
                         fields.push(RadiotapField::TxFlags(flags));
@@ -1936,7 +1939,7 @@ fn decode_radiotap_fields<D: Decoder>(
                 }
                 18 => {
                     // XCHANNEL
-                    // offset = align_offset(offset);
+                    offset = align_offset_4(offset);
                     if offset + 8 <= radiotap_len {
                         let flags = u32::from_le_bytes([
                             buf[offset],
@@ -1962,8 +1965,8 @@ fn decode_radiotap_fields<D: Decoder>(
                     }
                 }
                 20 => {
-                    // AMPDU_STATUS
-                    // offset = align_offset(offset);
+                    // AMPDU_STATUS - 4 byte alignment
+                    offset = align_offset_4(offset);
                     if offset + 8 <= radiotap_len {
                         let reference = u32::from_le_bytes([
                             buf[offset],
@@ -1984,7 +1987,8 @@ fn decode_radiotap_fields<D: Decoder>(
                     }
                 }
                 21 => {
-                    // VHT
+                    // VHT - 2 byte alignment
+                    offset = align_offset_2(offset);
                     if offset + 12 <= radiotap_len {
                         let known = u16::from_le_bytes([buf[offset], buf[offset + 1]]);
                         let flags = buf[offset + 2];
@@ -2001,7 +2005,7 @@ fn decode_radiotap_fields<D: Decoder>(
                     // HE fields
                     // Skip complex HE fields for now, they have variable size
                     // and depend on the specific 802.11ax implementation
-                    // offset = align_offset(offset);
+                    offset = align_offset_4(offset);
                     if offset + 4 <= radiotap_len {
                         let data1 = u16::from_le_bytes([buf[offset], buf[offset + 1]]);
                         let data2 = u16::from_le_bytes([buf[offset + 2], buf[offset + 3]]);
