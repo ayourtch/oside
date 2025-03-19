@@ -1352,26 +1352,151 @@ impl CapabilitiesInfo {
 pub enum ElementID {
     SSID = 0,
     SupportedRates = 1,
+    FHParameterSet = 2,
     DSParameter = 3,
+    CFParameter = 4,
     TIM = 5,
     IBSS = 6,
     Country = 7,
-    HoppingParameters = 8,
+    HoppingParameterSet = 8,
     HoppingPatternTable = 9,
     Request = 10,
     BSSSwitchTime = 11,
-    EBSSSwitchAnnouncment = 12,
+    EBSSSwitchAnnouncement = 12,
+    Challenge = 16,
     PowerConstraint = 32,
     PowerCapability = 33,
-    TPC = 34,
-    ChannelSwitch = 37,
-    QuietTime = 40,
-    IBSSCC = 41,
+    TPCRequest = 34,
+    TPCReport = 35,
+    SupportedChannels = 36,
+    ChannelSwitchAnnouncement = 37,
+    MeasurementRequest = 38,
+    MeasurementReport = 39,
+    Quiet = 40,
+    IBSSDFS = 41,
+    ERP = 42,
+    TSDelay = 43,
+    TCLASProcessing = 44,
+    HTCapabilities = 45,
+    QOSCapability = 46,
+    RSN = 48,
     ExtendedRates = 50,
-    RSNE = 48,
+    APChannelReport = 51,
+    NeighborReport = 52,
+    RCPI = 53,
+    MobilityDomain = 54,
+    FastBSS = 55,
+    Timeout = 56,
+    RICData = 57,
+    DSERegisteredLocation = 58,
+    SupportedOperatingClasses = 59,
+    ExtendedChannelSwitchAnnouncement = 60,
+    HTOperation = 61,
+    SecondaryChannelOffset = 62,
+    BSSAverageAccessDelay = 63,
+    AntennaInfo = 64,
+    RSNI = 65,
+    MeasurementPilotTransmission = 66,
+    BSSSelectorList = 67,
+    BSSSelectorCompatibility = 68,
+    OverlapBSSScanParameters = 69,
+    RICDescriptor = 70,
+    ManagementMIC = 71,
+    EventRequest = 72,
+    EventReport = 73,
+    DiagnosticRequest = 74,
+    DiagnosticReport = 75,
+    LocationParameters = 76,
+    NonTransmittedBSSID = 77,
+    SSIDList = 84,
+    EmergencyAlertIdentifier = 91,
+    MeshID = 113,
+    MeshConfiguration = 114,
+    MeshAwakeWindows = 115,
+    BeaconTiming = 116,
+    MCCAOP = 117,
+    MeshChannelSwitchParameters = 118,
+    QMFPolicy = 119,
+    QMFElementID = 120,
+    TSPEC = 121,
+    TSClass = 122,
+    SCSchedule = 123,
+    ChannelUsage = 124,
+    TimeAdvertisement = 125,
     ExtendedCapabilities = 127,
+    FMSDescriptor = 131,
+    QoSTrafficCapability = 139,
+    BSSTWTimingSet = 145,
+    ChannelSwitchTimingInformation = 156,
+    PTIControl = 157,
+    TPCReport2 = 158, // Additional TPCReport
+    InterworkingElement = 170,
+    AdvertisementProtocol = 171,
+    ExpediteFrameworkAccess = 172,
+    RoamingConsortium = 173,
+    EmergencyAlertIdentifier2 = 174, // Additional EmergencyAlertIdentifier
+    MeshChannelSwitchParameters2 = 176, // Additional MeshChannelSwitchParameters
+    QMF = 177,
+    QMFPolicy2 = 178,       // Additional QMFPolicy
+    TCLASProcessing2 = 179, // Additional TCLASProcessing
+    MCCAOPAdvertisementOverview = 180,
+    MPDULengthThreshold = 184,
+    VHTCapabilities = 191,
+    VHTOperation = 192,
+    ExtendedBSS = 193,
+    WideBandwidthChannelSwitch = 194,
+    VHTTransmitPowerEnvelope = 195,
+    ChannelSwitchWrapper = 196,
+    AID = 197,
+    QuietChannel = 198,
+    VHTOperatingModeNotification = 199,
+    UPSIMControl = 200,
+    ReducedNeighborReport = 201,
+    TVHTOperation = 202,
+    DeviceLocation = 204,
+    WhiteSpaceMap = 205,
+    FineTiming = 206,
+    S1G = 207,
+    SubchannelSelective = 220,
     VendorSpecific = 221,
-    // Many more element IDs exist in the standard
+    AuthenticationControl = 252,
+    ExtendedElementID = 255, // Special value for extended element IDs
+}
+
+// IEEE 802.11 Extended Element IDs (256-511)
+#[derive(FromRepr, Clone, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum ExtendedElementID {
+    HECapabilities = 0, // Actual ID is 256, but we store the extension part only
+    HEOperation = 1,    // Actual ID is 257
+    MUEDCAParameter = 2,
+    SpatialReuse = 3,
+    HETransmissionDeclaration = 4,
+    BSSTarWakeTime = 5,
+    BSSTWTOperation = 6,
+    S1GRelay = 7,
+    S1GCapabilities = 8,
+    S1GOperation = 9,
+    HECapabilitiesElement = 10,
+    MultiBSS = 11,
+    SPSMP = 12,
+    MultiBSSID = 13,
+    TransmitPowerEnvelope = 14,
+    BSSColorChange = 15,
+    NonInheritedBSSMembershipSelectors = 16,
+    WEPSM = 17,
+    OperatingMode = 18,
+    FDFrame = 19,
+    MultiLink = 20,
+    EHTOperation = 22,
+    EHTCapabilities = 23,
+    TIDToLinkMapping = 24,
+    EMLCapabilities = 25,
+    MediumSync = 26,
+    EMLSR = 27,
+    TWTSETUP = 28,
+    DSE = 29,
+    ESL = 30,
 }
 
 impl Default for ElementID {
@@ -1405,6 +1530,23 @@ pub enum ParsedElement {
     RSN(RSNElement),
     ExtendedCapabilities(Vec<u8>),
     VendorSpecific(VendorSpecificElement),
+    HTCapabilities(HTCapabilitiesElement),
+    HTOperation(HTOperationElement),
+    VHTCapabilities(VHTCapabilitiesElement),
+    VHTOperation(VHTOperationElement),
+    HECapabilities(HECapabilitiesElement),
+    HEOperation(HEOperationElement),
+    ChannelSwitch(ChannelSwitchElement),
+    ExtendedChannelSwitch(ExtendedChannelSwitchElement),
+    Quiet(QuietElement),
+    SupportedOperatingClasses(SupportedOperatingClassesElement),
+    TransmitPowerEnvelope(TransmitPowerEnvelopeElement),
+    WideBandwidthChannelSwitch(WideBandwidthChannelSwitchElement),
+    VHTTransmitPowerEnvelope(VHTTransmitPowerEnvelopeElement),
+    ReducedNeighborReport(ReducedNeighborReportElement),
+    EHTCapabilities(EHTCapabilitiesElement),
+    EHTOperation(EHTOperationElement),
+    MultiLink(MultiLinkElement),
     Unknown(Element),
 }
 
@@ -1443,6 +1585,159 @@ pub struct RSNElement {
     pub pmkid_count: Option<u16>,
     pub pmkid_list: Vec<[u8; 16]>,
     pub group_management_cipher_suite: Option<CipherSuite>,
+}
+
+// Add these structure definitions
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HTCapabilitiesElement {
+    pub ht_capabilities_info: u16,
+    pub ampdu_parameters: u8,
+    pub supported_mcs_set: [u8; 16],
+    pub ht_extended_capabilities: u16,
+    pub tx_beam_forming_capabilities: u32,
+    pub asel_capabilities: u8,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VHTCapabilitiesElement {
+    pub vht_capabilities_info: u32,
+    pub supported_vht_mcs_and_nss_set: u64,
+}
+
+// HT Operation element
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HTOperationElement {
+    pub primary_channel: u8,
+    pub ht_operation_info: [u8; 5],
+    pub basic_mcs_set: [u8; 16],
+}
+
+// VHT Operation element
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VHTOperationElement {
+    pub channel_width: u8,
+    pub channel_center_frequency_segment0: u8,
+    pub channel_center_frequency_segment1: u8,
+    pub basic_vht_mcs_and_nss_set: u16,
+}
+
+// HE Capabilities element
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HECapabilitiesElement {
+    pub he_mac_capabilities: [u8; 6],
+    pub he_phy_capabilities: [u8; 11],
+    pub supported_he_mcs_and_nss_set: [u8; 4],
+    pub ppet: Vec<u8>, // Variable length
+}
+
+// HE Operation element
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HEOperationElement {
+    pub he_operation_parameters: [u8; 3],
+    pub bss_color_info: u8,
+    pub basic_he_mcs_and_nss_set: u16,
+    pub vht_operation_info: Option<Vec<u8>>,     // Optional
+    pub co_hosted_bss: Option<Vec<u8>>,          // Optional
+    pub he_6ghz_operation_info: Option<Vec<u8>>, // Optional
+}
+
+// Channel Switch Announcement element
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChannelSwitchElement {
+    pub switch_mode: u8,
+    pub new_channel_number: u8,
+    pub channel_switch_count: u8,
+}
+
+// Extended Channel Switch Announcement element
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtendedChannelSwitchElement {
+    pub switch_mode: u8,
+    pub new_operating_class: u8,
+    pub new_channel_number: u8,
+    pub channel_switch_count: u8,
+}
+
+// Quiet element
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuietElement {
+    pub quiet_count: u8,
+    pub quiet_period: u8,
+    pub quiet_duration: u16,
+    pub quiet_offset: u16,
+}
+
+// Extended Capabilities element
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtendedCapabilitiesElement {
+    pub capabilities: Vec<u8>, // Variable length
+}
+
+// Supported Operating Classes element
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SupportedOperatingClassesElement {
+    pub current_operating_class: u8,
+    pub operating_classes: Vec<u8>,
+}
+
+// Transmit Power Envelope element
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TransmitPowerEnvelopeElement {
+    pub power_info: u8,
+    pub power_constraints: Vec<u8>, // Variable length
+}
+
+// Wide Bandwidth Channel Switch element
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WideBandwidthChannelSwitchElement {
+    pub new_channel_width: u8,
+    pub new_channel_center_frequency_segment0: u8,
+    pub new_channel_center_frequency_segment1: u8,
+}
+
+// VHT Transmit Power Envelope element
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VHTTransmitPowerEnvelopeElement {
+    pub transmit_power_info: u8,
+    pub max_transmit_power: Vec<u8>, // Variable length
+}
+
+// Reduced Neighbor Report element
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReducedNeighborReportElement {
+    pub neighbor_ap_tbtt_offset_tuples: Vec<NeighborAPTBTTOffsetTuple>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NeighborAPTBTTOffsetTuple {
+    pub tbtt_information_header: u8,
+    pub neighbor_ap_information: Vec<u8>, // Variable length
+}
+
+// EHT Capabilities element
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EHTCapabilitiesElement {
+    pub eht_mac_capabilities: [u8; 2],
+    pub eht_phy_capabilities: [u8; 9],
+    pub supported_eht_mcs_and_nss_set: Vec<u8>, // Variable length
+    pub ppet: Vec<u8>,                          // Variable length
+}
+
+// EHT Operation element
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EHTOperationElement {
+    pub parameters: u8,
+    pub disabled_subchannel_bitmap: Option<Vec<u8>>, // Optional
+    pub operating_channel_width: Option<Vec<u8>>,    // Optional
+}
+
+// Multi-Link element
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MultiLinkElement {
+    pub control: u16,
+    pub common_info: Vec<u8>,       // Variable length
+    pub link_info: Option<Vec<u8>>, // Optional
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -2224,7 +2519,7 @@ pub struct Dot11Data {
     pub qos_control: Option<Value<u16>>, // Only present in QoS data frames
     #[nproto(encode = encode_ht_control, decode = decode_ht_control)]
     pub ht_control: Option<Value<u32>>, // Only present if Order bit is set
-    pub payload: Vec<u8>,               // Data payload
+    pub payload: Vec<u8>,              // Data payload
 }
 
 fn encode_qos_control<E: Encoder>(
@@ -2864,6 +3159,384 @@ fn decode_elements<D: Decoder>(
                     ParsedElement::Unknown(Element::new(element_id, element_data))
                 }
             }
+
+            37 => {
+                // Channel Switch Announcement
+                if element_data.len() >= 3 {
+                    ParsedElement::ChannelSwitch(ChannelSwitchElement {
+                        switch_mode: element_data[0],
+                        new_channel_number: element_data[1],
+                        channel_switch_count: element_data[2],
+                    })
+                } else {
+                    ParsedElement::Unknown(Element::new(element_id, element_data))
+                }
+            }
+
+            40 => {
+                // Quiet
+                if element_data.len() >= 6 {
+                    let quiet_duration = u16::from_le_bytes([element_data[2], element_data[3]]);
+                    let quiet_offset = u16::from_le_bytes([element_data[4], element_data[5]]);
+
+                    ParsedElement::Quiet(QuietElement {
+                        quiet_count: element_data[0],
+                        quiet_period: element_data[1],
+                        quiet_duration,
+                        quiet_offset,
+                    })
+                } else {
+                    ParsedElement::Unknown(Element::new(element_id, element_data))
+                }
+            }
+
+            45 => {
+                // HT Capabilities
+                if element_data.len() >= 26 {
+                    let ht_capabilities_info =
+                        u16::from_le_bytes([element_data[0], element_data[1]]);
+                    let ampdu_parameters = element_data[2];
+                    let mut supported_mcs_set = [0u8; 16];
+                    supported_mcs_set.copy_from_slice(&element_data[3..19]);
+                    let ht_extended_capabilities =
+                        u16::from_le_bytes([element_data[19], element_data[20]]);
+                    let tx_beam_forming_capabilities = u32::from_le_bytes([
+                        element_data[21],
+                        element_data[22],
+                        element_data[23],
+                        element_data[24],
+                    ]);
+                    let asel_capabilities = element_data[25];
+
+                    ParsedElement::HTCapabilities(HTCapabilitiesElement {
+                        ht_capabilities_info,
+                        ampdu_parameters,
+                        supported_mcs_set,
+                        ht_extended_capabilities,
+                        tx_beam_forming_capabilities,
+                        asel_capabilities,
+                    })
+                } else {
+                    ParsedElement::Unknown(Element::new(element_id, element_data))
+                }
+            }
+
+            59 => {
+                // Supported Operating Classes
+                if element_data.len() >= 1 {
+                    ParsedElement::SupportedOperatingClasses(SupportedOperatingClassesElement {
+                        current_operating_class: element_data[0],
+                        operating_classes: element_data[1..].to_vec(),
+                    })
+                } else {
+                    ParsedElement::Unknown(Element::new(element_id, element_data))
+                }
+            }
+
+            60 => {
+                // Extended Channel Switch Announcement
+                if element_data.len() >= 4 {
+                    ParsedElement::ExtendedChannelSwitch(ExtendedChannelSwitchElement {
+                        switch_mode: element_data[0],
+                        new_operating_class: element_data[1],
+                        new_channel_number: element_data[2],
+                        channel_switch_count: element_data[3],
+                    })
+                } else {
+                    ParsedElement::Unknown(Element::new(element_id, element_data))
+                }
+            }
+
+            61 => {
+                // HT Operation
+                if element_data.len() >= 22 {
+                    let primary_channel = element_data[0];
+                    let mut ht_operation_info = [0u8; 5];
+                    ht_operation_info.copy_from_slice(&element_data[1..6]);
+                    let mut basic_mcs_set = [0u8; 16];
+                    basic_mcs_set.copy_from_slice(&element_data[6..22]);
+
+                    ParsedElement::HTOperation(HTOperationElement {
+                        primary_channel,
+                        ht_operation_info,
+                        basic_mcs_set,
+                    })
+                } else {
+                    ParsedElement::Unknown(Element::new(element_id, element_data))
+                }
+            }
+
+            127 => {
+                // Extended Capabilities
+                ParsedElement::ExtendedCapabilities(element_data.to_vec())
+            }
+
+            191 => {
+                // VHT Capabilities
+                if element_data.len() >= 12 {
+                    let vht_capabilities_info = u32::from_le_bytes([
+                        element_data[0],
+                        element_data[1],
+                        element_data[2],
+                        element_data[3],
+                    ]);
+                    let supported_vht_mcs_and_nss_set = u64::from_le_bytes([
+                        element_data[4],
+                        element_data[5],
+                        element_data[6],
+                        element_data[7],
+                        element_data[8],
+                        element_data[9],
+                        element_data[10],
+                        element_data[11],
+                    ]);
+
+                    ParsedElement::VHTCapabilities(VHTCapabilitiesElement {
+                        vht_capabilities_info,
+                        supported_vht_mcs_and_nss_set,
+                    })
+                } else {
+                    ParsedElement::Unknown(Element::new(element_id, element_data))
+                }
+            }
+
+            192 => {
+                // VHT Operation
+                if element_data.len() >= 5 {
+                    let basic_vht_mcs_and_nss_set =
+                        u16::from_le_bytes([element_data[3], element_data[4]]);
+
+                    ParsedElement::VHTOperation(VHTOperationElement {
+                        channel_width: element_data[0],
+                        channel_center_frequency_segment0: element_data[1],
+                        channel_center_frequency_segment1: element_data[2],
+                        basic_vht_mcs_and_nss_set,
+                    })
+                } else {
+                    ParsedElement::Unknown(Element::new(element_id, element_data))
+                }
+            }
+
+            194 => {
+                // Wide Bandwidth Channel Switch
+                if element_data.len() >= 3 {
+                    ParsedElement::WideBandwidthChannelSwitch(WideBandwidthChannelSwitchElement {
+                        new_channel_width: element_data[0],
+                        new_channel_center_frequency_segment0: element_data[1],
+                        new_channel_center_frequency_segment1: element_data[2],
+                    })
+                } else {
+                    ParsedElement::Unknown(Element::new(element_id, element_data))
+                }
+            }
+
+            195 => {
+                // VHT Transmit Power Envelope
+                if element_data.len() >= 2 {
+                    ParsedElement::VHTTransmitPowerEnvelope(VHTTransmitPowerEnvelopeElement {
+                        transmit_power_info: element_data[0],
+                        max_transmit_power: element_data[1..].to_vec(),
+                    })
+                } else {
+                    ParsedElement::Unknown(Element::new(element_id, element_data))
+                }
+            }
+
+            201 => {
+                // Reduced Neighbor Report
+                let mut offset = 0;
+                let mut tuples = Vec::new();
+
+                while offset < element_data.len() {
+                    if offset + 1 > element_data.len() {
+                        break;
+                    }
+
+                    let header = element_data[offset];
+                    offset += 1;
+
+                    // Calculate length based on header (depends on specific format)
+                    let length = 1; // Simplified - actual length depends on header fields
+
+                    if offset + length > element_data.len() {
+                        break;
+                    }
+
+                    tuples.push(NeighborAPTBTTOffsetTuple {
+                        tbtt_information_header: header,
+                        neighbor_ap_information: element_data[offset..offset + length].to_vec(),
+                    });
+
+                    offset += length;
+                }
+
+                ParsedElement::ReducedNeighborReport(ReducedNeighborReportElement {
+                    neighbor_ap_tbtt_offset_tuples: tuples,
+                })
+            }
+
+            255 => {
+                // Extended Element ID
+                if element_data.len() >= 1 {
+                    let extended_id = element_data[0];
+                    let ext_data = element_data[1..].to_vec();
+
+                    match extended_id {
+                        0 => {
+                            // HE Capabilities
+                            if ext_data.len() >= 21 {
+                                let mut he_mac_capabilities = [0u8; 6];
+                                let mut he_phy_capabilities = [0u8; 11];
+                                let mut supported_he_mcs_and_nss_set = [0u8; 4];
+
+                                if ext_data.len() >= 6 {
+                                    he_mac_capabilities.copy_from_slice(&ext_data[0..6]);
+                                }
+
+                                if ext_data.len() >= 17 {
+                                    he_phy_capabilities.copy_from_slice(&ext_data[6..17]);
+                                }
+
+                                if ext_data.len() >= 21 {
+                                    supported_he_mcs_and_nss_set.copy_from_slice(&ext_data[17..21]);
+                                }
+
+                                let ppet = if ext_data.len() > 21 {
+                                    ext_data[21..].to_vec()
+                                } else {
+                                    Vec::new()
+                                };
+
+                                ParsedElement::HECapabilities(HECapabilitiesElement {
+                                    he_mac_capabilities,
+                                    he_phy_capabilities,
+                                    supported_he_mcs_and_nss_set,
+                                    ppet,
+                                })
+                            } else {
+                                ParsedElement::Unknown(Element::new(element_id, element_data))
+                            }
+                        }
+
+                        1 => {
+                            // HE Operation
+                            if ext_data.len() >= 5 {
+                                let mut he_operation_parameters = [0u8; 3];
+                                he_operation_parameters.copy_from_slice(&ext_data[0..3]);
+
+                                let bss_color_info = ext_data[3];
+                                let basic_he_mcs_and_nss_set =
+                                    u16::from_le_bytes([ext_data[4], ext_data[5]]);
+
+                                // Optional fields
+                                let mut offset = 6;
+                                let mut vht_operation_info = None;
+                                let mut co_hosted_bss = None;
+                                let mut he_6ghz_operation_info = None;
+
+                                // Simplified parsing - actual parsing would check presence bits
+                                if offset < ext_data.len() {
+                                    // Parse optional fields based on presence bits
+                                    // This is a simplified version
+                                }
+
+                                ParsedElement::HEOperation(HEOperationElement {
+                                    he_operation_parameters,
+                                    bss_color_info,
+                                    basic_he_mcs_and_nss_set,
+                                    vht_operation_info,
+                                    co_hosted_bss,
+                                    he_6ghz_operation_info,
+                                })
+                            } else {
+                                ParsedElement::Unknown(Element::new(element_id, element_data))
+                            }
+                        }
+
+                        23 => {
+                            // EHT Capabilities
+                            if ext_data.len() >= 11 {
+                                let mut eht_mac_capabilities = [0u8; 2];
+                                eht_mac_capabilities.copy_from_slice(&ext_data[0..2]);
+
+                                let mut eht_phy_capabilities = [0u8; 9];
+                                eht_phy_capabilities.copy_from_slice(&ext_data[2..11]);
+
+                                // MCS and NSS are variable length
+                                let supported_eht_mcs_and_nss_set = ext_data[11..].to_vec();
+
+                                // PPET is also variable and would follow MCS/NSS
+                                // Simplified version assumes it's not present
+                                let ppet = Vec::new();
+
+                                ParsedElement::EHTCapabilities(EHTCapabilitiesElement {
+                                    eht_mac_capabilities,
+                                    eht_phy_capabilities,
+                                    supported_eht_mcs_and_nss_set,
+                                    ppet,
+                                })
+                            } else {
+                                ParsedElement::Unknown(Element::new(element_id, element_data))
+                            }
+                        }
+
+                        22 => {
+                            // EHT Operation
+                            if ext_data.len() >= 1 {
+                                let parameters = ext_data[0];
+
+                                // Optional fields based on parameters
+                                let disabled_subchannel_bitmap = None;
+                                let operating_channel_width = None;
+
+                                ParsedElement::EHTOperation(EHTOperationElement {
+                                    parameters,
+                                    disabled_subchannel_bitmap,
+                                    operating_channel_width,
+                                })
+                            } else {
+                                ParsedElement::Unknown(Element::new(element_id, element_data))
+                            }
+                        }
+
+                        20 => {
+                            // Multi-Link
+                            if ext_data.len() >= 2 {
+                                let control = u16::from_le_bytes([ext_data[0], ext_data[1]]);
+
+                                // Parse common info length
+                                let common_info_length = (control & 0x00FF) as usize;
+
+                                if ext_data.len() >= 2 + common_info_length {
+                                    let common_info = ext_data[2..2 + common_info_length].to_vec();
+
+                                    // If there's more data, it's link info
+                                    let link_info = if ext_data.len() > 2 + common_info_length {
+                                        Some(ext_data[2 + common_info_length..].to_vec())
+                                    } else {
+                                        None
+                                    };
+
+                                    ParsedElement::MultiLink(MultiLinkElement {
+                                        control,
+                                        common_info,
+                                        link_info,
+                                    })
+                                } else {
+                                    ParsedElement::Unknown(Element::new(element_id, element_data))
+                                }
+                            } else {
+                                ParsedElement::Unknown(Element::new(element_id, element_data))
+                            }
+                        }
+
+                        _ => ParsedElement::Unknown(Element::new(element_id, element_data)),
+                    }
+                } else {
+                    ParsedElement::Unknown(Element::new(element_id, element_data))
+                }
+            }
+
             48 => {
                 // RSN
                 if element_data.len() >= 4 {
@@ -2993,6 +3666,20 @@ fn decode_elements<D: Decoder>(
                         data: element_data[4..].to_vec(),
                     };
                     ParsedElement::VendorSpecific(vendor)
+                } else {
+                    ParsedElement::Unknown(Element::new(element_id, element_data))
+                }
+            }
+            255 => {
+                // Extended Element ID
+                if element_data.len() >= 1 {
+                    let extended_id = element_data[0];
+                    let ext_data = element_data[1..].to_vec();
+
+                    match extended_id {
+                        // For now, just handle as unknown
+                        _ => ParsedElement::Unknown(Element::new(element_id, element_data)),
+                    }
                 } else {
                     ParsedElement::Unknown(Element::new(element_id, element_data))
                 }
@@ -3131,6 +3818,237 @@ fn encode_elements<E: Encoder>(
                 out.push(vendor.vendor_type);
                 out.extend_from_slice(&vendor.data);
             }
+            ParsedElement::Unknown(element) => {
+                out.push(element.id);
+                out.push(element.data.len() as u8);
+                out.extend_from_slice(&element.data);
+            }
+
+            ParsedElement::HTCapabilities(ht) => {
+                out.push(45); // HT Capabilities ID
+                out.push(26); // Length
+                out.extend_from_slice(&ht.ht_capabilities_info.to_le_bytes());
+                out.push(ht.ampdu_parameters);
+                out.extend_from_slice(&ht.supported_mcs_set);
+                out.extend_from_slice(&ht.ht_extended_capabilities.to_le_bytes());
+                out.extend_from_slice(&ht.tx_beam_forming_capabilities.to_le_bytes());
+                out.push(ht.asel_capabilities);
+            }
+
+            ParsedElement::HTOperation(ht_op) => {
+                out.push(61); // HT Operation ID
+                out.push(22); // Length
+                out.push(ht_op.primary_channel);
+                out.extend_from_slice(&ht_op.ht_operation_info);
+                out.extend_from_slice(&ht_op.basic_mcs_set);
+            }
+
+            ParsedElement::VHTCapabilities(vht) => {
+                out.push(191); // VHT Capabilities ID
+                out.push(12); // Length
+                out.extend_from_slice(&vht.vht_capabilities_info.to_le_bytes());
+                out.extend_from_slice(&vht.supported_vht_mcs_and_nss_set.to_le_bytes());
+            }
+
+            ParsedElement::VHTOperation(vht_op) => {
+                out.push(192); // VHT Operation ID
+                out.push(5); // Length
+                out.push(vht_op.channel_width);
+                out.push(vht_op.channel_center_frequency_segment0);
+                out.push(vht_op.channel_center_frequency_segment1);
+                out.extend_from_slice(&vht_op.basic_vht_mcs_and_nss_set.to_le_bytes());
+            }
+
+            ParsedElement::ChannelSwitch(cs) => {
+                out.push(37); // Channel Switch Announcement ID
+                out.push(3); // Length
+                out.push(cs.switch_mode);
+                out.push(cs.new_channel_number);
+                out.push(cs.channel_switch_count);
+            }
+
+            ParsedElement::ExtendedChannelSwitch(ecs) => {
+                out.push(60); // Extended Channel Switch Announcement ID
+                out.push(4); // Length
+                out.push(ecs.switch_mode);
+                out.push(ecs.new_operating_class);
+                out.push(ecs.new_channel_number);
+                out.push(ecs.channel_switch_count);
+            }
+
+            ParsedElement::Quiet(quiet) => {
+                out.push(40); // Quiet ID
+                out.push(6); // Length
+                out.push(quiet.quiet_count);
+                out.push(quiet.quiet_period);
+                out.extend_from_slice(&quiet.quiet_duration.to_le_bytes());
+                out.extend_from_slice(&quiet.quiet_offset.to_le_bytes());
+            }
+
+            ParsedElement::ExtendedCapabilities(ec) => {
+                out.push(127); // Extended Capabilities ID
+                out.push(ec.len() as u8); // Length
+                out.extend_from_slice(&ec);
+            }
+
+            ParsedElement::SupportedOperatingClasses(soc) => {
+                out.push(59); // Supported Operating Classes ID
+                out.push((1 + soc.operating_classes.len()) as u8); // Length
+                out.push(soc.current_operating_class);
+                out.extend_from_slice(&soc.operating_classes);
+            }
+
+            ParsedElement::WideBandwidthChannelSwitch(wbcs) => {
+                out.push(194); // Wide Bandwidth Channel Switch ID
+                out.push(3); // Length
+                out.push(wbcs.new_channel_width);
+                out.push(wbcs.new_channel_center_frequency_segment0);
+                out.push(wbcs.new_channel_center_frequency_segment1);
+            }
+
+            ParsedElement::VHTTransmitPowerEnvelope(tpe) => {
+                out.push(195); // VHT Transmit Power Envelope ID
+                out.push((1 + tpe.max_transmit_power.len()) as u8); // Length
+                out.push(tpe.transmit_power_info);
+                out.extend_from_slice(&tpe.max_transmit_power);
+            }
+
+            ParsedElement::ReducedNeighborReport(rnr) => {
+                out.push(201); // Reduced Neighbor Report ID
+                let mut data = Vec::new();
+
+                for tuple in &rnr.neighbor_ap_tbtt_offset_tuples {
+                    data.push(tuple.tbtt_information_header);
+                    data.extend_from_slice(&tuple.neighbor_ap_information);
+                }
+
+                out.push(data.len() as u8); // Length
+                out.extend_from_slice(&data);
+            }
+
+            ParsedElement::TransmitPowerEnvelope(tpe) => {
+                out.push(195); // Transmit Power Envelope ID
+                out.push((1 + tpe.power_constraints.len()) as u8); // Length
+                out.push(tpe.power_info);
+                out.extend_from_slice(&tpe.power_constraints);
+            }
+
+            ParsedElement::HECapabilities(he_caps) => {
+                out.push(255); // Extended Element ID
+
+                // Calculate length
+                let mut length = 1 + 6 + 11 + 4 + he_caps.ppet.len(); // ext_id + mac + phy + mcs + ppet
+
+                out.push(length as u8); // Length
+                out.push(0); // HE Capabilities ext_id
+
+                out.extend_from_slice(&he_caps.he_mac_capabilities);
+                out.extend_from_slice(&he_caps.he_phy_capabilities);
+                out.extend_from_slice(&he_caps.supported_he_mcs_and_nss_set);
+                out.extend_from_slice(&he_caps.ppet);
+            }
+
+            ParsedElement::HEOperation(he_op) => {
+                out.push(255); // Extended Element ID
+
+                // Calculate base length
+                let mut length = 1 + 3 + 1 + 2; // ext_id + params + bss_color + mcs
+
+                // Add lengths of optional fields
+                if let Some(vht_op) = &he_op.vht_operation_info {
+                    length += vht_op.len();
+                }
+                if let Some(co_hosted) = &he_op.co_hosted_bss {
+                    length += co_hosted.len();
+                }
+                if let Some(he_6ghz) = &he_op.he_6ghz_operation_info {
+                    length += he_6ghz.len();
+                }
+
+                out.push(length as u8); // Length
+                out.push(1); // HE Operation ext_id
+
+                out.extend_from_slice(&he_op.he_operation_parameters);
+                out.push(he_op.bss_color_info);
+                out.extend_from_slice(&he_op.basic_he_mcs_and_nss_set.to_le_bytes());
+
+                // Add optional fields
+                if let Some(vht_op) = &he_op.vht_operation_info {
+                    out.extend_from_slice(vht_op);
+                }
+                if let Some(co_hosted) = &he_op.co_hosted_bss {
+                    out.extend_from_slice(co_hosted);
+                }
+                if let Some(he_6ghz) = &he_op.he_6ghz_operation_info {
+                    out.extend_from_slice(he_6ghz);
+                }
+            }
+
+            ParsedElement::EHTCapabilities(eht_caps) => {
+                out.push(255); // Extended Element ID
+
+                // Calculate length
+                let mut length =
+                    1 + 2 + 9 + eht_caps.supported_eht_mcs_and_nss_set.len() + eht_caps.ppet.len();
+
+                out.push(length as u8); // Length
+                out.push(23); // EHT Capabilities ext_id
+
+                out.extend_from_slice(&eht_caps.eht_mac_capabilities);
+                out.extend_from_slice(&eht_caps.eht_phy_capabilities);
+                out.extend_from_slice(&eht_caps.supported_eht_mcs_and_nss_set);
+                out.extend_from_slice(&eht_caps.ppet);
+            }
+
+            ParsedElement::EHTOperation(eht_op) => {
+                out.push(255); // Extended Element ID
+
+                // Calculate base length
+                let mut length = 1 + 1; // ext_id + params
+
+                // Add lengths of optional fields
+                if let Some(disabled) = &eht_op.disabled_subchannel_bitmap {
+                    length += disabled.len();
+                }
+                if let Some(width) = &eht_op.operating_channel_width {
+                    length += width.len();
+                }
+
+                out.push(length as u8); // Length
+                out.push(22); // EHT Operation ext_id
+
+                out.push(eht_op.parameters);
+
+                // Add optional fields
+                if let Some(disabled) = &eht_op.disabled_subchannel_bitmap {
+                    out.extend_from_slice(disabled);
+                }
+                if let Some(width) = &eht_op.operating_channel_width {
+                    out.extend_from_slice(width);
+                }
+            }
+
+            ParsedElement::MultiLink(ml) => {
+                out.push(255); // Extended Element ID
+
+                // Calculate length
+                let mut length = 1 + 2 + ml.common_info.len(); // ext_id + control + common_info
+                if let Some(link_info) = &ml.link_info {
+                    length += link_info.len();
+                }
+
+                out.push(length as u8); // Length
+                out.push(20); // Multi-Link ext_id
+
+                out.extend_from_slice(&ml.control.to_le_bytes());
+                out.extend_from_slice(&ml.common_info);
+
+                if let Some(link_info) = &ml.link_info {
+                    out.extend_from_slice(link_info);
+                }
+            }
+
+            // Keep this final case for unknown elements
             ParsedElement::Unknown(element) => {
                 out.push(element.id);
                 out.push(element.data.len() as u8);
