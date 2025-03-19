@@ -2207,14 +2207,14 @@ pub struct Dot11BlockAck {
 }
 
 // IEEE 802.11 Data Frame Implementation
-#[derive(Default, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-// #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-// #[nproto(encode_suppress)]
+// #[derive(Default, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(encode_suppress)]
 pub struct Dot11Data {
     pub addr4: Option<Value<MacAddr>>, // Only present if ToDS and FromDS are both set
-    // #[nproto(encode = encode_qos_control, decode = decode_qos_control)]
+    #[nproto(encode = encode_qos_control, decode = decode_qos_control)]
     pub qos_control: Option<Value<u16>>, // Only present in QoS data frames
-    // #[nproto(encode = encode_ht_control, decode = decode_ht_control)]
+    #[nproto(encode = encode_ht_control, decode = decode_ht_control)]
     pub ht_control: Option<Value<u32>>, // Only present if Order bit is set
     pub payload: Vec<u8>,               // Data payload
 }
@@ -2491,8 +2491,7 @@ pub fn decode_dot11_frame(buf: &[u8]) -> Option<(LayerStack, usize)> {
                             data.payload = buf[offset + data_offset..].to_vec();
                         }
 
-                        // FIXME dot11_decoded.layers.push(Box::new(data));
-                        todo!();
+                        dot11_decoded.layers.push(Box::new(data));
                         offset = buf.len(); // We've consumed the entire buffer
                     }
 
