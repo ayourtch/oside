@@ -33,7 +33,7 @@ fn main() {
         let try_radiotap = p.data[0] == 0 && p.data[1] == 0;
 
         let pkt = if try_radiotap {
-            decode_802_11_frame(&p.data, false).unwrap().0
+            decode_802_11_frame(&p.data).unwrap().0
         } else {
             Ether!().ldecode(&p.data).unwrap().0
         };

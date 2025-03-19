@@ -55,7 +55,7 @@ pub fn scan_pcap_for_networks(pcap_data: &[u8]) -> Vec<NetworkInfo> {
         let packet_data = &pcap_data[current_pos..current_pos + incl_len];
 
         // Try to decode as 802.11 frame
-        if let Some((stack, _)) = decode_802_11_frame(packet_data, false) {
+        if let Some((stack, _)) = decode_802_11_frame(packet_data) {
             // Look for beacon frames
             if let Some(beacon) = stack.get_layer(Dot11Beacon::default()) {
                 if let Some(dot11) = stack.get_layer(Dot11::default()) {
@@ -299,7 +299,7 @@ pub fn create_wpa2_beacon(
 pub fn print_packet_details(packet_data: &[u8]) -> String {
     let mut output = String::new();
 
-    if let Some((stack, _)) = decode_802_11_frame(packet_data, true) {
+    if let Some((stack, _)) = decode_802_11_frame(packet_data) {
         // Print Radiotap header if present
         if let Some(radiotap) = stack.get_layer(Radiotap::default()) {
             output.push_str("Radiotap Header:\n");
@@ -2147,6 +2147,8 @@ pub struct Dot11Action {
 pub struct Radiotap {
     pub version: Value<u8>,
     pub pad: Value<u8>,
+    #[nproto(encode = Skip, decode = Skip)]
+    pub has_fcs: bool,
     #[nproto(encode = encode_radiotap_length, decode = decode_radiotap_length)]
     pub length: Value<u16>,
     #[nproto(encode = encode_radiotap_present, decode = decode_radiotap_present)]
@@ -2343,6 +2345,9 @@ fn decode_radiotap_fields<D: Decoder>(
                     // FLAGS
                     if offset < radiotap_len {
                         fields.push(RadiotapField::Flags(buf[offset]));
+                        if buf[offset] & 0x10 != 0 {
+                            me.has_fcs = true;
+                        }
                         offset += 1;
                     }
                 }
@@ -2587,12 +2592,13 @@ pub struct Dot11FCS {
 }
 
 // Decode a complete 802.11 frame from a raw buffer (possibly with radiotap header and FCS)
-pub fn decode_802_11_frame(buf: &[u8], has_fcs: bool) -> Option<(LayerStack, usize)> {
+pub fn decode_802_11_frame(buf: &[u8]) -> Option<(LayerStack, usize)> {
     let mut offset = 0;
     let mut stack = LayerStack {
         layers: Vec::new(),
         filled: true,
     };
+    let mut has_fcs = false;
 
     // First, check if we have a radiotap header
     if buf.len() >= 4 && buf[0] == 0x00 && buf[1] == 0x00 {
@@ -2602,6 +2608,7 @@ pub fn decode_802_11_frame(buf: &[u8], has_fcs: bool) -> Option<(LayerStack, usi
         {
             // radiotap.decode_with_decoder::<BinaryBigEndian>(&buf) {
             // println!("RADIOTAP: {:?}", &radiotap_decoded);
+            has_fcs = radiotap_decoded.has_fcs;
             stack.layers.push(Box::new(radiotap_decoded));
             offset += radiotap_offset;
         } else {
