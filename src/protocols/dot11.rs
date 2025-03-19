@@ -1,3 +1,7 @@
+/*
+Warning: This protocol is a work in progress. The results may vary.
+*/
+
 use crate::encdec::binary_little_endian::BinaryLittleEndian;
 
 // Scan a PCAP file for 802.11 beacon frames and return a list of networks
