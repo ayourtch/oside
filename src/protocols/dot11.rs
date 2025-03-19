@@ -1361,7 +1361,7 @@ pub enum ElementID {
     HoppingParameterSet = 8,
     HoppingPatternTable = 9,
     Request = 10,
-    BSSSwitchTime = 11,
+    QBSSLoad = 11,
     EBSSSwitchAnnouncement = 12,
     Challenge = 16,
     PowerConstraint = 32,
@@ -1550,7 +1550,7 @@ pub enum ParsedElement {
     PowerConstraint(u8),
     TPCReport(TPCReportElement),
     MobilityDomain(MobilityDomainElement),
-    BSSSwitchTime(BSSSwitchTimeElement),
+    QBSSLoad(QBSSLoadElement),
     RMEnabledCapabilities(RMEnabledCapabilitiesElement),
     DMGCapabilities(DMGCapabilitiesElement),
     FineTiming(FineTimingElement),
@@ -1973,9 +1973,10 @@ pub struct MobilityDomainElement {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BSSSwitchTimeElement {
-    pub switch_time: u16,
-    pub switch_count: u8,
+pub struct QBSSLoadElement {
+    pub station_count: u16,
+    pub channel_utilization: u8,
+    pub available_admission_capacity: u16,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -3926,12 +3927,17 @@ fn decode_elements<D: Decoder>(
                 }
             }
             11 => {
-                // BSS Switch Time
-                if element_data.len() >= 3 {
-                    let switch_time = u16::from_le_bytes([element_data[0], element_data[1]]);
-                    ParsedElement::BSSSwitchTime(BSSSwitchTimeElement {
-                        switch_time,
-                        switch_count: element_data[2],
+                // QBSS Load Element
+                if element_data.len() >= 5 {
+                    let station_count = u16::from_le_bytes([element_data[0], element_data[1]]);
+                    let channel_utilization = element_data[2];
+                    let available_admission_capacity =
+                        u16::from_le_bytes([element_data[3], element_data[4]]);
+
+                    ParsedElement::QBSSLoad(QBSSLoadElement {
+                        station_count,
+                        channel_utilization,
+                        available_admission_capacity,
                     })
                 } else {
                     ParsedElement::Unknown(Element::new(element_id, element_data))
@@ -4349,11 +4355,12 @@ fn encode_elements<E: Encoder>(
                 out.extend_from_slice(&md.mdid.to_le_bytes());
                 out.push(md.flags);
             }
-            ParsedElement::BSSSwitchTime(bst) => {
-                out.push(11); // BSS Switch Time ID
-                out.push(3); // Length
-                out.extend_from_slice(&bst.switch_time.to_le_bytes());
-                out.push(bst.switch_count);
+            ParsedElement::QBSSLoad(qbss) => {
+                out.push(11); // QBSS Load ID
+                out.push(5); // Length
+                out.extend_from_slice(&qbss.station_count.to_le_bytes());
+                out.push(qbss.channel_utilization);
+                out.extend_from_slice(&qbss.available_admission_capacity.to_le_bytes());
             }
             ParsedElement::RMEnabledCapabilities(rmcs) => {
                 out.push(70); // RM Enabled Capabilities ID
