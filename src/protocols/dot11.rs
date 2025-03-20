@@ -418,8 +418,14 @@ pub fn print_packet_details(packet_data: &[u8]) -> String {
 
             output.push_str(&format!("  Duration: {} μs\n", dot11.duration.value()));
             output.push_str(&format!("  Address 1: {}\n", dot11.addr1.value()));
-            output.push_str(&format!("  Address 2: {}\n", dot11.addr2.as_ref().unwrap().value()));
-            output.push_str(&format!("  Address 3: {}\n", dot11.addr3.as_ref().unwrap().value()));
+            output.push_str(&format!(
+                "  Address 2: {}\n",
+                dot11.addr2.as_ref().unwrap().value()
+            ));
+            output.push_str(&format!(
+                "  Address 3: {}\n",
+                dot11.addr3.as_ref().unwrap().value()
+            ));
 
             let seq_num = (dot11.seq_control.as_ref().unwrap().value() >> 4) & 0x0FFF;
             let frag_num = dot11.seq_control.as_ref().unwrap().value() & 0x000F;
@@ -2009,7 +2015,7 @@ pub struct Dot11 {
     #[nproto(encode = encode_frame_control, decode = decode_frame_control)]
     pub frame_control: Value<FrameControl>,
     pub duration: Value<u16>,
-    pub addr1: Value<MacAddr>, // Destination
+    pub addr1: Value<MacAddr>,         // Destination
     pub addr2: Option<Value<MacAddr>>, // Source
     pub addr3: Option<Value<MacAddr>>, // BSSID
     #[nproto(encode = encode_seq_control, decode = decode_seq_control)]
@@ -2044,10 +2050,19 @@ fn encode_seq_control<E: Encoder>(
     my_index: usize,
     encoded_layers: &EncodingVecVec,
 ) -> Vec<u8> {
-    my_layer.seq_control.as_ref().unwrap().value().encode::<BinaryLittleEndian>()
+    my_layer
+        .seq_control
+        .as_ref()
+        .unwrap()
+        .value()
+        .encode::<BinaryLittleEndian>()
 }
 
-fn decode_seq_control<D: Decoder>(buf: &[u8], ci: usize, me: &mut Dot11) -> Option<(Option<Value<u16>>, usize)> {
+fn decode_seq_control<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut Dot11,
+) -> Option<(Option<Value<u16>>, usize)> {
     let buf = &buf[ci..];
     Option::<Value<u16>>::decode::<BinaryLittleEndian>(buf)
 }
