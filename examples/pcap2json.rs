@@ -32,10 +32,13 @@ fn main() {
         // println!("data: {:02x?}", &p.data);
         let try_radiotap = p.data[0] == 0 && p.data[1] == 0;
 
-        let pkt = if try_radiotap {
-            decode_802_11_frame(&p.data).unwrap().0
-        } else {
-            Ether!().ldecode(&p.data).unwrap().0
+        let pkt = match pcap.d.network.value() {
+            // 802.11
+            105 => decode_802_11_frame(&p.data).unwrap().0,
+            // RadioTap + 802.11
+            127 => decode_802_11_frame(&p.data).unwrap().0,
+            1 => Ether!().ldecode(&p.data).unwrap().0,
+            x => panic!("network type {} not implemented!", x),
         };
         let j = serde_json::to_string(&pkt.layers).unwrap();
         println!("{}", j);
