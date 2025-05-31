@@ -590,6 +590,137 @@ impl Asn1Encoder {
 
         bytes
     }
+
+    pub fn encode_context_tag(tag: u8, data: &[u8]) -> Vec<u8> {
+        let mut result = Vec::new();
+
+        // Context-specific tag (class 10, primitive/constructed based on data)
+        let tag_byte = 0x80 | tag; // Context-specific, primitive
+        result.push(tag_byte);
+
+        // Encode length
+        if data.len() < 0x80 {
+            result.push(data.len() as u8);
+        } else {
+            // Long form length encoding
+            let len_bytes = if data.len() < 0x100 {
+                vec![data.len() as u8]
+            } else if data.len() < 0x10000 {
+                vec![(data.len() >> 8) as u8, data.len() as u8]
+            } else {
+                vec![
+                    (data.len() >> 16) as u8,
+                    (data.len() >> 8) as u8,
+                    data.len() as u8,
+                ]
+            };
+
+            result.push(0x80 | len_bytes.len() as u8);
+            result.extend(len_bytes);
+        }
+
+        // Add the data
+        result.extend_from_slice(data);
+        result
+    }
+
+    pub fn encode_sequence(data: &[u8]) -> Vec<u8> {
+        let mut result = Vec::new();
+        result.push(0x30); // SEQUENCE tag
+
+        // Encode length
+        if data.len() < 0x80 {
+            result.push(data.len() as u8);
+        } else {
+            // Long form length encoding
+            let len_bytes = if data.len() < 0x100 {
+                vec![data.len() as u8]
+            } else if data.len() < 0x10000 {
+                vec![(data.len() >> 8) as u8, data.len() as u8]
+            } else {
+                vec![
+                    (data.len() >> 16) as u8,
+                    (data.len() >> 8) as u8,
+                    data.len() as u8,
+                ]
+            };
+
+            result.push(0x80 | len_bytes.len() as u8);
+            result.extend(len_bytes);
+        }
+
+        result.extend_from_slice(data);
+        result
+    }
+
+    pub fn encode_integer(value: i64) -> Vec<u8> {
+        let mut result = Vec::new();
+        result.push(0x02); // INTEGER tag
+
+        // Convert to minimal bytes representation
+        let bytes = if value == 0 {
+            vec![0]
+        } else if value > 0 {
+            let mut bytes = Vec::new();
+            let mut val = value as u64;
+            while val > 0 {
+                bytes.insert(0, (val & 0xFF) as u8);
+                val >>= 8;
+            }
+            // If high bit is set, prepend 0x00 to indicate positive
+            if bytes[0] & 0x80 != 0 {
+                bytes.insert(0, 0x00);
+            }
+            bytes
+        } else {
+            // Handle negative numbers (two's complement)
+            let mut bytes = Vec::new();
+            let mut val = value as u64;
+            while val != 0xFFFFFFFFFFFFFFFF || bytes.is_empty() {
+                bytes.insert(0, (val & 0xFF) as u8);
+                val >>= 8;
+            }
+            // If high bit is not set, prepend 0xFF to indicate negative
+            if bytes[0] & 0x80 == 0 {
+                bytes.insert(0, 0xFF);
+            }
+            bytes
+        };
+
+        // Encode length
+        result.push(bytes.len() as u8);
+        result.extend(bytes);
+        result
+    }
+
+    pub fn encode_octetstring(data: &[u8]) -> Vec<u8> {
+        let mut result = Vec::new();
+        result.push(0x04); // OCTET STRING tag
+
+        // Encode length
+        if data.len() < 0x80 {
+            result.push(data.len() as u8);
+        } else {
+            // Long form length encoding
+            let len_bytes = if data.len() < 0x100 {
+                vec![data.len() as u8]
+            } else if data.len() < 0x10000 {
+                vec![(data.len() >> 8) as u8, data.len() as u8]
+            } else {
+                vec![
+                    (data.len() >> 16) as u8,
+                    (data.len() >> 8) as u8,
+                    data.len() as u8,
+                ]
+            };
+
+            result.push(0x80 | len_bytes.len() as u8);
+            result.extend(len_bytes);
+        }
+
+        result.extend_from_slice(data);
+        result
+    }
 }
 
 impl Encoder for Asn1Encoder {
