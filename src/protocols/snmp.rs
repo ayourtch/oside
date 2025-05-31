@@ -29,8 +29,10 @@ impl From<&str> for Community {
 
 impl Distribution<Community> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Community {
-        panic!("FIXME!");
-        Community(vec![])
+        // Generate a random community string (typically "public" or "private" for testing)
+        let communities = ["public", "private", "test", "community"];
+        let idx = rng.gen_range(0..communities.len());
+        Community(communities[idx].to_string().into_bytes())
     }
 }
 
@@ -60,8 +62,14 @@ impl FromStr for BerTagAndLen {
     type Err = ValueParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        panic!("FIXME");
-        Err(ValueParseError::Error)
+        // Parse format like "tag:length" or just use defaults
+        if let Some((tag_str, len_str)) = s.split_once(':') {
+            if let (Ok(tag_num), Ok(len)) = (tag_str.parse::<u8>(), len_str.parse::<usize>()) {
+                return Ok(BerTagAndLen(asn1::Tag::UnknownTag(tag_num), len));
+            }
+        }
+        // Default to sequence with length 0
+        Ok(BerTagAndLen(asn1::Tag::Sequence, 0))
     }
 }
 
@@ -73,8 +81,16 @@ impl From<&[u8; 6]> for BerTagAndLen {
 
 impl Distribution<BerTagAndLen> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> BerTagAndLen {
-        panic!("FIXME!");
-        BerTagAndLen::default()
+        // Generate random tag and length for testing
+        let tags = [
+            asn1::Tag::Sequence,
+            asn1::Tag::Integer,
+            asn1::Tag::OctetString,
+            asn1::Tag::Boolean,
+        ];
+        let tag = tags[rng.gen_range(0..tags.len())].clone();
+        let len = rng.gen_range(0..256);
+        BerTagAndLen(tag, len)
     }
 }
 
@@ -102,8 +118,32 @@ impl FromStr for BerTag {
     type Err = ValueParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        panic!("FIXME");
-        Err(ValueParseError::Error)
+        // Parse common SNMP tags by name or number
+        match s.to_lowercase().as_str() {
+            "sequence" => Ok(BerTag(asn1::Tag::Sequence)),
+            "integer" => Ok(BerTag(asn1::Tag::Integer)),
+            "octetstring" => Ok(BerTag(asn1::Tag::OctetString)),
+            "boolean" => Ok(BerTag(asn1::Tag::Boolean)),
+            "null" => Ok(BerTag(asn1::Tag::Null)),
+            "oid" => Ok(BerTag(asn1::Tag::ObjectIdentifier)),
+            // SNMP PDU types
+            "get" => Ok(BerTag(asn1::Tag::UnknownTag(160))), // 0xa0
+            "getnext" => Ok(BerTag(asn1::Tag::UnknownTag(161))), // 0xa1
+            "response" => Ok(BerTag(asn1::Tag::UnknownTag(162))), // 0xa2
+            "set" => Ok(BerTag(asn1::Tag::UnknownTag(163))), // 0xa3
+            "trap" => Ok(BerTag(asn1::Tag::UnknownTag(164))), // 0xa4
+            "getbulk" => Ok(BerTag(asn1::Tag::UnknownTag(165))), // 0xa5
+            "inform" => Ok(BerTag(asn1::Tag::UnknownTag(166))), // 0xa6
+            "trapv2" => Ok(BerTag(asn1::Tag::UnknownTag(167))), // 0xa7
+            _ => {
+                // Try to parse as number
+                if let Ok(tag_num) = s.parse::<u8>() {
+                    Ok(BerTag(asn1::Tag::UnknownTag(tag_num)))
+                } else {
+                    Err(ValueParseError::Error)
+                }
+            }
+        }
     }
 }
 
@@ -115,8 +155,10 @@ impl From<&[u8; 6]> for BerTag {
 
 impl Distribution<BerTag> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> BerTag {
-        panic!("FIXME!");
-        BerTag::default()
+        // Generate random SNMP PDU tags for testing
+        let tags = [160, 161, 162, 163, 164, 165, 166, 167]; // SNMP PDU types
+        let tag = tags[rng.gen_range(0..tags.len())];
+        BerTag(asn1::Tag::UnknownTag(tag))
     }
 }
 
@@ -140,8 +182,10 @@ impl FromStr for BerLen {
     type Err = ValueParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        panic!("FIXME");
-        Err(ValueParseError::Error)
+        match s.parse::<usize>() {
+            Ok(len) => Ok(BerLen(len)),
+            Err(_) => Err(ValueParseError::Error),
+        }
     }
 }
 
@@ -153,8 +197,8 @@ impl From<&[u8; 6]> for BerLen {
 
 impl Distribution<BerLen> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> BerLen {
-        panic!("FIXME!");
-        BerLen::default()
+        // Generate reasonable length values for testing
+        BerLen(rng.gen_range(0..1024))
     }
 }
 
@@ -327,34 +371,50 @@ impl FromStr for BerOid {
     type Err = ValueParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        //Ok(BerOid(s.to_string().into_bytes()))
-        panic!("FIXME");
-        Ok(Self::default())
+        // Parse dotted decimal notation like "1.3.6.1.2.1.1.1.0"
+        let parts: Result<Vec<u64>, _> = s.split('.').map(|part| part.parse::<u64>()).collect();
+        match parts {
+            Ok(mut oid_parts) => {
+                if oid_parts.len() < 2 {
+                    return Err(ValueParseError::Error);
+                }
+                // First two components are encoded as first_part * 40 + second_part
+                let first_encoded = oid_parts[0] * 40 + oid_parts[1];
+                oid_parts[0] = first_encoded;
+                oid_parts.remove(1);
+                Ok(BerOid(oid_parts))
+            }
+            Err(_) => Err(ValueParseError::Error),
+        }
     }
 }
 
 impl From<&[u8; 6]> for BerOid {
     fn from(arg: &[u8; 6]) -> Self {
-        panic!("FIXME");
-        Self::default()
-    }
-}
-impl From<&str> for BerOid {
-    fn from(arg: &str) -> Self {
-        let mut dotted_val: Vec<u64> = arg
-            .split(".")
-            .map(|x| x.to_string().parse().unwrap())
-            .collect();
-        dotted_val[0] = dotted_val[0] * 40 + dotted_val[1];
-        dotted_val.remove(1);
-        Self(dotted_val)
+        // Convert 6 bytes to a basic OID (not very meaningful, but for compatibility)
+        let oid = vec![
+            arg[0] as u64 * 40 + arg[1] as u64,
+            arg[2] as u64,
+            arg[3] as u64,
+            arg[4] as u64,
+            arg[5] as u64,
+        ];
+        BerOid(oid)
     }
 }
 
 impl Distribution<BerOid> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> BerOid {
-        panic!("FIXME!");
-        BerOid(vec![])
+        // Generate common SNMP OIDs for testing
+        let common_oids = [
+            vec![43, 6, 1, 2, 1, 1, 1, 0], // 1.3.6.1.2.1.1.1.0 (sysDescr)
+            vec![43, 6, 1, 2, 1, 1, 2, 0], // 1.3.6.1.2.1.1.2.0 (sysObjectID)
+            vec![43, 6, 1, 2, 1, 1, 3, 0], // 1.3.6.1.2.1.1.3.0 (sysUpTime)
+            vec![43, 6, 1, 2, 1, 1, 4, 0], // 1.3.6.1.2.1.1.4.0 (sysContact)
+            vec![43, 6, 1, 2, 1, 1, 5, 0], // 1.3.6.1.2.1.1.5.0 (sysName)
+        ];
+        let idx = rng.gen_range(0..common_oids.len());
+        BerOid(common_oids[idx].clone())
     }
 }
 
@@ -383,30 +443,86 @@ impl FromStr for BerValue {
     type Err = ValueParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        //Ok(BerValue(s.to_string().into_bytes()))
-        panic!("FIXME");
-        Ok(Self::default())
+        // Parse different value types based on prefix or content
+        if s.starts_with("int:") {
+            if let Ok(val) = s[4..].parse::<i64>() {
+                return Ok(BerValue(asn1::ASN1Object {
+                    tag: asn1::Tag::Integer,
+                    value: asn1::Value::Integer(val),
+                }));
+            }
+        } else if s.starts_with("str:") {
+            return Ok(BerValue(asn1::ASN1Object {
+                tag: asn1::Tag::OctetString,
+                value: asn1::Value::OctetString(s[4..].as_bytes().to_vec()),
+            }));
+        } else if s == "null" {
+            return Ok(BerValue(asn1::ASN1Object {
+                tag: asn1::Tag::Null,
+                value: asn1::Value::Null,
+            }));
+        } else if s.starts_with("oid:") {
+            // Parse OID value
+            if let Ok(ber_oid) = BerOid::from_str(&s[4..]) {
+                return Ok(BerValue(asn1::ASN1Object {
+                    tag: asn1::Tag::ObjectIdentifier,
+                    value: asn1::Value::ObjectIdentifier(ber_oid.0),
+                }));
+            }
+        } else {
+            // Try to parse as integer by default
+            if let Ok(val) = s.parse::<i64>() {
+                return Ok(BerValue(asn1::ASN1Object {
+                    tag: asn1::Tag::Integer,
+                    value: asn1::Value::Integer(val),
+                }));
+            }
+        }
+        Err(ValueParseError::Error)
     }
 }
 
 impl From<&[u8; 6]> for BerValue {
     fn from(arg: &[u8; 6]) -> Self {
-        panic!("FIXME");
-        Self::default()
+        // Convert bytes to octet string value
+        BerValue(asn1::ASN1Object {
+            tag: asn1::Tag::OctetString,
+            value: asn1::Value::OctetString(arg.to_vec()),
+        })
     }
 }
+
 impl From<&str> for BerValue {
     fn from(arg: &str) -> Self {
-        panic!("FIXME");
-        // BerValue(arg.to_string().into_bytes())
-        Self::default()
+        // Convert string to octet string value
+        BerValue(asn1::ASN1Object {
+            tag: asn1::Tag::OctetString,
+            value: asn1::Value::OctetString(arg.as_bytes().to_vec()),
+        })
     }
 }
 
 impl Distribution<BerValue> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> BerValue {
-        panic!("FIXME!");
-        BerValue(Default::default())
+        // Generate different types of values for testing
+        match rng.gen_range(0..4) {
+            0 => BerValue(asn1::ASN1Object {
+                tag: asn1::Tag::Integer,
+                value: asn1::Value::Integer(rng.gen_range(-1000..1000)),
+            }),
+            1 => BerValue(asn1::ASN1Object {
+                tag: asn1::Tag::OctetString,
+                value: asn1::Value::OctetString(b"test string".to_vec()),
+            }),
+            2 => BerValue(asn1::ASN1Object {
+                tag: asn1::Tag::Null,
+                value: asn1::Value::Null,
+            }),
+            _ => BerValue(asn1::ASN1Object {
+                tag: asn1::Tag::ObjectIdentifier,
+                value: asn1::Value::ObjectIdentifier(vec![43, 6, 1, 2, 1, 1, 1, 0]),
+            }),
+        }
     }
 }
 
@@ -438,35 +554,68 @@ impl FromStr for SnmpValue {
     type Err = ValueParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Null" => return Ok(SnmpValue::Null),
-            x => {
-                panic!("FIXME: {}", s);
+        match s.to_lowercase().as_str() {
+            "null" => Ok(SnmpValue::Null),
+            _ => {
+                // Try different prefixes for typed values
+                if s.starts_with("int:") {
+                    if let Ok(val) = s[4..].parse::<i32>() {
+                        return Ok(SnmpValue::SimpleInt32(val));
+                    }
+                } else if s.starts_with("timeticks:") {
+                    if let Ok(val) = s[10..].parse::<u32>() {
+                        return Ok(SnmpValue::Timeticks(val));
+                    }
+                } else if s.starts_with("counter64:") {
+                    if let Ok(val) = s[10..].parse::<u64>() {
+                        return Ok(SnmpValue::Counter64(val));
+                    }
+                } else {
+                    // Try to parse as integer by default
+                    if let Ok(val) = s.parse::<i32>() {
+                        return Ok(SnmpValue::SimpleInt32(val));
+                    }
+                }
+                Err(ValueParseError::Error)
             }
         }
-        //Ok(SnmpValue(s.to_string().into_bytes()))
-        Ok(Self::default())
     }
 }
 
 impl From<&[u8; 6]> for SnmpValue {
     fn from(arg: &[u8; 6]) -> Self {
-        panic!("FIXME");
-        Self::default()
+        // Convert MAC address bytes to SNMP OctetString value
+        // This preserves all 6 bytes of the MAC address
+        SnmpValue::Unknown(asn1::ASN1Object {
+            tag: asn1::Tag::OctetString,
+            value: asn1::Value::OctetString(arg.to_vec()),
+        })
     }
 }
+
 impl From<&str> for SnmpValue {
     fn from(arg: &str) -> Self {
-        panic!("FIXME");
-        // SnmpValue(arg.to_string().into_bytes())
-        Self::default()
+        // Try to parse from string
+        match SnmpValue::from_str(arg) {
+            Ok(val) => val,
+            Err(_) => SnmpValue::Null,
+        }
     }
 }
 
 impl Distribution<SnmpValue> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> SnmpValue {
-        panic!("FIXME!");
-        Default::default()
+        // Generate different SNMP value types for testing
+        match rng.gen_range(0..5) {
+            0 => SnmpValue::Null,
+            1 => SnmpValue::SimpleInt32(rng.gen_range(-1000..1000)),
+            2 => SnmpValue::Timeticks(rng.gen()),
+            3 => SnmpValue::Counter64(rng.gen()),
+            _ => SnmpValue::Unknown(asn1::ASN1Object {
+                tag: asn1::Tag::OctetString,
+                value: asn1::Value::OctetString(b"random data".to_vec()),
+            }),
+        }
     }
 }
 
