@@ -3012,3 +3012,389 @@ fn format_asn1_object(obj: &ASN1Object, indent: usize) -> String {
         }
     }
 }
+
+// First, add these dependencies to your Cargo.toml:
+// [dependencies]
+// md-5 = "0.10"
+// sha1 = "0.10" 
+// hmac = "0.12"
+// aes = "0.8"
+// des = "0.8"
+// cbc = "0.1"
+// rand = "0.8"
+
+// Add this new module to your snmp.rs file (at the end, before the tests section):
+
+/// USM Authentication and Privacy algorithms
+pub mod usm_crypto {
+    use super::*;
+    use hmac::{Hmac, Mac};
+    use md5::Md5;
+    use sha1::Sha1;
+    
+    type HmacMd5 = Hmac<Md5>;
+    type HmacSha1 = Hmac<Sha1>;
+    
+    /// Authentication algorithms supported by USM
+    #[derive(Debug, Clone, PartialEq)]
+    pub enum AuthAlgorithm {
+        None,
+        HmacMd5,
+        HmacSha1,
+    }
+    
+    /// Privacy (encryption) algorithms supported by USM
+    #[derive(Debug, Clone, PartialEq)]
+    pub enum PrivAlgorithm {
+        None,
+        DesCbc,
+        Aes128,
+    }
+    
+    impl AuthAlgorithm {
+        /// Get the digest length for this authentication algorithm
+        pub fn digest_length(&self) -> usize {
+            match self {
+                AuthAlgorithm::None => 0,
+                AuthAlgorithm::HmacMd5 => 16,
+                AuthAlgorithm::HmacSha1 => 20,
+            }
+        }
+        
+        /// Get the truncated authentication parameter length (first 12 bytes)
+        pub fn auth_param_length(&self) -> usize {
+            match self {
+                AuthAlgorithm::None => 0,
+                AuthAlgorithm::HmacMd5 | AuthAlgorithm::HmacSha1 => 12,
+            }
+        }
+        
+        /// Derive the authentication key from a password using the algorithm's KDF
+        pub fn derive_key(&self, password: &str, engine_id: &[u8]) -> Result<Vec<u8>, String> {
+            match self {
+                AuthAlgorithm::None => Ok(vec![]),
+                AuthAlgorithm::HmacMd5 => self.password_to_key_md5(password, engine_id),
+                AuthAlgorithm::HmacSha1 => self.password_to_key_sha1(password, engine_id),
+            }
+        }
+        
+        /// Generate HMAC authentication parameters
+        pub fn generate_auth_params(&self, key: &[u8], message: &[u8]) -> Result<Vec<u8>, String> {
+            match self {
+                AuthAlgorithm::None => Ok(vec![]),
+                AuthAlgorithm::HmacMd5 => {
+                    let mut mac = HmacMd5::new_from_slice(key)
+                        .map_err(|e| format!("Invalid key length for HMAC-MD5: {}", e))?;
+                    mac.update(message);
+                    let result = mac.finalize();
+                    let digest = result.into_bytes();
+                    Ok(digest[..12].to_vec()) // Truncate to first 12 bytes
+                }
+                AuthAlgorithm::HmacSha1 => {
+                    let mut mac = HmacSha1::new_from_slice(key)
+                        .map_err(|e| format!("Invalid key length for HMAC-SHA1: {}", e))?;
+                    mac.update(message);
+                    let result = mac.finalize();
+                    let digest = result.into_bytes();
+                    Ok(digest[..12].to_vec()) // Truncate to first 12 bytes
+                }
+            }
+        }
+        
+        /// Verify HMAC authentication parameters
+        pub fn verify_auth_params(&self, key: &[u8], message: &[u8], received_params: &[u8]) -> Result<bool, String> {
+            let expected_params = self.generate_auth_params(key, message)?;
+            Ok(expected_params == received_params)
+        }
+        
+        /// Convert password to key using MD5-based algorithm (RFC 3414)
+        fn password_to_key_md5(&self, password: &str, engine_id: &[u8]) -> Result<Vec<u8>, String> {
+            use md5::{Md5, Digest};
+            
+            let password_bytes = password.as_bytes();
+            if password_bytes.is_empty() {
+                return Err("Password cannot be empty".to_string());
+            }
+            
+            // Step 1: Create 1MB of password data
+            let mut password_buf = vec![0u8; 1048576]; // 1MB
+            let mut buf_pos = 0;
+            
+            while buf_pos < password_buf.len() {
+                let remaining = password_buf.len() - buf_pos;
+                let to_copy = std::cmp::min(remaining, password_bytes.len());
+                password_buf[buf_pos..buf_pos + to_copy].copy_from_slice(&password_bytes[..to_copy]);
+                buf_pos += to_copy;
+            }
+            
+            // Step 2: MD5 hash the 1MB buffer
+            let mut hasher = <Md5 as md5::Digest>::new(); 
+            hasher.update(&password_buf);
+            let digest = hasher.finalize();
+            
+            // Step 3: Localize the key with engine ID
+            let mut localized_key = Vec::new();
+            localized_key.extend_from_slice(&digest);
+            localized_key.extend_from_slice(engine_id);
+            localized_key.extend_from_slice(&digest);
+            
+            let mut final_hasher = <Md5 as md5::Digest>::new();
+            final_hasher.update(&localized_key);
+            let final_digest = final_hasher.finalize();
+            
+            Ok(final_digest.to_vec())
+        }
+        
+        /// Convert password to key using SHA1-based algorithm (RFC 3414)
+        fn password_to_key_sha1(&self, password: &str, engine_id: &[u8]) -> Result<Vec<u8>, String> {
+            use sha1::{Sha1, Digest};
+            
+            let password_bytes = password.as_bytes();
+            if password_bytes.is_empty() {
+                return Err("Password cannot be empty".to_string());
+            }
+            
+            // Step 1: Create 1MB of password data
+            let mut password_buf = vec![0u8; 1048576]; // 1MB
+            let mut buf_pos = 0;
+            
+            while buf_pos < password_buf.len() {
+                let remaining = password_buf.len() - buf_pos;
+                let to_copy = std::cmp::min(remaining, password_bytes.len());
+                password_buf[buf_pos..buf_pos + to_copy].copy_from_slice(&password_bytes[..to_copy]);
+                buf_pos += to_copy;
+            }
+            
+            // Step 2: SHA1 hash the 1MB buffer
+            let mut hasher = <Sha1 as sha1::Digest>::new();
+            hasher.update(&password_buf);
+            let digest = hasher.finalize();
+            
+            // Step 3: Localize the key with engine ID
+            let mut localized_key = Vec::new();
+            localized_key.extend_from_slice(&digest);
+            localized_key.extend_from_slice(engine_id);
+            localized_key.extend_from_slice(&digest);
+            
+            let mut final_hasher = <Sha1 as sha1::Digest>::new();
+            final_hasher.update(&localized_key);
+            let final_digest = final_hasher.finalize();
+            
+            Ok(final_digest.to_vec())
+        }
+    }
+    
+    impl PrivAlgorithm {
+        /// Get the key length for this privacy algorithm
+        pub fn key_length(&self) -> usize {
+            match self {
+                PrivAlgorithm::None => 0,
+                PrivAlgorithm::DesCbc => 16, // DES key (8) + IV (8)
+                PrivAlgorithm::Aes128 => 16, // AES-128 key length
+            }
+        }
+        
+        /// Get the IV length for this privacy algorithm
+        pub fn iv_length(&self) -> usize {
+            match self {
+                PrivAlgorithm::None => 0,
+                PrivAlgorithm::DesCbc => 8,  // DES block size
+                PrivAlgorithm::Aes128 => 16, // AES block size
+            }
+        }
+        
+        /// Derive the privacy key from authentication key
+        pub fn derive_key(&self, auth_key: &[u8]) -> Result<Vec<u8>, String> {
+            match self {
+                PrivAlgorithm::None => Ok(vec![]),
+                PrivAlgorithm::DesCbc => {
+                    if auth_key.len() < 16 {
+                        return Err("Authentication key too short for DES privacy".to_string());
+                    }
+                    // For DES, use the last 16 bytes of the auth key
+                    Ok(auth_key[auth_key.len() - 16..].to_vec())
+                }
+                PrivAlgorithm::Aes128 => {
+                    if auth_key.len() < 16 {
+                        return Err("Authentication key too short for AES privacy".to_string());
+                    }
+                    // For AES-128, use the first 16 bytes of the auth key
+                    Ok(auth_key[..16].to_vec())
+                }
+            }
+        }
+        
+        /// Encrypt data using this privacy algorithm
+        pub fn encrypt(&self, key: &[u8], iv: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, String> {
+            match self {
+                PrivAlgorithm::None => Ok(plaintext.to_vec()),
+                PrivAlgorithm::DesCbc => {
+                    // For now, return a placeholder - real DES implementation would go here
+                    // In production, you'd use the `des` and `cbc` crates
+                    Err("DES encryption not yet implemented".to_string())
+                }
+                PrivAlgorithm::Aes128 => {
+                    // For now, return a placeholder - real AES implementation would go here
+                    // In production, you'd use the `aes` and `cbc` crates
+                    Err("AES encryption not yet implemented".to_string())
+                }
+            }
+        }
+        
+        /// Decrypt data using this privacy algorithm
+        pub fn decrypt(&self, key: &[u8], iv: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, String> {
+            match self {
+                PrivAlgorithm::None => Ok(ciphertext.to_vec()),
+                PrivAlgorithm::DesCbc => {
+                    // For now, return a placeholder - real DES implementation would go here
+                    Err("DES decryption not yet implemented".to_string())
+                }
+                PrivAlgorithm::Aes128 => {
+                    // For now, return a placeholder - real AES implementation would go here
+                    Err("AES decryption not yet implemented".to_string())
+                }
+            }
+        }
+        
+        /// Generate a random IV for encryption
+        pub fn generate_iv(&self) -> Vec<u8> {
+            use rand::Rng;
+            let mut rng = rand::thread_rng();
+            let mut iv = vec![0u8; self.iv_length()];
+            rng.fill(&mut iv[..]);
+            iv
+        }
+    }
+    
+    /// USM Security Configuration
+    #[derive(Debug, Clone)]
+    pub struct UsmConfig {
+        pub user_name: String,
+        pub auth_algorithm: AuthAlgorithm,
+        pub auth_password: Option<String>,
+        pub priv_algorithm: PrivAlgorithm,
+        pub priv_password: Option<String>,
+        pub engine_id: Vec<u8>,
+        pub engine_boots: u32,
+        pub engine_time: u32,
+    }
+    
+    impl UsmConfig {
+        pub fn new(user_name: &str) -> Self {
+            Self {
+                user_name: user_name.to_string(),
+                auth_algorithm: AuthAlgorithm::None,
+                auth_password: None,
+                priv_algorithm: PrivAlgorithm::None,
+                priv_password: None,
+                engine_id: vec![],
+                engine_boots: 0,
+                engine_time: 0,
+            }
+        }
+        
+        pub fn with_auth(mut self, algorithm: AuthAlgorithm, password: &str) -> Self {
+            self.auth_algorithm = algorithm;
+            self.auth_password = Some(password.to_string());
+            self
+        }
+        
+        pub fn with_priv(mut self, algorithm: PrivAlgorithm, password: &str) -> Self {
+            self.priv_algorithm = algorithm;
+            self.priv_password = Some(password.to_string());
+            self
+        }
+        
+        pub fn with_engine_info(mut self, engine_id: &[u8], boots: u32, time: u32) -> Self {
+            self.engine_id = engine_id.to_vec();
+            self.engine_boots = boots;
+            self.engine_time = time;
+            self
+        }
+        
+        /// Derive authentication key
+        pub fn auth_key(&self) -> Result<Vec<u8>, String> {
+            match &self.auth_password {
+                Some(password) => self.auth_algorithm.derive_key(password, &self.engine_id),
+                None => Ok(vec![]),
+            }
+        }
+        
+        /// Derive privacy key
+        pub fn priv_key(&self) -> Result<Vec<u8>, String> {
+            if self.priv_algorithm == PrivAlgorithm::None {
+                return Ok(vec![]);
+            }
+            
+            let auth_key = self.auth_key()?;
+            self.priv_algorithm.derive_key(&auth_key)
+        }
+        
+        /// Check if authentication is enabled
+        pub fn has_auth(&self) -> bool {
+            self.auth_algorithm != AuthAlgorithm::None && self.auth_password.is_some()
+        }
+        
+        /// Check if privacy is enabled
+        pub fn has_priv(&self) -> bool {
+            self.priv_algorithm != PrivAlgorithm::None && self.priv_password.is_some()
+        }
+    }
+}
+
+// Add these convenience methods to the SnmpV3 implementation
+impl SnmpV3 {
+    /// Create an SNMPv3 message with authentication
+    pub fn with_auth(user: &str, auth_alg: usm_crypto::AuthAlgorithm, password: &str) -> Self {
+        let mut snmp = SnmpV3::new();
+        snmp.set_authentication(true);
+        
+        if let Value::Set(SnmpV3SecurityParameters::Usm(ref mut usm)) = &mut snmp.msg_security_parameters {
+            usm.msg_user_name = Value::Set(ByteArray::from(user.as_bytes()));
+            // Auth parameters will be filled during encoding
+            usm.msg_authentication_parameters = Value::Set(ByteArray::from(vec![0u8; auth_alg.auth_param_length()]));
+        }
+        
+        snmp
+    }
+    
+    /// Create an SNMPv3 message with authentication and privacy
+    pub fn with_auth_priv(
+        user: &str, 
+        auth_alg: usm_crypto::AuthAlgorithm, 
+        auth_password: &str,
+        priv_alg: usm_crypto::PrivAlgorithm,
+        priv_password: &str
+    ) -> Self {
+        let mut snmp = Self::with_auth(user, auth_alg, auth_password);
+        snmp.set_privacy(true);
+        
+        // Privacy parameters will be filled during encoding
+        if let Value::Set(SnmpV3SecurityParameters::Usm(ref mut usm)) = &mut snmp.msg_security_parameters {
+            usm.msg_privacy_parameters = Value::Set(ByteArray::from(vec![0u8; 8])); // DES/AES IV
+        }
+        
+        snmp
+    }
+    
+    /// Create SNMPv3 message from USM configuration
+    pub fn from_usm_config(config: &usm_crypto::UsmConfig) -> Self {
+        if config.has_priv() {
+            Self::with_auth_priv(
+                &config.user_name,
+                config.auth_algorithm.clone(),
+                config.auth_password.as_ref().unwrap(),
+                config.priv_algorithm.clone(),
+                config.priv_password.as_ref().unwrap(),
+            )
+        } else if config.has_auth() {
+            Self::with_auth(
+                &config.user_name,
+                config.auth_algorithm.clone(),
+                config.auth_password.as_ref().unwrap(),
+            )
+        } else {
+            SnmpV3::new()
+        }
+    }
+}
