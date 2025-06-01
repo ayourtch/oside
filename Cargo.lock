@@ -521,6 +521,7 @@ version = "0.1.0"
 dependencies = [
  "aes",
  "cbc",
+ "cipher",
  "criterion",
  "des",
  "doc-comment",

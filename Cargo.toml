@@ -26,6 +26,7 @@ hmac = "*"
 aes = "*"
 des = "*"
 cbc = "*"
+cipher = "*"
 
 [dev-dependencies]
 criterion = "0.3"
