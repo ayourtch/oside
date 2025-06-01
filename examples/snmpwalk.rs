@@ -325,6 +325,7 @@ fn send_getnext_request(&mut self, oid: &str) -> Result<oside::LayerStack, Box<d
             }
         }
     };
+    println!("request result: {:#02x?}", &request);
 
     self.send_request(request)
 }

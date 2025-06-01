@@ -2105,7 +2105,6 @@ impl Snmp {
                 msg_security_model: Value::Auto, // Value::Set(0), // Clear
                 msg_security_parameters: SnmpV3::default_security(),
             }
-                // .with_usm_auth("testing123", vec![])
             ).push(scoped_pdu)
     }
 
@@ -2144,7 +2143,7 @@ impl Snmp {
                 msg_id: Value::Set(rand::random()),
                 msg_max_size: Value::Set(65507),
                 msg_flags: SnmpV3::flags(0), // Value::Set(0),          // No auth, no priv
-                msg_security_model: Value::Set(3), // USM
+                msg_security_model: Value::Set(0),
                 msg_security_parameters: SnmpV3::default_security(),
             })
     }
@@ -2185,9 +2184,10 @@ impl Snmp {
                 msg_id: Value::Set(rand::random()),
                 msg_max_size: Value::Set(65507),
                 msg_flags: SnmpV3::flags(1), // Value::Set(1),          // Auth, no priv
-                msg_security_model: Value::Set(3), // USM
+                msg_security_model: Value::Auto,
                 msg_security_parameters: SnmpV3::default_security(),
-            })
+            }.with_usm_auth(user_name, vec![]))
+            .push(scoped_pdu)
     }
 
 }
