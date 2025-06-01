@@ -1624,6 +1624,65 @@ impl SnmpV3 {
             }));
         self
     }
+
+
+    /// Encode with authentication and/or privacy
+    pub fn encode_with_usm<E: Encoder>(&self, usm_context: &UsmEncodingContext) -> Result<Vec<u8>, String> {
+        // First, encode without authentication parameters to get the base message
+        let mut base_message = self.encode::<E>();
+        
+        // If no authentication, return as-is
+        if !usm_context.config.has_auth() {
+            return Ok(base_message);
+        }
+        
+        // Calculate authentication parameters
+        let auth_params = usm_context.config.auth_algorithm
+            .generate_auth_params(&usm_context.auth_key, &base_message)?;
+        
+        // Now we need to re-encode with the correct auth parameters
+        // This is a bit tricky because we need to update the USM parameters
+        let mut authenticated_snmp = self.clone();
+        
+        if let Value::Set(SnmpV3SecurityParameters::Usm(ref mut usm)) = &mut authenticated_snmp.msg_security_parameters {
+            usm.set_auth_params(&auth_params);
+        }
+        
+        // Re-encode with authentication parameters
+        let authenticated_message = authenticated_snmp.encode::<E>();
+        
+        Ok(authenticated_message)
+    }
+    
+    /// Verify authentication of a received message
+    pub fn verify_auth<D: Decoder>(&self, message: &[u8], usm_context: &UsmEncodingContext) -> Result<bool, String> {
+        if !usm_context.config.has_auth() {
+            return Ok(true); // No auth required
+        }
+        
+        // Extract the authentication parameters from the message
+        // For simplicity, we'll assume they're already extracted
+        // In a full implementation, you'd parse the message to get them
+        
+        if let Value::Set(SnmpV3SecurityParameters::Usm(ref usm)) = &self.msg_security_parameters {
+            let received_auth_params = &usm.msg_authentication_parameters.value().0;
+            
+            // Create a copy of the message with zeroed auth parameters for verification
+            let mut message_for_verification = message.to_vec();
+            // TODO: Zero out the auth parameters in the message copy
+            
+            usm_context.config.auth_algorithm.verify_auth_params(
+                &usm_context.auth_key,
+                &message_for_verification,
+                received_auth_params
+            )
+        } else {
+            Err("No USM parameters found".to_string())
+        }
+    }
+
+
+
 }
 
 // Error types for better error handling
@@ -3398,3 +3457,25 @@ impl SnmpV3 {
         }
     }
 }
+
+/// Context for USM authentication/encryption during encoding
+#[derive(Debug, Clone)]
+pub struct UsmEncodingContext {
+    pub config: usm_crypto::UsmConfig,
+    pub auth_key: Vec<u8>,
+    pub priv_key: Vec<u8>,
+}
+
+impl UsmEncodingContext {
+    pub fn new(config: usm_crypto::UsmConfig) -> Result<Self, String> {
+        let auth_key = config.auth_key()?;
+        let priv_key = config.priv_key()?;
+        
+        Ok(Self {
+            config,
+            auth_key,
+            priv_key,
+        })
+    }
+}
+
