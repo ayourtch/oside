@@ -574,6 +574,12 @@ impl fmt::Debug for Ipv4Address {
     }
 }
 
+impl fmt::Display for Ipv4Address {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&format!("{}", &self.0))
+    }
+}
+
 impl Default for Ipv4Address {
     fn default() -> Self {
         Ipv4Address(Ipv4Addr::new(0, 0, 0, 0))
@@ -641,6 +647,12 @@ impl FromStr for Ipv4Address {
 impl From<[u8; 4]> for Ipv4Address {
     fn from(arg: [u8; 4]) -> Self {
         Self::new(arg[0], arg[1], arg[2], arg[3])
+    }
+}
+
+impl From<std::net::Ipv4Addr> for Ipv4Address {
+    fn from(addr: std::net::Ipv4Addr) -> Self {
+        Self::from(addr.octets())
     }
 }
 
