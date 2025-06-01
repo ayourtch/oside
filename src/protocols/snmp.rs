@@ -1005,27 +1005,6 @@ fn post_encode_bindings_tag_len_trapv2<E: Encoder>(
     out.splice(old_len..old_len, bytes);
 }
 
-/*
-
-#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[nproto(register(SNMP_PDUS, Tag = BerTag(asn1::Tag::UnknownTag(165))))]
-#[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
-pub struct SnmpGetBulk(pub SnmpGetBulkRequest);
-
-#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
-pub struct SnmpGetBulkRequest {
-    pub request_id: Value<u32>,
-    pub non_repeaters: Value<i32>,
-    pub max_repetitions: Value<i32>,
-    #[nproto(encode = Skip)]
-    pub _bindings_tag_len: Value<BerTagAndLen>,
-    #[nproto(post_encode = post_encode_bindings_tag_len)]
-    pub var_bindings: Vec<SnmpVarBind>,
-}
-
-*/
-
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(SNMP_VERSIONS, Version = 43))]
 // #[nproto(register(UDP_SRC_PORT_APPS, SrcPort = 9999))]
@@ -1051,7 +1030,7 @@ pub struct SnmpV3 {
     #[nproto(post_encode = post_encode_seq_tag_len_v3)]
     pub msg_security_model: Value<u32>,
 
-    pub security_parameters: Value<ByteArray>,
+    pub msg_security_parameters: Value<SnmpV3SecurityParameters>,
 }
 
 fn post_encode_seq_tag_len_v3<E: Encoder>(
@@ -1067,7 +1046,7 @@ fn post_encode_seq_tag_len_v3<E: Encoder>(
     let old_len = skip_points[0];
     let mut out_len = 0;
 /*
-    inner levels not part of this seq
+    inner levels are NOT part of this seq, so this chunk of code does not apply
 
     for i in my_index + 1..encoded_data.len() {
         println!("already encoded data: {}", encoded_data[i].len());
@@ -1087,6 +1066,113 @@ fn post_encode_seq_tag_len_v3<E: Encoder>(
     // find out the length of inner layers
     let bytes = seq_tag_len_v3.encode::<E>();
     out.splice(old_len..old_len, bytes);
+}
+
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub enum SnmpV3SecurityParameters {
+    #[default]
+    None,
+    Usm(UsmSecurityParameters),
+    Raw(ByteArray),
+}
+
+impl FromStr for SnmpV3SecurityParameters {
+    type Err = ValueParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "none" => Ok(SnmpV3SecurityParameters::None),
+            "usm" => Ok(SnmpV3SecurityParameters::Usm(
+                UsmSecurityParameters::default(),
+            )),
+            _ => {
+                // Try to parse as hex for raw data
+                if s.starts_with("0x") {
+                    if let Ok(byte_array) = ByteArray::from_str(s) {
+                        return Ok(SnmpV3SecurityParameters::Raw(byte_array));
+                    }
+                }
+                Err(ValueParseError::Error)
+            }
+        }
+    }
+}
+
+impl Distribution<SnmpV3SecurityParameters> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> SnmpV3SecurityParameters {
+        match rng.gen_range(0..3) {
+            0 => SnmpV3SecurityParameters::None,
+            1 => SnmpV3SecurityParameters::Usm(UsmSecurityParameters::default()),
+            _ => {
+                let len = rng.gen_range(0..32);
+                let mut bytes = vec![0u8; len];
+                rng.fill_bytes(&mut bytes);
+                SnmpV3SecurityParameters::Raw(ByteArray::from(bytes))
+            }
+        }
+    }
+}
+
+impl Decode for SnmpV3SecurityParameters {
+    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
+        // FIXME: For now, decode as raw bytes - in a full implementation,
+        // this would parse the specific security model format
+        let (bytes, size) = D::decode_octetstring(buf)?;
+        Some((SnmpV3SecurityParameters::Raw(ByteArray(bytes)), size))
+    }
+ }
+ 
+impl Encode for SnmpV3SecurityParameters {
+    fn encode<E: Encoder>(&self) -> Vec<u8> {
+        match self {
+            SnmpV3SecurityParameters::None => {
+                // Empty octet string for no security
+                Asn1Encoder::encode_octetstring(&[])
+            }
+            SnmpV3SecurityParameters::Usm(params) => {
+                // For USM, we need to encode the UsmSecurityParameters structure
+                // This is a simplified version - real implementation would encode the full ASN.1 structure
+                let mut result = Vec::new();
+
+                // Encode engine ID
+                result.extend(Asn1Encoder::encode_octetstring(
+                    &params.msg_authoritative_engine_id.value(),
+                ));
+
+                // Encode engine boots (4 bytes)
+                result.extend(Asn1Encoder::encode_integer(
+                    params.msg_authoritative_engine_boots.value() as i64,
+                ));
+
+                // Encode engine time (4 bytes)
+                result.extend(Asn1Encoder::encode_integer(
+                    params.msg_authoritative_engine_time.value() as i64,
+                ));
+
+                // Encode user name
+                result.extend(Asn1Encoder::encode_octetstring(
+                    &params.msg_user_name.value(),
+                ));
+
+                // Encode auth parameters
+                result.extend(Asn1Encoder::encode_octetstring(
+                    &params.msg_authentication_parameters.value(),
+                ));
+
+                // Encode privacy parameters
+                result.extend(Asn1Encoder::encode_octetstring(
+                    &params.msg_privacy_parameters.value(),
+                ));
+
+                // Wrap in sequence
+                let seq = Asn1Encoder::encode_sequence(&result);
+                Asn1Encoder::encode_octetstring(&seq)
+            }
+            SnmpV3SecurityParameters::Raw(data) => Asn1Encoder::encode_octetstring(data),
+        }
+    }
+
 }
 
 // User-based Security Model (USM) parameters - RFC 3414
@@ -1178,22 +1264,6 @@ fn post_encode_usm_seq_tag_len<E: Encoder>(
     out.splice(old_len..old_len, bytes);
 }
 
-/*
-impl UsmSecurityParameters {
-    fn encoded_length(&self) -> usize {
-        // Simplified calculation - in real implementation, would encode and measure
-        // For now, estimate based on typical USM parameter sizes
-        12 + // engine_id (typical)
-        4 +  // boots
-        4 +  // time  
-        self.msg_user_name.value().len() +
-        self.msg_authentication_parameters.value().len() +
-        self.msg_privacy_parameters.value().len() +
-        20 // ASN.1 overhead
-    }
-}
-*/
-
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
@@ -1236,19 +1306,6 @@ fn post_encode_scoped_pdu_seq_tag_len<E: Encoder>(
     let bytes = seq_tag_len.encode::<E>();
     out.splice(old_len..old_len, bytes);
 }
-
-/*
-impl Default for SnmpV3ScopedPdu {
-    fn default() -> Self {
-        SnmpV3ScopedPdu {
-            _seq_tag_len: Value::Auto,
-            context_engine_id: Value::Set(ByteArray::from(vec![])),
-            context_name: Value::Set(ByteArray::from(vec![])),
-            data: Value::Auto,
-        }
-    }
-}
-*/
 
 impl FromStr for SnmpV3ScopedPdu {
     type Err = ValueParseError;
@@ -1337,35 +1394,6 @@ impl Encode for SnmpV3Pdu {
             }
         }
     }
-/*
-    fn encode<E: Encoder>(&self) -> Vec<u8> {
-        let mut out: Vec<u8> = vec![];
-         
-        let inner = match self {
-            SnmpV3Pdu::Get(pdu) => pdu.encode::<E>(),
-            SnmpV3Pdu::GetNext(pdu) => pdu.encode::<E>(),
-            SnmpV3Pdu::GetBulk(pdu) => pdu.encode::<E>(),
-            SnmpV3Pdu::Set(pdu) => pdu.encode::<E>(),
-            SnmpV3Pdu::Response(pdu) => pdu.encode::<E>(),
-            SnmpV3Pdu::TrapV2(pdu) => pdu.encode::<E>(),
-            SnmpV3Pdu::Inform(pdu) => pdu.encode::<E>(),
-            SnmpV3Pdu::Report(pdu) => pdu.encode::<E>(),
-        };
-
-        let tag = match self {
-            SnmpV3Pdu::Get(_) => 0xa0,
-            SnmpV3Pdu::GetNext(_) => 0xa1,
-            SnmpV3Pdu::Response(_) => 0xa2,
-            SnmpV3Pdu::Set(_) => 0xa3,
-            SnmpV3Pdu::GetBulk(_) => 0xa5,
-            SnmpV3Pdu::Inform(_) => 0xa6,
-            SnmpV3Pdu::TrapV2(_) => 0xa7,
-            SnmpV3Pdu::Report(_) => 0xa8,
-        };
-
-        [vec![tag], inner].concat()
-    }
-*/
 }
 
 impl Decode for SnmpV3Pdu {
@@ -1450,7 +1478,7 @@ impl SnmpV3 {
             msg_max_size: Value::Set(65507),
             msg_flags: SnmpV3::flags(0), // Value::Set(0),          // No auth, no priv
             msg_security_model: Value::Set(3), // USM
-            security_parameters: SnmpV3::default_security(),
+            msg_security_parameters: SnmpV3::default_security(),
         }
     }
 
@@ -1474,8 +1502,9 @@ pub fn set_msg_flags_byte(&mut self, flags: u8) {
        Value::Set(ByteArray::from(vec![flags]))
     }
 
-    pub fn default_security() -> Value<ByteArray> {
-       Value::Set(ByteArray::from(vec![]))
+    pub fn default_security() -> Value<SnmpV3SecurityParameters> {
+       // Value::Set(ByteArray::from(vec![]))
+       Value::Set(SnmpV3SecurityParameters::None)
     }
     
     // Convenience methods for flag operations
@@ -1509,12 +1538,14 @@ pub fn set_msg_flags_byte(&mut self, flags: u8) {
         self.set_msg_flags_byte(new_flags);
     }
 
-/* FIXME: Need to fix with using LayerStack after fixing the implementation
 
     pub fn with_usm_auth(mut self, user_name: &str, auth_params: Vec<u8>) -> Self {
         self.msg_flags = SnmpV3::flags(1); // Value::Set(1); // Auth, no priv
+        self.msg_security_model = Value::Set(3);
         self.msg_security_parameters =
             Value::Set(SnmpV3SecurityParameters::Usm(UsmSecurityParameters {
+                _octet_string_tag_len: Value::Auto,
+                _seq_tag_len: Value::Auto,
                 msg_authoritative_engine_id: Value::Set(ByteArray::from(vec![])),
                 msg_authoritative_engine_boots: Value::Set(0),
                 msg_authoritative_engine_time: Value::Set(0),
@@ -1532,8 +1563,11 @@ pub fn set_msg_flags_byte(&mut self, flags: u8) {
         priv_params: Vec<u8>,
     ) -> Self {
         self.msg_flags = SnmpV3::flags(3); // Value::Set(3); // Auth and priv
+        self.msg_security_model = Value::Set(3);
         self.msg_security_parameters =
             Value::Set(SnmpV3SecurityParameters::Usm(UsmSecurityParameters {
+                _octet_string_tag_len: Value::Auto,
+                _seq_tag_len: Value::Auto,
                 msg_authoritative_engine_id: Value::Set(ByteArray::from(vec![])),
                 msg_authoritative_engine_boots: Value::Set(0),
                 msg_authoritative_engine_time: Value::Set(0),
@@ -1543,7 +1577,6 @@ pub fn set_msg_flags_byte(&mut self, flags: u8) {
             }));
         self
     }
-*/
 }
 
 // Error types for better error handling
@@ -2033,44 +2066,7 @@ impl Snmp {
             .push(response_pdu)
     }
 
-    /* to implement later
-        /// Get the request ID from any PDU type
-        pub fn request_id(&self) -> u32 {
-            match &self.pdu.value() {
-                SnmpPdu::Get(pdu) => pdu.request_id.value(),
-                SnmpPdu::GetNext(pdu) => pdu.request_id.value(),
-                SnmpPdu::Response(pdu) => pdu.request_id.value(),
-                SnmpPdu::Set(pdu) => pdu.request_id.value(),
-                SnmpPdu::GetBulk(pdu) => pdu.request_id.value(),
-                SnmpPdu::TrapV2(pdu) => pdu.request_id.value(),
-                _ => 0,
-            }
-        }
-
-        /// Check if this is an error response
-        pub fn is_error(&self) -> bool {
-            match &self.pdu.value() {
-                SnmpPdu::Response(pdu) => pdu.error_status.value() != 0,
-                _ => false,
-            }
-        }
-
-        /// Get error information if this is an error response
-        pub fn error_info(&self) -> Option<(SnmpError, i32)> {
-            match &self.pdu.value() {
-                SnmpPdu::Response(pdu) if pdu.error_status.value() != 0 => {
-                    Some((
-                        SnmpError::from_i32(pdu.error_status.value()),
-                        pdu.error_index.value()
-                    ))
-                }
-                _ => None,
-            }
-        }
-
-    */
-
-/// Create a new SNMPv3 GET request with no security using LayerStack
+    /// Create a new SNMPv3 GET request with no security using LayerStack
     pub fn v3_get(oids: &Vec<&str>) -> LayerStack {
         let var_bindings = oids
             .into_iter()
@@ -2106,16 +2102,11 @@ impl Snmp {
                 msg_id: Value::Set(rand::random()),
                 msg_max_size: Value::Set(65507),
                 msg_flags: SnmpV3::flags(0), // Value::Set(0),          // No auth, no priv
-                // msg_security_model: Value::Set(3), // USM
-                msg_security_model: Value::Set(0), // USM
-                security_parameters: SnmpV3::default_security(),
-            })
-/*
-            .push(UsmSecurityParameters {
-                ..Default::default()
-            })
-*/
-            .push(scoped_pdu)
+                msg_security_model: Value::Auto, // Value::Set(0), // Clear
+                msg_security_parameters: SnmpV3::default_security(),
+            }
+                // .with_usm_auth("testing123", vec![])
+            ).push(scoped_pdu)
     }
 
     /// Create a new SNMPv3 GETNEXT request
@@ -2154,7 +2145,7 @@ impl Snmp {
                 msg_max_size: Value::Set(65507),
                 msg_flags: SnmpV3::flags(0), // Value::Set(0),          // No auth, no priv
                 msg_security_model: Value::Set(3), // USM
-                security_parameters: SnmpV3::default_security(),
+                msg_security_parameters: SnmpV3::default_security(),
             })
     }
 
@@ -2195,7 +2186,7 @@ impl Snmp {
                 msg_max_size: Value::Set(65507),
                 msg_flags: SnmpV3::flags(1), // Value::Set(1),          // Auth, no priv
                 msg_security_model: Value::Set(3), // USM
-                security_parameters: SnmpV3::default_security(),
+                msg_security_parameters: SnmpV3::default_security(),
             })
     }
 
@@ -2234,14 +2225,13 @@ impl SnmpV3 {
             msg_max_size: Value::Set(65507),
             msg_flags: SnmpV3::flags(0), // Value::Set(0),          // No auth, no priv
             msg_security_model: Value::Set(3), // USM
-            security_parameters: SnmpV3::default_security(),
+            msg_security_parameters: SnmpV3::default_security(),
         }
     }
 
     /// Create a new SNMPv3 GET request with USM authentication
     pub fn usm_auth_get(user_name: &str, engine_id: &[u8], oids: &Vec<&str>) -> Self {
         let mut snmp = Self::no_auth_get(oids);
-/* FIXME 
         snmp = snmp.with_usm_auth(user_name, vec![]); // Empty auth params for now
 
         // Set the engine ID
@@ -2250,32 +2240,9 @@ impl SnmpV3 {
         {
             usm.msg_authoritative_engine_id = Value::Set(ByteArray::from(engine_id));
         }
-*/
 
         snmp
     }
-
-/* FIXME
-
-    /// Get the request ID from the encapsulated PDU
-    pub fn request_id(&self) -> u32 {
-        match &self.scoped_pdu_data.value() {
-            SnmpV3SnmpV3ScopedPduData::PlainText(scoped_pdu) => match &scoped_pdu.pdu.value() {
-                SnmpV3Pdu::Get(pdu) => pdu.request_id.value(),
-                SnmpV3Pdu::GetNext(pdu) => pdu.request_id.value(),
-                SnmpV3Pdu::Response(pdu) => pdu.request_id.value(),
-                SnmpV3Pdu::Set(pdu) => pdu.request_id.value(),
-                SnmpV3Pdu::GetBulk(pdu) => pdu.request_id.value(),
-                SnmpV3Pdu::TrapV2(pdu) => pdu.request_id.value(),
-                SnmpV3Pdu::Inform(pdu) => pdu.request_id.value(),
-                SnmpV3Pdu::Report(pdu) => pdu.request_id.value(),
-                _ => 0,
-            },
-            _ => 0, // Encrypted data - can't extract request ID
-        }
-    }
-
-*/
 
     /// Check if the message requires authentication
     pub fn requires_auth(&self) -> bool {
@@ -2287,7 +2254,6 @@ impl SnmpV3 {
         (self.msg_flags.value()[0] & 0x02) != 0
     }
 
-/* FIXME 
     /// Get the user name from USM security parameters
     pub fn user_name(&self) -> Option<String> {
         match &self.msg_security_parameters.value() {
@@ -2297,7 +2263,6 @@ impl SnmpV3 {
             _ => None,
         }
     }
-*/
 
 }
 
