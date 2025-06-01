@@ -1947,6 +1947,136 @@ impl Snmp {
         }
 
     */
+
+/// Create a new SNMPv3 GET request with no security using LayerStack
+    pub fn v3_get(oids: &Vec<&str>) -> LayerStack {
+        let var_bindings = oids
+            .into_iter()
+            .map(|oid| SnmpVarBind {
+                _bind_tag_len: Value::Auto,
+                name: Value::Set(BerOid::from_str(oid).unwrap_or_default()),
+                value: Value::Set(SnmpValue::Null),
+            })
+            .collect();
+
+        let scoped_pdu = ScopedPdu {
+            context_engine_id: Value::Set(ByteArray::from(vec![])),
+            context_name: Value::Set(ByteArray::from(vec![])),
+            pdu: Value::Set(SnmpV3Pdu::Get(SnmpGetOrResponse {
+                request_id: Value::Set(rand::random()),
+                error_status: Value::Set(0),
+                error_index: Value::Set(0),
+                _bindings_tag_len: Value::Auto,
+                var_bindings,
+            })),
+        };
+
+        LayerStack::new()
+            .push(Snmp {
+                _seq_tag_len: Value::Auto,
+                version: Value::Set(3),
+            })
+            .push(SnmpV3 {
+                msg_id: Value::Set(rand::random()),
+                msg_max_size: Value::Set(65507),
+                msg_flags: Value::Set(0),          // No auth, no priv
+                msg_security_model: Value::Set(3), // USM
+                _security_params_tag_len: Value::Auto,
+                msg_security_parameters: Value::Set(SnmpV3SecurityParameters::None),
+                _data_tag_len: Value::Auto,
+                scoped_pdu_data: Value::Set(SnmpV3ScopedPduData::PlainText(scoped_pdu)),
+            })
+    }
+
+    /// Create a new SNMPv3 GETNEXT request
+    pub fn v3_getnext(oids: &Vec<&str>) -> LayerStack {
+        let var_bindings = oids
+            .into_iter()
+            .map(|oid| SnmpVarBind {
+                _bind_tag_len: Value::Auto,
+                name: Value::Set(BerOid::from_str(oid).unwrap_or_default()),
+                value: Value::Set(SnmpValue::Null),
+            })
+            .collect();
+
+        let scoped_pdu = ScopedPdu {
+            context_engine_id: Value::Set(ByteArray::from(vec![])),
+            context_name: Value::Set(ByteArray::from(vec![])),
+            pdu: Value::Set(SnmpV3Pdu::GetNext(SnmpGetOrResponse {
+                request_id: Value::Set(rand::random()),
+                error_status: Value::Set(0),
+                error_index: Value::Set(0),
+                _bindings_tag_len: Value::Auto,
+                var_bindings,
+            })),
+        };
+
+        LayerStack::new()
+            .push(Snmp {
+                _seq_tag_len: Value::Auto,
+                version: Value::Set(3),
+            })
+            .push(SnmpV3 {
+                msg_id: Value::Set(rand::random()),
+                msg_max_size: Value::Set(65507),
+                msg_flags: Value::Set(0),          // No auth, no priv
+                msg_security_model: Value::Set(3), // USM
+                _security_params_tag_len: Value::Auto,
+                msg_security_parameters: Value::Set(SnmpV3SecurityParameters::None),
+                _data_tag_len: Value::Auto,
+                scoped_pdu_data: Value::Set(SnmpV3ScopedPduData::PlainText(scoped_pdu)),
+            })
+    }
+
+    /// Create a new SNMPv3 GET request with USM authentication
+    pub fn v3_get_auth(user_name: &str, engine_id: &[u8], oids: &Vec<&str>) -> LayerStack {
+        let var_bindings = oids
+            .into_iter()
+            .map(|oid| SnmpVarBind {
+                _bind_tag_len: Value::Auto,
+                name: Value::Set(BerOid::from_str(oid).unwrap_or_default()),
+                value: Value::Set(SnmpValue::Null),
+            })
+            .collect();
+
+        let scoped_pdu = ScopedPdu {
+            context_engine_id: Value::Set(ByteArray::from(vec![])),
+            context_name: Value::Set(ByteArray::from(vec![])),
+            pdu: Value::Set(SnmpV3Pdu::Get(SnmpGetOrResponse {
+                request_id: Value::Set(rand::random()),
+                error_status: Value::Set(0),
+                error_index: Value::Set(0),
+                _bindings_tag_len: Value::Auto,
+                var_bindings,
+            })),
+        };
+
+        LayerStack::new()
+            .push(Snmp {
+                _seq_tag_len: Value::Auto,
+                version: Value::Set(3),
+            })
+            .push(SnmpV3 {
+                msg_id: Value::Set(rand::random()),
+                msg_max_size: Value::Set(65507),
+                msg_flags: Value::Set(1),          // Auth, no priv
+                msg_security_model: Value::Set(3), // USM
+                _security_params_tag_len: Value::Auto,
+                msg_security_parameters: Value::Set(SnmpV3SecurityParameters::Usm(
+                    UsmSecurityParameters {
+                        msg_authoritative_engine_id: Value::Set(ByteArray::from(engine_id)),
+                        msg_authoritative_engine_boots: Value::Set(0),
+                        msg_authoritative_engine_time: Value::Set(0),
+                        msg_user_name: Value::Set(ByteArray::from(user_name.as_bytes().to_vec())),
+                        msg_authentication_parameters: Value::Set(ByteArray::from(vec![])),
+                        msg_privacy_parameters: Value::Set(ByteArray::from(vec![])),
+                    }
+                )),
+                _data_tag_len: Value::Auto,
+                scoped_pdu_data: Value::Set(SnmpV3ScopedPduData::PlainText(scoped_pdu)),
+            })
+    }
+
 }
 
 // Add convenience methods for SNMPv3
