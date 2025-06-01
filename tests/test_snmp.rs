@@ -38,12 +38,12 @@ pub fn test_snmpv3_encoding() {
         // / IP!(src = "192.0.1.2", dst="192.0.1.3")
         / IPV6!(src = "2001:db8::1", dst="2001:db8::2")
         / UDP!(sport = 9999)
-        / Snmp::v3_get(&vec![test_oid]);
-    println!("test_snmpv3_encoding x1 result: {:02x?}", &x1);
+        / Snmp::v3_get(&vec![test_oid, test_oid]);
+    println!("test_snmpv3_encoding x1 result: {:#02x?}", &x1);
     let encoded = x1.clone().lencode();
     println!("encoded: {:?}", &encoded);
     let x = Ether!().ldecode(&encoded).unwrap().0;
-    println!("decode result: {:#?}", &x);
+    println!("decode result: {:#02x?}", &x);
     let pcap = vec![x];
     pcap.write_pcap("test_snmp_v3.cap");
     assert_eq!(1, 2);
