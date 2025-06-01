@@ -3900,37 +3900,44 @@ pub trait LayerStackUsmExt {
 }
 
 impl LayerStackUsmExt for LayerStack {
-    fn encode_with_usm<E: Encoder>(
-        &self,
-        usm_context: &UsmEncodingContext,
-    ) -> Result<Vec<u8>, String> {
+    fn encode_with_usm<E: Encoder>(&self, usm_context: &UsmEncodingContext) -> Result<Vec<u8>, String> {
         // If no authentication required, use normal encoding
         if !usm_context.config.has_auth() {
             return Ok(self.clone().lencode());
         }
-
-        // For authenticated messages, we need special handling
-        // This is a simplified version - full implementation would handle privacy too
-
-        // First encode normally to get the message structure
-        let mut base_encoded = self.clone().lencode();
-
-        // Find the SNMPv3 layer and calculate authentication
-        if let Some(snmpv3_layer) = self.get_layer(SnmpV3::new()) {
-            // Calculate authentication parameters for the entire message
-            let auth_params = usm_context
-                .config
-                .auth_algorithm
-                .generate_auth_params(&usm_context.auth_key, &base_encoded)?;
-
-            // TODO: Update the encoded message with the correct auth parameters
-            // This would require parsing and reconstructing the message
-            // For now, return the base encoded message
-            Ok(base_encoded)
+        
+        // First pass: encode with placeholder auth params (zeros)
+        let mut encoded_message = self.clone().lencode();
+        
+        println!("Message for HMAC calculation ({} bytes): {:02x?}", encoded_message.len(), encoded_message);
+        
+        // Calculate HMAC over the entire message
+        let auth_params = usm_context.config.auth_algorithm
+            .generate_auth_params(&usm_context.auth_key, &encoded_message)
+            .map_err(|e| format!("HMAC calculation failed: {}", e))?;
+        
+        println!("Calculated auth params: {:02x?}", auth_params);
+        
+        // Find and replace the auth params in the encoded message
+        // We need to find the 12-byte sequence of zeros in the USM parameters
+        let zero_auth_params = vec![0u8; 12];
+        if let Some(pos) = find_subsequence(&encoded_message, &zero_auth_params) {
+            println!("Found auth params at position {}", pos);
+            // Replace the 12 zeros with the calculated auth params
+            encoded_message[pos..pos + 12].copy_from_slice(&auth_params);
+            
+            println!("Updated message with auth params: {:02x?}", &encoded_message[pos-5..pos+17]);
         } else {
-            Ok(base_encoded)
+            return Err("Could not find auth params placeholder in encoded message".to_string());
         }
+        
+        Ok(encoded_message)
     }
+}
+
+// Helper function to find a subsequence in a byte array
+fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack.windows(needle.len()).position(|window| window == needle)
 }
 
 // Add example usage and testing helpers:

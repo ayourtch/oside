@@ -797,7 +797,22 @@ fn create_authenticated_request(&self, oid: &str, usm_config: &UsmConfig) -> Res
 
     // Create USM context and encode
     let usm_context = UsmEncodingContext::new(usm_config.clone())?;
-    let encoded = stack.encode_with_usm::<oside::encdec::asn1::Asn1Encoder>(&usm_context)?;
+// Debug the USM context
+println!("USM context debug:");
+println!("  Engine ID: {:02x?}", usm_context.config.engine_id);
+println!("  User: {}", usm_context.config.user_name);
+println!("  Auth algorithm: {:?}", usm_context.config.auth_algorithm);
+println!("  Auth key length: {}", usm_context.auth_key.len());
+println!("  Auth key: {:02x?}", usm_context.auth_key);
+
+// Try encoding without USM first to see the message structure
+let basic_encoded = stack.clone().lencode();
+println!("Basic encoded length: {}", basic_encoded.len());
+println!("Basic encoded auth params area: {:02x?}", &basic_encoded[60..80]); // Approximate location
+
+let encoded = stack.encode_with_usm::<oside::encdec::asn1::Asn1Encoder>(&usm_context)?;
+println!("USM encoded length: {}", encoded.len());
+println!("USM encoded auth params area: {:02x?}", &encoded[60..80]); // Approximate location
     
     Ok(encoded)
 }
