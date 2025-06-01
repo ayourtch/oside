@@ -1203,7 +1203,7 @@ impl Encode for SnmpV3SecurityParameters {
 #[nproto(register(SNMP_SECURITY_MODELS, ModelNumber = 3))]
 #[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
 pub struct UsmSecurityParameters {
-    #[nproto(encode=Skip, fill=auto)]
+    #[nproto(encode=Skip, fill=auto, decode=Skip)]
     pub _octet_string_tag_len: Value<BerTagAndLen>,
 
     #[nproto(encode=Skip, fill=auto)]

@@ -403,16 +403,16 @@ fn send_getnext_request(&mut self, oid: &str) -> Result<oside::LayerStack, Box<d
                 println!("Doing discovery");
                 // If engine ID is empty, do discovery first
                 if usm_config.engine_id.is_empty() {
-                    let engine_id = self.snmpv3_discovery()?;
+                    let engine_id = self.snmpv3_discovery(&mut usm_config)?;
                     usm_config.engine_id = engine_id;
-                    usm_config.engine_boots = 1;
-                    usm_config.engine_time = 0;
+                    // usm_config.engine_boots = 1;
+                    // usm_config.engine_time = 0;
                 }
 
                 println!(
-                    "USM config after engine discovery - has_auth: {}, has_priv: {}",
+                    "USM config after engine discovery - has_auth: {}, has_priv: {}, USM: {:?}",
                     usm_config.has_auth(),
-                    usm_config.has_priv()
+                    usm_config.has_priv(), &usm_config
                 );
 
                 if usm_config.has_auth() {
@@ -605,13 +605,13 @@ fn send_getnext_request(&mut self, oid: &str) -> Result<oside::LayerStack, Box<d
         }
     }
 
-fn snmpv3_discovery(&mut self) -> Result<Vec<u8>, Box<dyn Error>> {
+fn snmpv3_discovery(&mut self, x: &mut UsmConfig) -> Result<Vec<u8>, Box<dyn Error>> {
     println!("Starting SNMPv3 engine discovery...");
     
     // Create a proper SNMPv3 discovery message (no authentication)
     let var_bindings = vec![SnmpVarBind {
         _bind_tag_len: Value::Auto,
-        name: Value::Set(BerOid::from_str("1.3.6.1.2.1.1.1.0").unwrap_or_default()),
+        name: Value::Set(BerOid::from_str("1.3.6.1.6.3.15.1.1.4.0").unwrap_or_default()),
         value: Value::Set(SnmpValue::Null),
     }];
 
@@ -672,13 +672,15 @@ fn snmpv3_discovery(&mut self) -> Result<Vec<u8>, Box<dyn Error>> {
             println!("Found SNMPv3 layer in response");
             println!("Response msg_flags: {:?}", snmpv3.msg_flags);
             println!("Response security_model: {:?}", snmpv3.msg_security_model);
-            
+ 
             // Debug: Print the security parameters type
             match &snmpv3.msg_security_parameters {
                 Value::Set(SnmpV3SecurityParameters::Usm(ref usm)) => {
                     println!("Found USM parameters in response");
                     let engine_id = usm.msg_authoritative_engine_id.value().to_vec();
                     println!("Extracted engine ID: {:02x?}", engine_id);
+                    x.engine_boots = usm.msg_authoritative_engine_boots.value(); 
+                    x.engine_time = usm.msg_authoritative_engine_time.value();
                     
                     if !engine_id.is_empty() {
                         return Ok(engine_id);
@@ -839,8 +841,10 @@ fn create_authenticated_request(&self, oid: &str, usm_config: &UsmConfig) -> Res
 
     // Create the SNMPv3 message with proper flags
     let mut flags = 0u8;
+    /*
     if usm_config.has_auth() { flags |= 0x01; }
     if usm_config.has_priv() { flags |= 0x02; }
+   */
     flags |= 0x04; // reportable
 
     let snmpv3 = SnmpV3 {
