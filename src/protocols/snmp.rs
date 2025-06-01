@@ -1348,39 +1348,49 @@ fn post_encode_scoped_pdu_seq_tag_len<E: Encoder>(
 
 impl SnmpV3ScopedPdu {
     /// Encrypt this scoped PDU using the provided privacy algorithm and key
-    pub fn encrypt_with_priv(&self, priv_alg: &usm_crypto::PrivAlgorithm, priv_key: &[u8]) -> Result<Vec<u8>, String> {
+    pub fn encrypt_with_priv(
+        &self,
+        priv_alg: &usm_crypto::PrivAlgorithm,
+        priv_key: &[u8],
+    ) -> Result<Vec<u8>, String> {
         if *priv_alg == usm_crypto::PrivAlgorithm::None {
             // No encryption, just encode normally
             return Ok(self.encode::<crate::encdec::asn1::Asn1Encoder>());
         }
-        
+
         // Encode the scoped PDU
         let plaintext = self.encode::<crate::encdec::asn1::Asn1Encoder>();
-        
+
         // Generate IV
         let iv = priv_alg.generate_iv();
-        
+
         // Encrypt the plaintext
         let ciphertext = priv_alg.encrypt(priv_key, &iv, &plaintext)?;
-        
+
         // Return the encrypted data (in real implementation, you'd also need to handle the IV)
         Ok(ciphertext)
     }
-    
+
     /// Decrypt data to create a scoped PDU
-    pub fn decrypt_from_data(encrypted_data: &[u8], priv_alg: &usm_crypto::PrivAlgorithm, priv_key: &[u8], iv: &[u8]) -> Result<Self, String> {
+    pub fn decrypt_from_data(
+        encrypted_data: &[u8],
+        priv_alg: &usm_crypto::PrivAlgorithm,
+        priv_key: &[u8],
+        iv: &[u8],
+    ) -> Result<Self, String> {
         if *priv_alg == usm_crypto::PrivAlgorithm::None {
             // No decryption needed, just decode
-            if let Some((pdu, _)) = Self::decode::<crate::encdec::asn1::Asn1Decoder>(encrypted_data) {
+            if let Some((pdu, _)) = Self::decode::<crate::encdec::asn1::Asn1Decoder>(encrypted_data)
+            {
                 return Ok(pdu);
             } else {
                 return Err("Failed to decode unencrypted scoped PDU".to_string());
             }
         }
-        
+
         // Decrypt the data
         let plaintext = priv_alg.decrypt(priv_key, iv, encrypted_data)?;
-        
+
         // Decode the decrypted plaintext
         if let Some((pdu, _)) = Self::decode::<crate::encdec::asn1::Asn1Decoder>(&plaintext) {
             Ok(pdu)
@@ -1389,7 +1399,6 @@ impl SnmpV3ScopedPdu {
         }
     }
 }
-
 
 impl FromStr for SnmpV3ScopedPdu {
     type Err = ValueParseError;
@@ -1670,64 +1679,71 @@ impl SnmpV3 {
         self
     }
 
-
     /// Encode with authentication and/or privacy
-    pub fn encode_with_usm<E: Encoder>(&self, usm_context: &UsmEncodingContext) -> Result<Vec<u8>, String> {
+    pub fn encode_with_usm<E: Encoder>(
+        &self,
+        usm_context: &UsmEncodingContext,
+    ) -> Result<Vec<u8>, String> {
         // First, encode without authentication parameters to get the base message
         let mut base_message = self.encode::<E>();
-        
+
         // If no authentication, return as-is
         if !usm_context.config.has_auth() {
             return Ok(base_message);
         }
-        
+
         // Calculate authentication parameters
-        let auth_params = usm_context.config.auth_algorithm
+        let auth_params = usm_context
+            .config
+            .auth_algorithm
             .generate_auth_params(&usm_context.auth_key, &base_message)?;
-        
+
         // Now we need to re-encode with the correct auth parameters
         // This is a bit tricky because we need to update the USM parameters
         let mut authenticated_snmp = self.clone();
-        
-        if let Value::Set(SnmpV3SecurityParameters::Usm(ref mut usm)) = &mut authenticated_snmp.msg_security_parameters {
+
+        if let Value::Set(SnmpV3SecurityParameters::Usm(ref mut usm)) =
+            &mut authenticated_snmp.msg_security_parameters
+        {
             usm.set_auth_params(&auth_params);
         }
-        
+
         // Re-encode with authentication parameters
         let authenticated_message = authenticated_snmp.encode::<E>();
-        
+
         Ok(authenticated_message)
     }
-    
+
     /// Verify authentication of a received message
-    pub fn verify_auth<D: Decoder>(&self, message: &[u8], usm_context: &UsmEncodingContext) -> Result<bool, String> {
+    pub fn verify_auth<D: Decoder>(
+        &self,
+        message: &[u8],
+        usm_context: &UsmEncodingContext,
+    ) -> Result<bool, String> {
         if !usm_context.config.has_auth() {
             return Ok(true); // No auth required
         }
-        
+
         // Extract the authentication parameters from the message
         // For simplicity, we'll assume they're already extracted
         // In a full implementation, you'd parse the message to get them
-        
+
         if let Value::Set(SnmpV3SecurityParameters::Usm(ref usm)) = &self.msg_security_parameters {
             let received_auth_params = &usm.msg_authentication_parameters.value().0;
-            
+
             // Create a copy of the message with zeroed auth parameters for verification
             let mut message_for_verification = message.to_vec();
             // TODO: Zero out the auth parameters in the message copy
-            
+
             usm_context.config.auth_algorithm.verify_auth_params(
                 &usm_context.auth_key,
                 &message_for_verification,
-                received_auth_params
+                received_auth_params,
             )
         } else {
             Err("No USM parameters found".to_string())
         }
     }
-
-
-
 }
 
 // Error types for better error handling
@@ -2338,9 +2354,9 @@ impl Snmp {
             )
             .push(scoped_pdu)
     }
-pub fn v3_get_with_auth(
+    pub fn v3_get_with_auth(
         oids: &Vec<&str>,
-        usm_config: &usm_crypto::UsmConfig
+        usm_config: &usm_crypto::UsmConfig,
     ) -> Result<(LayerStack, UsmEncodingContext), String> {
         let var_bindings = oids
             .into_iter()
@@ -2367,19 +2383,23 @@ pub fn v3_get_with_auth(
         // Create USM parameters from config
         let usm_params = if usm_config.has_auth() || usm_config.has_priv() {
             let mut usm = UsmSecurityParameters::with_user(&usm_config.user_name);
-            usm.set_engine_info(&usm_config.engine_id, usm_config.engine_boots, usm_config.engine_time);
-            
+            usm.set_engine_info(
+                &usm_config.engine_id,
+                usm_config.engine_boots,
+                usm_config.engine_time,
+            );
+
             if usm_config.has_auth() {
                 // Placeholder auth params - will be calculated during encoding
                 usm.set_auth_params(&vec![0u8; usm_config.auth_algorithm.auth_param_length()]);
             }
-            
+
             if usm_config.has_priv() {
                 // Generate random IV for privacy
                 let iv = usm_config.priv_algorithm.generate_iv();
                 usm.set_priv_params(&iv);
             }
-            
+
             SnmpV3SecurityParameters::Usm(usm)
         } else {
             SnmpV3SecurityParameters::None
@@ -2387,8 +2407,12 @@ pub fn v3_get_with_auth(
 
         // Create the SNMPv3 message
         let mut flags = 0u8;
-        if usm_config.has_auth() { flags |= 0x01; }
-        if usm_config.has_priv() { flags |= 0x02; }
+        if usm_config.has_auth() {
+            flags |= 0x01;
+        }
+        if usm_config.has_priv() {
+            flags |= 0x02;
+        }
         flags |= 0x04; // reportable
 
         let snmpv3 = SnmpV3 {
@@ -2409,14 +2433,14 @@ pub fn v3_get_with_auth(
             .push(scoped_pdu);
 
         let usm_context = UsmEncodingContext::new(usm_config.clone())?;
-        
+
         Ok((stack, usm_context))
     }
 
     /// Create SNMPv3 SET with authentication
     pub fn v3_set_with_auth(
         bindings: Vec<(&str, SnmpValue)>,
-        usm_config: &usm_crypto::UsmConfig
+        usm_config: &usm_crypto::UsmConfig,
     ) -> Result<(LayerStack, UsmEncodingContext), String> {
         let var_bindings = bindings
             .into_iter()
@@ -2443,25 +2467,33 @@ pub fn v3_get_with_auth(
         // Create USM parameters from config
         let usm_params = if usm_config.has_auth() || usm_config.has_priv() {
             let mut usm = UsmSecurityParameters::with_user(&usm_config.user_name);
-            usm.set_engine_info(&usm_config.engine_id, usm_config.engine_boots, usm_config.engine_time);
-            
+            usm.set_engine_info(
+                &usm_config.engine_id,
+                usm_config.engine_boots,
+                usm_config.engine_time,
+            );
+
             if usm_config.has_auth() {
                 usm.set_auth_params(&vec![0u8; usm_config.auth_algorithm.auth_param_length()]);
             }
-            
+
             if usm_config.has_priv() {
                 let iv = usm_config.priv_algorithm.generate_iv();
                 usm.set_priv_params(&iv);
             }
-            
+
             SnmpV3SecurityParameters::Usm(usm)
         } else {
             SnmpV3SecurityParameters::None
         };
 
         let mut flags = 0u8;
-        if usm_config.has_auth() { flags |= 0x01; }
-        if usm_config.has_priv() { flags |= 0x02; }
+        if usm_config.has_auth() {
+            flags |= 0x01;
+        }
+        if usm_config.has_priv() {
+            flags |= 0x02;
+        }
         flags |= 0x04; // reportable
 
         let snmpv3 = SnmpV3 {
@@ -2482,49 +2514,49 @@ pub fn v3_get_with_auth(
             .push(scoped_pdu);
 
         let usm_context = UsmEncodingContext::new(usm_config.clone())?;
-        
+
         Ok((stack, usm_context))
     }
 
-/// Create a complete authenticated and encrypted SNMPv3 GET request
+    /// Create a complete authenticated and encrypted SNMPv3 GET request
     pub fn v3_secure_get(
         oids: &Vec<&str>,
-        usm_config: &usm_crypto::UsmConfig
+        usm_config: &usm_crypto::UsmConfig,
     ) -> Result<Vec<u8>, String> {
         // Create the basic message structure
         let (mut stack, usm_context) = Self::v3_get_with_auth(oids, usm_config)?;
-        
+
         // If privacy is enabled, we need special handling
         if usm_config.has_priv() {
             // Get the scoped PDU from the stack
             if let Some(scoped_pdu) = stack.get_layer(SnmpV3ScopedPdu::default()) {
                 // Encrypt the scoped PDU
                 let encrypted_data = usm_context.encrypt_scoped_pdu(scoped_pdu)?;
-                
+
                 // TODO: Replace the scoped PDU in the stack with encrypted data
                 // This would require modifying the LayerStack structure
                 // For now, we'll encode the stack normally
             }
         }
-        
+
         // Encode with authentication
         stack.encode_with_usm::<crate::encdec::asn1::Asn1Encoder>(&usm_context)
     }
-    
+
     /// Create a complete authenticated and encrypted SNMPv3 SET request  
     pub fn v3_secure_set(
         bindings: Vec<(&str, SnmpValue)>,
-        usm_config: &usm_crypto::UsmConfig
+        usm_config: &usm_crypto::UsmConfig,
     ) -> Result<Vec<u8>, String> {
         let (mut stack, usm_context) = Self::v3_set_with_auth(bindings, usm_config)?;
-        
+
         if usm_config.has_priv() {
             if let Some(scoped_pdu) = stack.get_layer(SnmpV3ScopedPdu::default()) {
                 let encrypted_data = usm_context.encrypt_scoped_pdu(scoped_pdu)?;
                 // TODO: Replace scoped PDU with encrypted data
             }
         }
-        
+
         stack.encode_with_usm::<crate::encdec::asn1::Asn1Encoder>(&usm_context)
     }
 }
@@ -3309,7 +3341,7 @@ fn format_asn1_object(obj: &ASN1Object, indent: usize) -> String {
 // First, add these dependencies to your Cargo.toml:
 // [dependencies]
 // md-5 = "0.10"
-// sha1 = "0.10" 
+// sha1 = "0.10"
 // hmac = "0.12"
 // aes = "0.8"
 // des = "0.8"
@@ -3324,10 +3356,10 @@ pub mod usm_crypto {
     use hmac::{Hmac, Mac};
     use md5::Md5;
     use sha1::Sha1;
-    
+
     type HmacMd5 = Hmac<Md5>;
     type HmacSha1 = Hmac<Sha1>;
-    
+
     /// Authentication algorithms supported by USM
     #[derive(Debug, Clone, PartialEq)]
     pub enum AuthAlgorithm {
@@ -3335,7 +3367,7 @@ pub mod usm_crypto {
         HmacMd5,
         HmacSha1,
     }
-    
+
     /// Privacy (encryption) algorithms supported by USM
     #[derive(Debug, Clone, PartialEq)]
     pub enum PrivAlgorithm {
@@ -3343,7 +3375,7 @@ pub mod usm_crypto {
         DesCbc,
         Aes128,
     }
-    
+
     impl AuthAlgorithm {
         /// Get the digest length for this authentication algorithm
         pub fn digest_length(&self) -> usize {
@@ -3353,7 +3385,7 @@ pub mod usm_crypto {
                 AuthAlgorithm::HmacSha1 => 20,
             }
         }
-        
+
         /// Get the truncated authentication parameter length (first 12 bytes)
         pub fn auth_param_length(&self) -> usize {
             match self {
@@ -3361,7 +3393,7 @@ pub mod usm_crypto {
                 AuthAlgorithm::HmacMd5 | AuthAlgorithm::HmacSha1 => 12,
             }
         }
-        
+
         /// Derive the authentication key from a password using the algorithm's KDF
         pub fn derive_key(&self, password: &str, engine_id: &[u8]) -> Result<Vec<u8>, String> {
             match self {
@@ -3370,7 +3402,7 @@ pub mod usm_crypto {
                 AuthAlgorithm::HmacSha1 => self.password_to_key_sha1(password, engine_id),
             }
         }
-        
+
         /// Generate HMAC authentication parameters
         pub fn generate_auth_params(&self, key: &[u8], message: &[u8]) -> Result<Vec<u8>, String> {
             match self {
@@ -3393,90 +3425,101 @@ pub mod usm_crypto {
                 }
             }
         }
-        
+
         /// Verify HMAC authentication parameters
-        pub fn verify_auth_params(&self, key: &[u8], message: &[u8], received_params: &[u8]) -> Result<bool, String> {
+        pub fn verify_auth_params(
+            &self,
+            key: &[u8],
+            message: &[u8],
+            received_params: &[u8],
+        ) -> Result<bool, String> {
             let expected_params = self.generate_auth_params(key, message)?;
             Ok(expected_params == received_params)
         }
-        
+
         /// Convert password to key using MD5-based algorithm (RFC 3414)
         fn password_to_key_md5(&self, password: &str, engine_id: &[u8]) -> Result<Vec<u8>, String> {
-            use md5::{Md5, Digest};
-            
+            use md5::{Digest, Md5};
+
             let password_bytes = password.as_bytes();
             if password_bytes.is_empty() {
                 return Err("Password cannot be empty".to_string());
             }
-            
+
             // Step 1: Create 1MB of password data
             let mut password_buf = vec![0u8; 1048576]; // 1MB
             let mut buf_pos = 0;
-            
+
             while buf_pos < password_buf.len() {
                 let remaining = password_buf.len() - buf_pos;
                 let to_copy = std::cmp::min(remaining, password_bytes.len());
-                password_buf[buf_pos..buf_pos + to_copy].copy_from_slice(&password_bytes[..to_copy]);
+                password_buf[buf_pos..buf_pos + to_copy]
+                    .copy_from_slice(&password_bytes[..to_copy]);
                 buf_pos += to_copy;
             }
-            
+
             // Step 2: MD5 hash the 1MB buffer
-            let mut hasher = <Md5 as md5::Digest>::new(); 
+            let mut hasher = <Md5 as md5::Digest>::new();
             hasher.update(&password_buf);
             let digest = hasher.finalize();
-            
+
             // Step 3: Localize the key with engine ID
             let mut localized_key = Vec::new();
             localized_key.extend_from_slice(&digest);
             localized_key.extend_from_slice(engine_id);
             localized_key.extend_from_slice(&digest);
-            
+
             let mut final_hasher = <Md5 as md5::Digest>::new();
             final_hasher.update(&localized_key);
             let final_digest = final_hasher.finalize();
-            
+
             Ok(final_digest.to_vec())
         }
-        
+
         /// Convert password to key using SHA1-based algorithm (RFC 3414)
-        fn password_to_key_sha1(&self, password: &str, engine_id: &[u8]) -> Result<Vec<u8>, String> {
-            use sha1::{Sha1, Digest};
-            
+        fn password_to_key_sha1(
+            &self,
+            password: &str,
+            engine_id: &[u8],
+        ) -> Result<Vec<u8>, String> {
+            use sha1::{Digest, Sha1};
+
             let password_bytes = password.as_bytes();
             if password_bytes.is_empty() {
                 return Err("Password cannot be empty".to_string());
             }
-            
+
             // Step 1: Create 1MB of password data
             let mut password_buf = vec![0u8; 1048576]; // 1MB
             let mut buf_pos = 0;
-            
+
             while buf_pos < password_buf.len() {
                 let remaining = password_buf.len() - buf_pos;
                 let to_copy = std::cmp::min(remaining, password_bytes.len());
-                password_buf[buf_pos..buf_pos + to_copy].copy_from_slice(&password_bytes[..to_copy]);
+                password_buf[buf_pos..buf_pos + to_copy]
+                    .copy_from_slice(&password_bytes[..to_copy]);
                 buf_pos += to_copy;
             }
-            
+
             // Step 2: SHA1 hash the 1MB buffer
             let mut hasher = <Sha1 as sha1::Digest>::new();
             hasher.update(&password_buf);
             let digest = hasher.finalize();
-            
+
             // Step 3: Localize the key with engine ID
             let mut localized_key = Vec::new();
             localized_key.extend_from_slice(&digest);
             localized_key.extend_from_slice(engine_id);
             localized_key.extend_from_slice(&digest);
-            
+
             let mut final_hasher = <Sha1 as sha1::Digest>::new();
             final_hasher.update(&localized_key);
             let final_digest = final_hasher.finalize();
-            
+
             Ok(final_digest.to_vec())
         }
     }
-    
+
     impl PrivAlgorithm {
         /// Get the key length for this privacy algorithm
         pub fn key_length(&self) -> usize {
@@ -3486,7 +3529,7 @@ pub mod usm_crypto {
                 PrivAlgorithm::Aes128 => 16, // AES-128 key length
             }
         }
-        
+
         /// Get the IV length for this privacy algorithm
         pub fn iv_length(&self) -> usize {
             match self {
@@ -3495,7 +3538,7 @@ pub mod usm_crypto {
                 PrivAlgorithm::Aes128 => 16, // AES block size
             }
         }
-        
+
         /// Derive the privacy key from authentication key
         pub fn derive_key(&self, auth_key: &[u8]) -> Result<Vec<u8>, String> {
             match self {
@@ -3516,135 +3559,145 @@ pub mod usm_crypto {
                 }
             }
         }
-        
+
         /// Encrypt data using this privacy algorithm
-/// Encrypt data using this privacy algorithm
-    pub fn encrypt(&self, key: &[u8], iv: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, String> {
-        match self {
-            PrivAlgorithm::None => Ok(plaintext.to_vec()),
-            PrivAlgorithm::DesCbc => {
-                use des::Des;
-                use cipher::{BlockEncryptMut, KeyIvInit};
-                use cbc::Encryptor;
-                
-                type DesCbcEnc = Encryptor<Des>;
-                
-                if key.len() < 8 {
-                    return Err("DES key must be at least 8 bytes".to_string());
-                }
-                if iv.len() != 8 {
-                    return Err("DES IV must be exactly 8 bytes".to_string());
-                }
-                
-               let cipher = DesCbcEnc::new_from_slices(&key[..8], iv)
-    .map_err(|e| format!("Failed to create DES cipher: {:?}", e))?;
+        /// Encrypt data using this privacy algorithm
+        pub fn encrypt(&self, key: &[u8], iv: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, String> {
+            match self {
+                PrivAlgorithm::None => Ok(plaintext.to_vec()),
+                PrivAlgorithm::DesCbc => {
+                    use cbc::Encryptor;
+                    use cipher::{BlockEncryptMut, KeyIvInit};
+                    use des::Des;
 
-let mut buffer = plaintext.to_vec();
-// Reserve space for padding (up to one block)
-buffer.reserve(8);
-let ciphertext_len = buffer.len();
-// Resize to accommodate potential padding  
-buffer.resize(ciphertext_len + 8, 0);
+                    type DesCbcEnc = Encryptor<Des>;
 
-let ciphertext = cipher.encrypt_padded_mut::<cipher::block_padding::Pkcs7>(&mut buffer, ciphertext_len)
-    .map_err(|e| format!("DES encryption failed: {:?}", e))?;
- 
-                Ok(ciphertext.to_vec())
-            }
-            PrivAlgorithm::Aes128 => {
-                use aes::Aes128;
-                use cipher::{BlockEncryptMut, KeyIvInit};
-                use cbc::Encryptor;
-                
-                type Aes128CbcEnc = Encryptor<Aes128>;
-                
-                if key.len() != 16 {
-                    return Err("AES-128 key must be exactly 16 bytes".to_string());
+                    if key.len() < 8 {
+                        return Err("DES key must be at least 8 bytes".to_string());
+                    }
+                    if iv.len() != 8 {
+                        return Err("DES IV must be exactly 8 bytes".to_string());
+                    }
+
+                    let cipher = DesCbcEnc::new_from_slices(&key[..8], iv)
+                        .map_err(|e| format!("Failed to create DES cipher: {:?}", e))?;
+
+                    let mut buffer = plaintext.to_vec();
+                    // Reserve space for padding (up to one block)
+                    buffer.reserve(8);
+                    let ciphertext_len = buffer.len();
+                    // Resize to accommodate potential padding
+                    buffer.resize(ciphertext_len + 8, 0);
+
+                    let ciphertext = cipher
+                        .encrypt_padded_mut::<cipher::block_padding::Pkcs7>(
+                            &mut buffer,
+                            ciphertext_len,
+                        )
+                        .map_err(|e| format!("DES encryption failed: {:?}", e))?;
+
+                    Ok(ciphertext.to_vec())
                 }
-                if iv.len() != 16 {
-                    return Err("AES IV must be exactly 16 bytes".to_string());
+                PrivAlgorithm::Aes128 => {
+                    use aes::Aes128;
+                    use cbc::Encryptor;
+                    use cipher::{BlockEncryptMut, KeyIvInit};
+
+                    type Aes128CbcEnc = Encryptor<Aes128>;
+
+                    if key.len() != 16 {
+                        return Err("AES-128 key must be exactly 16 bytes".to_string());
+                    }
+                    if iv.len() != 16 {
+                        return Err("AES IV must be exactly 16 bytes".to_string());
+                    }
+
+                    let cipher = Aes128CbcEnc::new_from_slices(key, iv)
+                        .map_err(|e| format!("Failed to create AES cipher: {:?}", e))?;
+
+                    let mut buffer = plaintext.to_vec();
+                    // Reserve space for padding (up to one block)
+                    buffer.reserve(16);
+                    let ciphertext_len = buffer.len();
+                    // Resize to accommodate potential padding
+                    buffer.resize(ciphertext_len + 16, 0);
+
+                    let ciphertext = cipher
+                        .encrypt_padded_mut::<cipher::block_padding::Pkcs7>(
+                            &mut buffer,
+                            ciphertext_len,
+                        )
+                        .map_err(|e| format!("AES encryption failed: {:?}", e))?;
+
+                    Ok(ciphertext.to_vec())
                 }
-               
-let cipher = Aes128CbcEnc::new_from_slices(key, iv)
-    .map_err(|e| format!("Failed to create AES cipher: {:?}", e))?;
-
-let mut buffer = plaintext.to_vec();
-// Reserve space for padding (up to one block)
-buffer.reserve(16);
-let ciphertext_len = buffer.len();
-// Resize to accommodate potential padding
-buffer.resize(ciphertext_len + 16, 0);
-
-let ciphertext = cipher.encrypt_padded_mut::<cipher::block_padding::Pkcs7>(&mut buffer, ciphertext_len)
-    .map_err(|e| format!("AES encryption failed: {:?}", e))?;
- 
-                Ok(ciphertext.to_vec())
             }
         }
-    }
-        
+
         /// Decrypt data using this privacy algorithm
-       pub fn decrypt(&self, key: &[u8], iv: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, String> {
-        match self {
-            PrivAlgorithm::None => Ok(ciphertext.to_vec()),
-            PrivAlgorithm::DesCbc => {
-                use des::Des;
-                use cipher::{BlockDecryptMut, KeyIvInit};
-                use cbc::Decryptor;
-                
-                type DesCbcDec = Decryptor<Des>;
-                
-                if key.len() < 8 {
-                    return Err("DES key must be at least 8 bytes".to_string());
+        pub fn decrypt(&self, key: &[u8], iv: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, String> {
+            match self {
+                PrivAlgorithm::None => Ok(ciphertext.to_vec()),
+                PrivAlgorithm::DesCbc => {
+                    use cbc::Decryptor;
+                    use cipher::{BlockDecryptMut, KeyIvInit};
+                    use des::Des;
+
+                    type DesCbcDec = Decryptor<Des>;
+
+                    if key.len() < 8 {
+                        return Err("DES key must be at least 8 bytes".to_string());
+                    }
+                    if iv.len() != 8 {
+                        return Err("DES IV must be exactly 8 bytes".to_string());
+                    }
+                    if ciphertext.len() % 8 != 0 {
+                        return Err("DES ciphertext length must be multiple of 8".to_string());
+                    }
+
+                    let cipher = DesCbcDec::new_from_slices(&key[..8], iv)
+                        .map_err(|e| format!("Failed to create DES cipher: {:?}", e))?;
+
+                    let mut plaintext = ciphertext.to_vec();
+                    let decrypted_len = cipher
+                        .decrypt_padded_mut::<cipher::block_padding::Pkcs7>(&mut plaintext)
+                        .map_err(|e| format!("DES decryption failed: {:?}", e))?
+                        .len();
+
+                    plaintext.truncate(decrypted_len);
+                    Ok(plaintext)
                 }
-                if iv.len() != 8 {
-                    return Err("DES IV must be exactly 8 bytes".to_string());
+                PrivAlgorithm::Aes128 => {
+                    use aes::Aes128;
+                    use cbc::Decryptor;
+                    use cipher::{BlockDecryptMut, KeyIvInit};
+
+                    type Aes128CbcDec = Decryptor<Aes128>;
+
+                    if key.len() != 16 {
+                        return Err("AES-128 key must be exactly 16 bytes".to_string());
+                    }
+                    if iv.len() != 16 {
+                        return Err("AES IV must be exactly 16 bytes".to_string());
+                    }
+                    if ciphertext.len() % 16 != 0 {
+                        return Err("AES ciphertext length must be multiple of 16".to_string());
+                    }
+
+                    let cipher = Aes128CbcDec::new_from_slices(key, iv)
+                        .map_err(|e| format!("Failed to create AES cipher: {:?}", e))?;
+
+                    let mut plaintext = ciphertext.to_vec();
+                    let decrypted_len = cipher
+                        .decrypt_padded_mut::<cipher::block_padding::Pkcs7>(&mut plaintext)
+                        .map_err(|e| format!("AES decryption failed: {:?}", e))?
+                        .len();
+
+                    plaintext.truncate(decrypted_len);
+                    Ok(plaintext)
                 }
-                if ciphertext.len() % 8 != 0 {
-                    return Err("DES ciphertext length must be multiple of 8".to_string());
-                }
-                
-                let cipher = DesCbcDec::new_from_slices(&key[..8], iv)
-                    .map_err(|e| format!("Failed to create DES cipher: {:?}", e))?;
-                
-                let mut plaintext = ciphertext.to_vec();
-                let decrypted_len = cipher.decrypt_padded_mut::<cipher::block_padding::Pkcs7>(&mut plaintext)
-                    .map_err(|e| format!("DES decryption failed: {:?}", e))?
-                    .len();
-                
-                plaintext.truncate(decrypted_len);
-                Ok(plaintext)
-            }
-            PrivAlgorithm::Aes128 => {
-                use aes::Aes128;
-                use cipher::{BlockDecryptMut, KeyIvInit};
-                use cbc::Decryptor;
-                
-                type Aes128CbcDec = Decryptor<Aes128>;
-                
-                if key.len() != 16 {
-                    return Err("AES-128 key must be exactly 16 bytes".to_string());
-                }
-                if iv.len() != 16 {
-                    return Err("AES IV must be exactly 16 bytes".to_string());
-                }
-                if ciphertext.len() % 16 != 0 {
-                    return Err("AES ciphertext length must be multiple of 16".to_string());
-                }
-                
-                let cipher = Aes128CbcDec::new_from_slices(key, iv)
-                    .map_err(|e| format!("Failed to create AES cipher: {:?}", e))?;
-                
-                let mut plaintext = ciphertext.to_vec();
-                let decrypted_len = cipher.decrypt_padded_mut::<cipher::block_padding::Pkcs7>(&mut plaintext)
-                    .map_err(|e| format!("AES decryption failed: {:?}", e))?
-                    .len();
-                
-                plaintext.truncate(decrypted_len);
-                Ok(plaintext)
             }
         }
-    } 
         /// Generate a random IV for encryption
         pub fn generate_iv(&self) -> Vec<u8> {
             use rand::Rng;
@@ -3654,7 +3707,7 @@ let ciphertext = cipher.encrypt_padded_mut::<cipher::block_padding::Pkcs7>(&mut 
             iv
         }
     }
-    
+
     /// USM Security Configuration
     #[derive(Debug, Clone)]
     pub struct UsmConfig {
@@ -3667,7 +3720,7 @@ let ciphertext = cipher.encrypt_padded_mut::<cipher::block_padding::Pkcs7>(&mut 
         pub engine_boots: u32,
         pub engine_time: u32,
     }
-    
+
     impl UsmConfig {
         pub fn new(user_name: &str) -> Self {
             Self {
@@ -3681,26 +3734,26 @@ let ciphertext = cipher.encrypt_padded_mut::<cipher::block_padding::Pkcs7>(&mut 
                 engine_time: 0,
             }
         }
-        
+
         pub fn with_auth(mut self, algorithm: AuthAlgorithm, password: &str) -> Self {
             self.auth_algorithm = algorithm;
             self.auth_password = Some(password.to_string());
             self
         }
-        
+
         pub fn with_priv(mut self, algorithm: PrivAlgorithm, password: &str) -> Self {
             self.priv_algorithm = algorithm;
             self.priv_password = Some(password.to_string());
             self
         }
-        
+
         pub fn with_engine_info(mut self, engine_id: &[u8], boots: u32, time: u32) -> Self {
             self.engine_id = engine_id.to_vec();
             self.engine_boots = boots;
             self.engine_time = time;
             self
         }
-        
+
         /// Derive authentication key
         pub fn auth_key(&self) -> Result<Vec<u8>, String> {
             match &self.auth_password {
@@ -3708,22 +3761,22 @@ let ciphertext = cipher.encrypt_padded_mut::<cipher::block_padding::Pkcs7>(&mut 
                 None => Ok(vec![]),
             }
         }
-        
+
         /// Derive privacy key
         pub fn priv_key(&self) -> Result<Vec<u8>, String> {
             if self.priv_algorithm == PrivAlgorithm::None {
                 return Ok(vec![]);
             }
-            
+
             let auth_key = self.auth_key()?;
             self.priv_algorithm.derive_key(&auth_key)
         }
-        
+
         /// Check if authentication is enabled
         pub fn has_auth(&self) -> bool {
             self.auth_algorithm != AuthAlgorithm::None && self.auth_password.is_some()
         }
-        
+
         /// Check if privacy is enabled
         pub fn has_priv(&self) -> bool {
             self.priv_algorithm != PrivAlgorithm::None && self.priv_password.is_some()
@@ -3737,35 +3790,41 @@ impl SnmpV3 {
     pub fn with_auth(user: &str, auth_alg: usm_crypto::AuthAlgorithm, password: &str) -> Self {
         let mut snmp = SnmpV3::new();
         snmp.set_authentication(true);
-        
-        if let Value::Set(SnmpV3SecurityParameters::Usm(ref mut usm)) = &mut snmp.msg_security_parameters {
+
+        if let Value::Set(SnmpV3SecurityParameters::Usm(ref mut usm)) =
+            &mut snmp.msg_security_parameters
+        {
             usm.msg_user_name = Value::Set(ByteArray::from(user.as_bytes()));
             // Auth parameters will be filled during encoding
-            usm.msg_authentication_parameters = Value::Set(ByteArray::from(vec![0u8; auth_alg.auth_param_length()]));
+            usm.msg_authentication_parameters =
+                Value::Set(ByteArray::from(vec![0u8; auth_alg.auth_param_length()]));
         }
-        
+
         snmp
     }
-    
+
     /// Create an SNMPv3 message with authentication and privacy
     pub fn with_auth_priv(
-        user: &str, 
-        auth_alg: usm_crypto::AuthAlgorithm, 
+        user: &str,
+        auth_alg: usm_crypto::AuthAlgorithm,
         auth_password: &str,
         priv_alg: usm_crypto::PrivAlgorithm,
-        priv_password: &str
+        priv_password: &str,
     ) -> Self {
         let mut snmp = Self::with_auth(user, auth_alg, auth_password);
         snmp.set_privacy(true);
-        
+
         // Privacy parameters will be filled during encoding
-        if let Value::Set(SnmpV3SecurityParameters::Usm(ref mut usm)) = &mut snmp.msg_security_parameters {
-            usm.msg_privacy_parameters = Value::Set(ByteArray::from(vec![0u8; 8])); // DES/AES IV
+        if let Value::Set(SnmpV3SecurityParameters::Usm(ref mut usm)) =
+            &mut snmp.msg_security_parameters
+        {
+            usm.msg_privacy_parameters = Value::Set(ByteArray::from(vec![0u8; 8]));
+            // DES/AES IV
         }
-        
+
         snmp
     }
-    
+
     /// Create SNMPv3 message from USM configuration
     pub fn from_usm_config(config: &usm_crypto::UsmConfig) -> Self {
         if config.has_priv() {
@@ -3800,54 +3859,70 @@ impl UsmEncodingContext {
     pub fn new(config: usm_crypto::UsmConfig) -> Result<Self, String> {
         let auth_key = config.auth_key()?;
         let priv_key = config.priv_key()?;
-        
+
         Ok(Self {
             config,
             auth_key,
             priv_key,
         })
     }
-/// Encrypt a scoped PDU if privacy is enabled
+    /// Encrypt a scoped PDU if privacy is enabled
     pub fn encrypt_scoped_pdu(&self, scoped_pdu: &SnmpV3ScopedPdu) -> Result<Vec<u8>, String> {
         if !self.config.has_priv() {
             // No privacy, encode normally
             return Ok(scoped_pdu.encode::<crate::encdec::asn1::Asn1Encoder>());
         }
-        
+
         scoped_pdu.encrypt_with_priv(&self.config.priv_algorithm, &self.priv_key)
     }
-    
+
     /// Decrypt data to a scoped PDU if privacy is enabled
-    pub fn decrypt_to_scoped_pdu(&self, encrypted_data: &[u8], iv: &[u8]) -> Result<SnmpV3ScopedPdu, String> {
-        SnmpV3ScopedPdu::decrypt_from_data(encrypted_data, &self.config.priv_algorithm, &self.priv_key, iv)
+    pub fn decrypt_to_scoped_pdu(
+        &self,
+        encrypted_data: &[u8],
+        iv: &[u8],
+    ) -> Result<SnmpV3ScopedPdu, String> {
+        SnmpV3ScopedPdu::decrypt_from_data(
+            encrypted_data,
+            &self.config.priv_algorithm,
+            &self.priv_key,
+            iv,
+        )
     }
 }
-
 
 // Add a helper extension trait for LayerStack to support USM encoding
 pub trait LayerStackUsmExt {
-    fn encode_with_usm<E: Encoder>(&self, usm_context: &UsmEncodingContext) -> Result<Vec<u8>, String>;
+    fn encode_with_usm<E: Encoder>(
+        &self,
+        usm_context: &UsmEncodingContext,
+    ) -> Result<Vec<u8>, String>;
 }
 
 impl LayerStackUsmExt for LayerStack {
-    fn encode_with_usm<E: Encoder>(&self, usm_context: &UsmEncodingContext) -> Result<Vec<u8>, String> {
+    fn encode_with_usm<E: Encoder>(
+        &self,
+        usm_context: &UsmEncodingContext,
+    ) -> Result<Vec<u8>, String> {
         // If no authentication required, use normal encoding
         if !usm_context.config.has_auth() {
             return Ok(self.clone().lencode());
         }
-        
+
         // For authenticated messages, we need special handling
         // This is a simplified version - full implementation would handle privacy too
-        
+
         // First encode normally to get the message structure
         let mut base_encoded = self.clone().lencode();
-        
+
         // Find the SNMPv3 layer and calculate authentication
         if let Some(snmpv3_layer) = self.get_layer(SnmpV3::new()) {
             // Calculate authentication parameters for the entire message
-            let auth_params = usm_context.config.auth_algorithm
+            let auth_params = usm_context
+                .config
+                .auth_algorithm
                 .generate_auth_params(&usm_context.auth_key, &base_encoded)?;
-            
+
             // TODO: Update the encoded message with the correct auth parameters
             // This would require parsing and reconstructing the message
             // For now, return the base encoded message
@@ -3861,53 +3936,57 @@ impl LayerStackUsmExt for LayerStack {
 // Add example usage and testing helpers:
 #[cfg(test)]
 mod usm_tests {
-    use super::*;
     use super::usm_crypto::*;
-    
+    use super::*;
+
     #[test]
     fn test_auth_key_derivation() {
         let auth_alg = AuthAlgorithm::HmacMd5;
         let password = "maplesyrup";
         let engine_id = b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02";
-        
+
         let key = auth_alg.derive_key(password, engine_id).unwrap();
         assert_eq!(key.len(), 16); // MD5 produces 16-byte keys
     }
-    
+
     #[test]
     fn test_priv_key_derivation() {
         let auth_alg = AuthAlgorithm::HmacMd5;
         let priv_alg = PrivAlgorithm::DesCbc;
         let password = "maplesyrup";
         let engine_id = b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02";
-        
+
         let auth_key = auth_alg.derive_key(password, engine_id).unwrap();
         let priv_key = priv_alg.derive_key(&auth_key).unwrap();
         assert_eq!(priv_key.len(), 16); // DES privacy key is 16 bytes
     }
-    
-    #[test] 
+
+    #[test]
     fn test_usm_config_builder() {
         let config = UsmConfig::new("testuser")
             .with_auth(AuthAlgorithm::HmacSha1, "authpassword")
             .with_priv(PrivAlgorithm::Aes128, "privpassword")
-            .with_engine_info(b"\x80\x00\x1f\x88\x80\xe9\x63\x00\x00\x53\xe2\x04", 1, 12345);
-        
+            .with_engine_info(
+                b"\x80\x00\x1f\x88\x80\xe9\x63\x00\x00\x53\xe2\x04",
+                1,
+                12345,
+            );
+
         assert!(config.has_auth());
         assert!(config.has_priv());
         assert_eq!(config.user_name, "testuser");
     }
-    
+
     #[test]
     fn test_encrypt_decrypt_aes() {
         let priv_alg = PrivAlgorithm::Aes128;
         let key = b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f";
         let iv = b"\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f";
         let plaintext = b"Hello, SNMP World!";
-        
+
         let ciphertext = priv_alg.encrypt(key, iv, plaintext).unwrap();
         let decrypted = priv_alg.decrypt(key, iv, &ciphertext).unwrap();
-        
+
         assert_eq!(plaintext, &decrypted[..plaintext.len()]);
     }
 }
