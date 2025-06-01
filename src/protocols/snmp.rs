@@ -250,6 +250,7 @@ fn post_encode_seq_tag_len<E: Encoder>(
     } else {
         BerTagAndLen(asn1::Tag::Sequence, out_len)
     };
+    println!("SNMP OLD LEN: {},  OUT_LEN: {}", old_len, out_len);
     // find out the length of inner layers
     let bytes = seq_tag_len.encode::<E>();
     out.splice(old_len..old_len, bytes);
@@ -830,6 +831,16 @@ impl Deref for ByteArray {
     }
 }
 
+impl Decode for ByteArray {
+    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
+        // ByteArray is encoded as OCTET STRING in ASN.1
+        match Asn1Decoder::decode_octetstring(buf) {
+            Some((bytes, consumed)) => Some((ByteArray(bytes), consumed)),
+            None => None,
+        }
+    }
+}
+
 // Step 2: Add missing SNMP PDU types and prepare foundation for SNMPv3
 
 // First, let's add the missing SNMPv2c PDU types that are currently missing
@@ -1010,28 +1021,139 @@ pub struct SnmpGetBulkRequest {
 
 */
 
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(register(SNMP_VERSIONS, Version = 43))]
+// #[nproto(register(UDP_SRC_PORT_APPS, SrcPort = 9999))]
+// #[nproto(register(UDP_DST_PORT_APPS, DstPort = 9999))]
+#[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
+pub struct SnmpV3Mock {
+   data: Value<GenericAsn1Data>,
+}
+
+
 // Add SNMPv3 support - Foundation structures
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(SNMP_VERSIONS, Version = 3))]
 #[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
 pub struct SnmpV3 {
+    #[nproto(encode=Skip, fill=auto)]
+    pub _seq_tag_len_v3: Value<BerTagAndLen>,
+
     pub msg_id: Value<u32>,
     pub msg_max_size: Value<u32>,
-    pub msg_flags: Value<u8>,
+    pub msg_flags: Value<ByteArray>,
+    #[nproto(post_encode = post_encode_seq_tag_len_v3)]
+    #[nproto(next: SNMP_SECURITY_MODELS => ModelNumber)]
     pub msg_security_model: Value<u32>,
-    #[nproto(encode = Skip)]
-    pub _security_params_tag_len: Value<BerTagAndLen>,
-    #[nproto(post_encode = post_encode_security_params_tag_len)]
-    pub msg_security_parameters: Value<SnmpV3SecurityParameters>,
-    #[nproto(encode = Skip)]
-    pub _data_tag_len: Value<BerTagAndLen>,
-    #[nproto(post_encode = post_encode_data_tag_len)]
-    pub scoped_pdu_data: Value<SnmpV3ScopedPduData>,
 }
 
-fn post_encode_security_params_tag_len<E: Encoder>(
+fn post_encode_seq_tag_len_v3<E: Encoder>(
     me: &SnmpV3,
+    stack: &LayerStack,
+    my_index: usize,
+    out: &mut Vec<u8>,
+    skip_points: &Vec<usize>,
+    encoded_data: &EncodingVecVec,
+) {
+    use std::convert::TryInto;
+    let mut skip_point = skip_points;
+    let old_len = skip_points[0];
+    let mut out_len = 0;
+/*
+    inner levels not part of this seq
+    for i in my_index + 1..encoded_data.len() {
+        println!("already encoded data: {}", encoded_data[i].len());
+        out_len += encoded_data[i].len();
+    }
+*/
+    // Also account for what has been encoded on this level already
+    out_len += out.len() - old_len;
+    println!("SNMPV3 OLD LEN: {}, OUT LEN: {}", old_len, out_len);
+    let seq_tag_len_v3 = if !me._seq_tag_len_v3.is_auto() {
+        me._seq_tag_len_v3.value()
+    } else {
+        BerTagAndLen(asn1::Tag::Sequence, out_len)
+    };
+    // find out the length of inner layers
+    let bytes = seq_tag_len_v3.encode::<E>();
+    out.splice(old_len..old_len, bytes);
+}
+
+// SNMPv3 Security Parameters - these vary by security model
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum SnmpV3SecurityParameters {
+    None,                    // For security model 0 (any)
+    CommunityBased(String),  // For security model 1 (community-based, RFC 3414)
+    Usm(UsmSecurityParameters), // For security model 3 (USM, RFC 3414)
+    Raw(ByteArray),       // For other security models
+}
+
+// User-based Security Model (USM) parameters - RFC 3414
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(register(SNMP_SECURITY_MODELS, ModelNumber = 3))]
+#[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
+pub struct UsmSecurityParameters {
+    #[nproto(encode=Skip, fill=auto)]
+    pub _octet_string_tag_len: Value<BerTagAndLen>,
+
+    #[nproto(encode=Skip, fill=auto)]
+    pub _seq_tag_len: Value<BerTagAndLen>,
+    
+    pub msg_authoritative_engine_id: Value<ByteArray>,
+    pub msg_authoritative_engine_boots: Value<u32>,
+    pub msg_authoritative_engine_time: Value<u32>,
+    pub msg_user_name: Value<ByteArray>,
+    pub msg_authentication_parameters: Value<ByteArray>,
+    
+    // #[nproto(post_encode = post_encode_usm_seq_tag_len)]
+    #[nproto(post_encode = post_encode_usm_with_octet_string)]
+    pub msg_privacy_parameters: Value<ByteArray>,
+}
+
+fn post_encode_usm_with_octet_string<E: Encoder>(
+    me: &UsmSecurityParameters,
+    stack: &LayerStack,
+    my_index: usize,
+    out: &mut Vec<u8>,
+    skip_points: &Vec<usize>,
+    encoded_data: &EncodingVecVec,
+) {
+    let octet_string_skip = skip_points[0];
+    let seq_skip = skip_points[1];
+    
+    // Calculate the length of the SEQUENCE content
+    let mut seq_content_len = 0;
+    for i in my_index + 1..encoded_data.len() {
+        seq_content_len += encoded_data[i].len();
+    }
+    seq_content_len += out.len() - seq_skip;
+    
+    // Insert SEQUENCE tag and length
+    let seq_tag_len = if !me._seq_tag_len.is_auto() {
+        me._seq_tag_len.value()
+    } else {
+        BerTagAndLen(asn1::Tag::Sequence, seq_content_len)
+    };
+    let seq_bytes = seq_tag_len.encode::<E>();
+    let seq_bytes_len = seq_bytes.len();
+    out.splice(seq_skip..seq_skip, seq_bytes);
+    
+    // Calculate total length including the SEQUENCE tag we just added
+    let total_content_len = seq_content_len + seq_bytes_len;
+    
+    // Insert OCTET STRING tag and length at the beginning
+    let octet_tag_len = if !me._octet_string_tag_len.is_auto() {
+        me._octet_string_tag_len.value()
+    } else {
+        BerTagAndLen(asn1::Tag::OctetString, total_content_len)
+    };
+    let octet_bytes = octet_tag_len.encode::<E>();
+    out.splice(octet_string_skip..octet_string_skip, octet_bytes);
+}
+
+fn post_encode_usm_seq_tag_len<E: Encoder>(
+    me: &UsmSecurityParameters,
     stack: &LayerStack,
     my_index: usize,
     out: &mut Vec<u8>,
@@ -1039,46 +1161,30 @@ fn post_encode_security_params_tag_len<E: Encoder>(
     encoded_data: &EncodingVecVec,
 ) {
     let old_len = skip_points[0];
-    let params_len = me.msg_security_parameters.value().encoded_length();
-    let tag_len = if !me._security_params_tag_len.is_auto() {
-        me._security_params_tag_len.value()
+    let mut out_len = 0;
+    for i in my_index + 1..encoded_data.len() {
+        out_len += encoded_data[i].len();
+    }
+    out_len += out.len() - old_len;
+    println!("USM SEQ LEN: {}", out_len);
+    
+    let seq_tag_len = if !me._seq_tag_len.is_auto() {
+        me._seq_tag_len.value()
     } else {
-        BerTagAndLen(asn1::Tag::OctetString, params_len)
+        BerTagAndLen(asn1::Tag::Sequence, out_len)
     };
-    let bytes = tag_len.encode::<E>();
+    
+    let bytes = seq_tag_len.encode::<E>();
     out.splice(old_len..old_len, bytes);
 }
 
-fn post_encode_data_tag_len<E: Encoder>(
-    me: &SnmpV3,
-    stack: &LayerStack,
-    my_index: usize,
-    out: &mut Vec<u8>,
-    skip_points: &Vec<usize>,
-    encoded_data: &EncodingVecVec,
-) {
-    let old_len = skip_points[1];
-    let data_len = me.scoped_pdu_data.value().encoded_length();
-    let tag_len = if !me._data_tag_len.is_auto() {
-        me._data_tag_len.value()
-    } else {
-        BerTagAndLen(asn1::Tag::OctetString, data_len)
-    };
-    let bytes = tag_len.encode::<E>();
-    out.splice(old_len..old_len, bytes);
-}
 
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-pub enum SnmpV3SecurityParameters {
-    #[default]
-    None,
-    Usm(UsmSecurityParameters),
-    Raw(ByteArray),
-}
+/// XXXXX
 
 impl SnmpV3SecurityParameters {
     fn encoded_length(&self) -> usize {
         match self {
+            &SnmpV3SecurityParameters::CommunityBased(_) => todo!(),
             SnmpV3SecurityParameters::None => 0,
             SnmpV3SecurityParameters::Usm(usm) => usm.encoded_length(),
             SnmpV3SecurityParameters::Raw(data) => data.len(),
@@ -1135,6 +1241,7 @@ impl Decode for SnmpV3SecurityParameters {
 impl Encode for SnmpV3SecurityParameters {
     fn encode<E: Encoder>(&self) -> Vec<u8> {
         match self {
+            &SnmpV3SecurityParameters::CommunityBased(_) => todo!(),
             SnmpV3SecurityParameters::None => {
                 // Empty octet string for no security
                 Asn1Encoder::encode_octetstring(&[])
@@ -1182,16 +1289,7 @@ impl Encode for SnmpV3SecurityParameters {
     }
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-pub struct UsmSecurityParameters {
-    pub msg_authoritative_engine_id: Value<ByteArray>,
-    pub msg_authoritative_engine_boots: Value<u32>,
-    pub msg_authoritative_engine_time: Value<u32>,
-    pub msg_user_name: Value<ByteArray>,
-    pub msg_authentication_parameters: Value<ByteArray>,
-    pub msg_privacy_parameters: Value<ByteArray>,
-}
-
+/// XXXXXX  old below
 impl UsmSecurityParameters {
     fn encoded_length(&self) -> usize {
         // Simplified calculation - in real implementation, would encode and measure
@@ -1379,19 +1477,69 @@ impl Distribution<SnmpV3Pdu> for Standard {
 impl SnmpV3 {
     pub fn new() -> Self {
         Self {
+            _seq_tag_len_v3: Value::Auto, 
             msg_id: Value::Set(1),
             msg_max_size: Value::Set(65507),
-            msg_flags: Value::Set(0),          // No auth, no priv
+            msg_flags: SnmpV3::flags(0), // Value::Set(0),          // No auth, no priv
             msg_security_model: Value::Set(3), // USM
-            _security_params_tag_len: Value::Auto,
-            msg_security_parameters: Value::Set(SnmpV3SecurityParameters::None),
-            _data_tag_len: Value::Auto,
-            scoped_pdu_data: Value::Set(SnmpV3ScopedPduData::PlainText(ScopedPdu::default())),
         }
     }
 
+pub fn set_msg_flags_byte(&mut self, flags: u8) {
+        self.msg_flags = Value::Set(ByteArray::from(vec![flags]));
+    }
+    
+    pub fn get_msg_flags_byte(&self) -> u8 {
+        match &self.msg_flags {
+            Value::Set(bytes) => bytes.0.get(0).copied().unwrap_or(0),
+            Value::Auto => 0,
+            Value::Random => {
+                use rand::Rng;
+                rand::thread_rng().gen::<u8>() & 0x07
+            }
+            Value::Func(f) => f().0.get(0).copied().unwrap_or(0),
+        }
+    }
+
+    pub fn flags(flags: u8) -> Value<ByteArray> {
+       Value::Set(ByteArray::from(vec![flags]))
+    }
+    
+    // Convenience methods for flag operations
+    pub fn has_authentication(&self) -> bool {
+        (self.get_msg_flags_byte() & 0x01) != 0
+    }
+    
+    pub fn has_privacy(&self) -> bool {
+        (self.get_msg_flags_byte() & 0x02) != 0
+    }
+    
+    pub fn is_reportable(&self) -> bool {
+        (self.get_msg_flags_byte() & 0x04) != 0
+    }
+    
+    pub fn set_authentication(&mut self, auth: bool) {
+        let current = self.get_msg_flags_byte();
+        let new_flags = if auth { current | 0x01 } else { current & !0x01 };
+        self.set_msg_flags_byte(new_flags);
+    }
+    
+    pub fn set_privacy(&mut self, priv_flag: bool) {
+        let current = self.get_msg_flags_byte();
+        let new_flags = if priv_flag { current | 0x02 } else { current & !0x02 };
+        self.set_msg_flags_byte(new_flags);
+    }
+    
+    pub fn set_reportable(&mut self, reportable: bool) {
+        let current = self.get_msg_flags_byte();
+        let new_flags = if reportable { current | 0x04 } else { current & !0x04 };
+        self.set_msg_flags_byte(new_flags);
+    }
+
+/* FIXME: Need to fix with using LayerStack after fixing the implementation
+
     pub fn with_usm_auth(mut self, user_name: &str, auth_params: Vec<u8>) -> Self {
-        self.msg_flags = Value::Set(1); // Auth, no priv
+        self.msg_flags = SnmpV3::flags(1); // Value::Set(1); // Auth, no priv
         self.msg_security_parameters =
             Value::Set(SnmpV3SecurityParameters::Usm(UsmSecurityParameters {
                 msg_authoritative_engine_id: Value::Set(ByteArray::from(vec![])),
@@ -1410,7 +1558,7 @@ impl SnmpV3 {
         auth_params: Vec<u8>,
         priv_params: Vec<u8>,
     ) -> Self {
-        self.msg_flags = Value::Set(3); // Auth and priv
+        self.msg_flags = SnmpV3::flags(3); // Value::Set(3); // Auth and priv
         self.msg_security_parameters =
             Value::Set(SnmpV3SecurityParameters::Usm(UsmSecurityParameters {
                 msg_authoritative_engine_id: Value::Set(ByteArray::from(vec![])),
@@ -1422,6 +1570,7 @@ impl SnmpV3 {
             }));
         self
     }
+*/
 }
 
 // Error types for better error handling
@@ -1977,14 +2126,14 @@ impl Snmp {
                 version: Value::Set(3),
             })
             .push(SnmpV3 {
+                _seq_tag_len_v3: Value::Auto,
                 msg_id: Value::Set(rand::random()),
                 msg_max_size: Value::Set(65507),
-                msg_flags: Value::Set(0),          // No auth, no priv
+                msg_flags: SnmpV3::flags(0), // Value::Set(0),          // No auth, no priv
                 msg_security_model: Value::Set(3), // USM
-                _security_params_tag_len: Value::Auto,
-                msg_security_parameters: Value::Set(SnmpV3SecurityParameters::None),
-                _data_tag_len: Value::Auto,
-                scoped_pdu_data: Value::Set(SnmpV3ScopedPduData::PlainText(scoped_pdu)),
+            })
+            .push(UsmSecurityParameters {
+                ..Default::default()
             })
     }
 
@@ -2017,14 +2166,11 @@ impl Snmp {
                 version: Value::Set(3),
             })
             .push(SnmpV3 {
+                _seq_tag_len_v3: Value::Auto,
                 msg_id: Value::Set(rand::random()),
                 msg_max_size: Value::Set(65507),
-                msg_flags: Value::Set(0),          // No auth, no priv
+                msg_flags: SnmpV3::flags(0), // Value::Set(0),          // No auth, no priv
                 msg_security_model: Value::Set(3), // USM
-                _security_params_tag_len: Value::Auto,
-                msg_security_parameters: Value::Set(SnmpV3SecurityParameters::None),
-                _data_tag_len: Value::Auto,
-                scoped_pdu_data: Value::Set(SnmpV3ScopedPduData::PlainText(scoped_pdu)),
             })
     }
 
@@ -2057,23 +2203,11 @@ impl Snmp {
                 version: Value::Set(3),
             })
             .push(SnmpV3 {
+                _seq_tag_len_v3: Value::Auto,
                 msg_id: Value::Set(rand::random()),
                 msg_max_size: Value::Set(65507),
-                msg_flags: Value::Set(1),          // Auth, no priv
+                msg_flags: SnmpV3::flags(1), // Value::Set(1),          // Auth, no priv
                 msg_security_model: Value::Set(3), // USM
-                _security_params_tag_len: Value::Auto,
-                msg_security_parameters: Value::Set(SnmpV3SecurityParameters::Usm(
-                    UsmSecurityParameters {
-                        msg_authoritative_engine_id: Value::Set(ByteArray::from(engine_id)),
-                        msg_authoritative_engine_boots: Value::Set(0),
-                        msg_authoritative_engine_time: Value::Set(0),
-                        msg_user_name: Value::Set(ByteArray::from(user_name.as_bytes().to_vec())),
-                        msg_authentication_parameters: Value::Set(ByteArray::from(vec![])),
-                        msg_privacy_parameters: Value::Set(ByteArray::from(vec![])),
-                    }
-                )),
-                _data_tag_len: Value::Auto,
-                scoped_pdu_data: Value::Set(SnmpV3ScopedPduData::PlainText(scoped_pdu)),
             })
     }
 
@@ -2105,20 +2239,18 @@ impl SnmpV3 {
         };
 
         SnmpV3 {
+            _seq_tag_len_v3: Value::Auto,
             msg_id: Value::Set(rand::random()),
             msg_max_size: Value::Set(65507),
-            msg_flags: Value::Set(0),          // No auth, no priv
+            msg_flags: SnmpV3::flags(0), // Value::Set(0),          // No auth, no priv
             msg_security_model: Value::Set(3), // USM
-            _security_params_tag_len: Value::Auto,
-            msg_security_parameters: Value::Set(SnmpV3SecurityParameters::None),
-            _data_tag_len: Value::Auto,
-            scoped_pdu_data: Value::Set(SnmpV3ScopedPduData::PlainText(scoped_pdu)),
         }
     }
 
     /// Create a new SNMPv3 GET request with USM authentication
     pub fn usm_auth_get(user_name: &str, engine_id: &[u8], oids: &Vec<&str>) -> Self {
         let mut snmp = Self::no_auth_get(oids);
+/* FIXME 
         snmp = snmp.with_usm_auth(user_name, vec![]); // Empty auth params for now
 
         // Set the engine ID
@@ -2127,9 +2259,12 @@ impl SnmpV3 {
         {
             usm.msg_authoritative_engine_id = Value::Set(ByteArray::from(engine_id));
         }
+*/
 
         snmp
     }
+
+/* FIXME
 
     /// Get the request ID from the encapsulated PDU
     pub fn request_id(&self) -> u32 {
@@ -2149,16 +2284,19 @@ impl SnmpV3 {
         }
     }
 
+*/
+
     /// Check if the message requires authentication
     pub fn requires_auth(&self) -> bool {
-        (self.msg_flags.value() & 0x01) != 0
+        (self.msg_flags.value()[0] & 0x01) != 0
     }
 
     /// Check if the message requires privacy (encryption)
     pub fn requires_privacy(&self) -> bool {
-        (self.msg_flags.value() & 0x02) != 0
+        (self.msg_flags.value()[0] & 0x02) != 0
     }
 
+/* FIXME 
     /// Get the user name from USM security parameters
     pub fn user_name(&self) -> Option<String> {
         match &self.msg_security_parameters.value() {
@@ -2168,6 +2306,8 @@ impl SnmpV3 {
             _ => None,
         }
     }
+*/
+
 }
 
 // Add utility functions for working with SNMP values
@@ -2461,5 +2601,394 @@ mod tests {
             .add_null_binding("1.3.6.1.2.1.1.1.0")
             .add_binding("1.3.6.1.2.1.1.5.0", SnmpValue::string("router1"))
             .build_get();
+    }
+}
+
+
+
+
+
+use crate::asn1::{ASN1Object, Tag, Value as Asn1Value};
+// use serde::{Deserialize, Serialize};
+
+// Generic ASN.1 data structure
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct GenericAsn1Data {
+    pub objects: Vec<ASN1Object>,
+}
+
+impl Default for GenericAsn1Data {
+    fn default() -> Self {
+        Self {
+            objects: Vec::new(),
+        }
+    }
+}
+
+impl Encode for GenericAsn1Data {
+    fn encode<E: Encoder>(&self) -> Vec<u8> {
+        let mut result = Vec::new();
+        
+        for obj in &self.objects {
+            result.extend(Asn1Encoder::encode_asn1_object(obj));
+        }
+        
+        result
+    }
+}
+
+impl Decode for GenericAsn1Data {
+    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
+        let mut objects = Vec::new();
+        let mut cursor = 0;
+        
+        // Parse all ASN.1 objects in the buffer
+        while cursor < buf.len() {
+            match Asn1Decoder::parse(buf, cursor) {
+                Ok((obj, delta)) => {
+                    objects.push(obj);
+                    cursor += delta;
+                }
+                Err(_) => {
+                    // If we can't parse more, stop
+                    break;
+                }
+            }
+        }
+        
+        let data = GenericAsn1Data { objects };
+        Some((data, cursor))
+    }
+}
+
+
+// Add FromStr implementation (required by Value<T>)
+impl FromStr for GenericAsn1Data {
+    type Err = ValueParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // For now, just return an empty structure
+        // In a real implementation, you might parse ASN.1 text representation
+        Ok(GenericAsn1Data::default())
+    }
+}
+
+// Add Distribution implementation (required by Value<T>)
+impl Distribution<GenericAsn1Data> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> GenericAsn1Data {
+        // Generate some random ASN.1 objects for testing
+        let mut objects = Vec::new();
+        
+        // Add a random integer
+        objects.push(ASN1Object {
+            tag: asn1::Tag::Integer,
+            value: asn1::Value::Integer(rng.gen_range(-1000..1000)),
+        });
+        
+        // Add a random string
+        objects.push(ASN1Object {
+            tag: asn1::Tag::OctetString,
+            value: asn1::Value::OctetString(b"random".to_vec()),
+        });
+        
+        GenericAsn1Data { objects }
+    }
+}
+
+// Generic ASN.1 NetworkProtocol
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
+/// #[nproto(decode = decode_generic_asn1, encode = encode_generic_asn1)]
+pub struct GenericAsn1 {
+    #[nproto(decode = decode_generic_asn1_field, encode = encode_generic_asn1_field)]
+    pub data: Value<GenericAsn1Data>,
+}
+
+// Fix 3: Add the missing From<Value<T>> implementation
+
+// Add this implementation for GenericAsn1Data:
+impl From<Value<GenericAsn1Data>> for GenericAsn1Data {
+    fn from(value: Value<GenericAsn1Data>) -> Self {
+        match value {
+            Value::Set(data) => data,
+            Value::Auto => GenericAsn1Data::default(),
+            Value::Random => {
+                use rand::Rng;
+                let mut rng = rand::thread_rng();
+                rng.gen()
+            }
+            Value::Func(f) => f(),
+        }
+    }
+}
+
+// Also need to fix the decode function signature - it should return the field type, not Value<T>
+fn decode_generic_asn1_field<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut GenericAsn1,
+) -> Option<(GenericAsn1Data, usize)> {  // Changed return type here
+    let mut objects = Vec::new();
+    let mut cursor = 0;
+    
+    // Parse all ASN.1 objects in the remaining buffer
+    while cursor < buf[ci..].len() {
+        match Asn1Decoder::parse(&buf[ci..], cursor) {
+            Ok((obj, delta)) => {
+                objects.push(obj);
+                cursor += delta;
+            }
+            Err(_) => {
+                // If we can't parse more, stop
+                break;
+            }
+        }
+    }
+    
+    let data = GenericAsn1Data { objects };
+    Some((data, cursor))  // Return the data directly, not wrapped in Value
+}
+
+// Also fix the encode function to access the field correctly
+fn encode_generic_asn1_field<E: Encoder>(
+    me: &GenericAsn1,
+    stack: &LayerStack,
+    my_index: usize,
+    encoded_data: &EncodingVecVec,
+) -> Vec<u8> {
+    let mut result = Vec::new();
+    
+    // Access the data through the Value wrapper
+    let data = match &me.data {
+        Value::Set(data) => data,
+        Value::Auto => &GenericAsn1Data::default(),
+        Value::Random => {
+            use rand::Rng;
+            let mut rng = rand::thread_rng();
+            &rng.gen()
+        }
+        Value::Func(f) => &f(),
+    };
+    
+    for obj in &data.objects {
+        result.extend(Asn1Encoder::encode_asn1_object(obj));
+    }
+    
+    result
+}
+
+// Custom decode function that parses all ASN.1 objects in the buffer
+fn decode_generic_asn1<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut GenericAsn1,
+) -> Option<(Value<GenericAsn1Data>, usize)> {
+    let mut objects = Vec::new();
+    let mut cursor = ci;
+    let buf = &buf[ci..];
+    
+    // Parse all ASN.1 objects in the buffer
+    while cursor < buf.len() {
+        match Asn1Decoder::parse(&buf, cursor - ci) {
+            Ok((obj, delta)) => {
+                objects.push(obj);
+                cursor += delta;
+            }
+            Err(_) => {
+                // If we can't parse more, stop
+                break;
+            }
+        }
+    }
+    
+    let data = GenericAsn1Data { objects };
+    Some((Value::Set(data), cursor - ci))
+}
+
+// Custom encode function that encodes all ASN.1 objects
+fn encode_generic_asn1<E: Encoder>(
+    me: &GenericAsn1,
+    stack: &LayerStack,
+    my_index: usize,
+    encoded_data: &EncodingVecVec,
+) -> Vec<u8> {
+    let mut result = Vec::new();
+    
+    for obj in &me.data.value().objects {
+        result.extend(Asn1Encoder::encode_asn1_object(obj));
+    }
+    
+    result
+}
+
+// Convenience methods for creating ASN.1 structures
+impl GenericAsn1 {
+    pub fn new() -> Self {
+        Self {
+            data: Value::Set(GenericAsn1Data::default()),
+        }
+    }
+    
+    pub fn from_objects(objects: Vec<ASN1Object>) -> Self {
+        Self {
+            data: Value::Set(GenericAsn1Data { objects }),
+        }
+    }
+    
+    pub fn add_object(&mut self, obj: ASN1Object) {
+        if let Value::Set(ref mut data) = &mut self.data {
+            data.objects.push(obj);
+        }
+    }
+    
+    pub fn add_integer(&mut self, value: i64) -> &mut Self {
+        self.add_object(ASN1Object {
+            tag: Tag::Integer,
+            value: Asn1Value::Integer(value),
+        });
+        self
+    }
+    
+    pub fn add_string(&mut self, value: &str) -> &mut Self {
+        self.add_object(ASN1Object {
+            tag: Tag::OctetString,
+            value: Asn1Value::OctetString(value.as_bytes().to_vec()),
+        });
+        self
+    }
+    
+    pub fn add_oid(&mut self, oid: Vec<u64>) -> &mut Self {
+        self.add_object(ASN1Object {
+            tag: Tag::ObjectIdentifier,
+            value: Asn1Value::ObjectIdentifier(oid),
+        });
+        self
+    }
+    
+    pub fn add_sequence(&mut self, objects: Vec<ASN1Object>) -> &mut Self {
+        self.add_object(ASN1Object {
+            tag: Tag::Sequence,
+            value: Asn1Value::Sequence(objects),
+        });
+        self
+    }
+    
+    pub fn add_null(&mut self) -> &mut Self {
+        self.add_object(ASN1Object {
+            tag: Tag::Null,
+            value: Asn1Value::Null,
+        });
+        self
+    }
+    
+    // Helper to get objects by type
+    pub fn get_integers(&self) -> Vec<i64> {
+        self.data.value().objects.iter()
+            .filter_map(|obj| {
+                if let Asn1Value::Integer(i) = &obj.value {
+                    Some(*i)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+    
+    pub fn get_strings(&self) -> Vec<String> {
+        self.data.value().objects.iter()
+            .filter_map(|obj| {
+                if let Asn1Value::OctetString(bytes) = &obj.value {
+                    String::from_utf8(bytes.clone()).ok()
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+    
+    pub fn get_oids(&self) -> Vec<Vec<u64>> {
+        self.data.value().objects.iter()
+            .filter_map(|obj| {
+                if let Asn1Value::ObjectIdentifier(oid) = &obj.value {
+                    Some(oid.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+}
+
+// For pretty printing ASN.1 structures
+impl std::fmt::Display for GenericAsn1 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "ASN.1 Structure:")?;
+        for (i, obj) in self.data.value().objects.iter().enumerate() {
+            writeln!(f, "  [{}] {}", i, format_asn1_object(obj, 2))?;
+        }
+        Ok(())
+    }
+}
+
+fn format_asn1_object(obj: &ASN1Object, indent: usize) -> String {
+    let indent_str = " ".repeat(indent);
+    let tag_str = match &obj.tag {
+        Tag::Boolean => "BOOLEAN",
+        Tag::Integer => "INTEGER",
+        Tag::BitString => "BIT STRING",
+        Tag::OctetString => "OCTET STRING",
+        Tag::Null => "NULL",
+        Tag::ObjectIdentifier => "OBJECT IDENTIFIER",
+        Tag::Sequence => "SEQUENCE",
+        Tag::UnknownTag(t) => return format!("Unknown Tag({})", t),
+        Tag::Extended(t) => return format!("Extended Tag({})", t),
+    };
+    
+    match &obj.value {
+        Asn1Value::Boolean(b) => format!("{}: {}", tag_str, b),
+        Asn1Value::Integer(i) => format!("{}: {}", tag_str, i),
+        Asn1Value::BitString(bytes) => format!("{}: {} bytes", tag_str, bytes.len()),
+        Asn1Value::OctetString(bytes) => {
+            if bytes.iter().all(|&b| b.is_ascii_graphic() || b.is_ascii_whitespace()) {
+                format!("{}: \"{}\"", tag_str, String::from_utf8_lossy(bytes))
+            } else {
+                format!("{}: {} bytes (hex: {})", 
+                    tag_str, 
+                    bytes.len(),
+                    bytes.iter().map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" ")
+                )
+            }
+        },
+        Asn1Value::Null => format!("{}", tag_str),
+        Asn1Value::ObjectIdentifier(oid) => {
+            format!("{}: {}", tag_str, oid.iter().map(|n| n.to_string()).collect::<Vec<_>>().join("."))
+        },
+        Asn1Value::Sequence(seq) => {
+            let mut result = format!("{} {{\n", tag_str);
+            for (i, inner_obj) in seq.iter().enumerate() {
+                result.push_str(&format!("{}[{}] {}\n", 
+                    " ".repeat(indent + 2), 
+                    i, 
+                    format_asn1_object(inner_obj, indent + 4)
+                ));
+            }
+            result.push_str(&format!("{}}}", indent_str));
+            result
+        },
+        Asn1Value::UnknownConstructed(tag, seq) => {
+            let mut result = format!("Unknown Constructed({}) {{\n", tag);
+            for (i, inner_obj) in seq.iter().enumerate() {
+                result.push_str(&format!("{}[{}] {}\n", 
+                    " ".repeat(indent + 2), 
+                    i, 
+                    format_asn1_object(inner_obj, indent + 4)
+                ));
+            }
+            result.push_str(&format!("{}}}", indent_str));
+            result
+        },
+        Asn1Value::UnknownPrimitive(tag, bytes) => {
+            format!("Unknown Primitive({}): {} bytes", tag, bytes.len())
+        },
     }
 }

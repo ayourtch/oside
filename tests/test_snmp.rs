@@ -30,3 +30,22 @@ fn encode_snmp_1() {
     let pcap = vec![x];
     pcap.write_pcap("test_snmp.cap");
 }
+
+#[test]
+pub fn test_snmpv3_encoding() {
+    let test_oid = "1.3.6.1.2.1.1.1.0";
+        let x1 = Ether!()
+        // / IP!(src = "192.0.1.2", dst="192.0.1.3")
+        / IPV6!(src = "2001:db8::1", dst="2001:db8::2")
+        / UDP!(sport = 9999)
+        / Snmp::v3_get(&vec![test_oid]);
+    println!("test_snmpv3_encoding x1 result: {:02x?}", &x1);
+    let encoded = x1.clone().lencode();
+    println!("encoded: {:?}", &encoded);
+    let x = Ether!().ldecode(&encoded).unwrap().0;
+    println!("decode result: {:#?}", &x);
+    let pcap = vec![x];
+    pcap.write_pcap("test_snmp_v3.cap");
+    assert_eq!(1, 2);
+}
+
