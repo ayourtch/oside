@@ -1199,7 +1199,6 @@ pub struct UsmSecurityParameters {
     pub msg_user_name: Value<ByteArray>,
     pub msg_authentication_parameters: Value<ByteArray>,
 
-    // #[nproto(post_encode = post_encode_usm_seq_tag_len)]
     #[nproto(post_encode = post_encode_usm_with_octet_string)]
     pub msg_privacy_parameters: Value<ByteArray>,
 }
@@ -1245,30 +1244,61 @@ fn post_encode_usm_with_octet_string<E: Encoder>(
     out.splice(octet_string_skip..octet_string_skip, octet_bytes);
 }
 
-fn post_encode_usm_seq_tag_len<E: Encoder>(
-    me: &UsmSecurityParameters,
-    stack: &LayerStack,
-    my_index: usize,
-    out: &mut Vec<u8>,
-    skip_points: &Vec<usize>,
-    encoded_data: &EncodingVecVec,
-) {
-    let old_len = skip_points[0];
-    let mut out_len = 0;
-    for i in my_index + 1..encoded_data.len() {
-        out_len += encoded_data[i].len();
+impl UsmSecurityParameters {
+    /// Create USM parameters for initial discovery (empty values)
+    pub fn discovery() -> Self {
+        Self {
+            _octet_string_tag_len: Value::Auto,
+            _seq_tag_len: Value::Auto,
+            msg_authoritative_engine_id: Value::Set(ByteArray::from(vec![])),
+            msg_authoritative_engine_boots: Value::Set(0),
+            msg_authoritative_engine_time: Value::Set(0),
+            msg_user_name: Value::Set(ByteArray::from(vec![])),
+            msg_authentication_parameters: Value::Set(ByteArray::from(vec![])),
+            msg_privacy_parameters: Value::Set(ByteArray::from(vec![])),
+        }
     }
-    out_len += out.len() - old_len;
-    println!("USM SEQ LEN: {}", out_len);
 
-    let seq_tag_len = if !me._seq_tag_len.is_auto() {
-        me._seq_tag_len.value()
-    } else {
-        BerTagAndLen(asn1::Tag::Sequence, out_len)
-    };
+    /// Create USM parameters with user name only (for authentication discovery)
+    pub fn with_user(user_name: &str) -> Self {
+        Self {
+            _octet_string_tag_len: Value::Auto,
+            _seq_tag_len: Value::Auto,
+            msg_authoritative_engine_id: Value::Set(ByteArray::from(vec![])),
+            msg_authoritative_engine_boots: Value::Set(0),
+            msg_authoritative_engine_time: Value::Set(0),
+            msg_user_name: Value::Set(ByteArray::from(user_name.as_bytes())),
+            msg_authentication_parameters: Value::Set(ByteArray::from(vec![])),
+            msg_privacy_parameters: Value::Set(ByteArray::from(vec![])),
+        }
+    }
 
-    let bytes = seq_tag_len.encode::<E>();
-    out.splice(old_len..old_len, bytes);
+    /// Set engine ID and timing info (after discovery)
+    pub fn set_engine_info(&mut self, engine_id: &[u8], boots: u32, time: u32) {
+        self.msg_authoritative_engine_id = Value::Set(ByteArray::from(engine_id));
+        self.msg_authoritative_engine_boots = Value::Set(boots);
+        self.msg_authoritative_engine_time = Value::Set(time);
+    }
+
+    /// Set authentication parameters (12-byte digest for HMAC)
+    pub fn set_auth_params(&mut self, auth_params: &[u8]) {
+        self.msg_authentication_parameters = Value::Set(ByteArray::from(auth_params));
+    }
+
+    /// Set privacy parameters (for encryption)
+    pub fn set_priv_params(&mut self, priv_params: &[u8]) {
+        self.msg_privacy_parameters = Value::Set(ByteArray::from(priv_params));
+    }
+
+    /// Get user name as string
+    pub fn user_name(&self) -> String {
+        String::from_utf8_lossy(&self.msg_user_name.value().0).to_string()
+    }
+
+    /// Check if this is a discovery message (empty engine ID)
+    pub fn is_discovery(&self) -> bool {
+        self.msg_authoritative_engine_id.value().0.is_empty()
+    }
 }
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
