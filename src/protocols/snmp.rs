@@ -765,7 +765,7 @@ impl Deref for ByteArray {
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(SNMP_PDUS, Tag = BerTag(asn1::Tag::UnknownTag(163))))]
 #[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
-pub struct SnmpSet(pub SnmpGetOrResponse);
+pub struct SnmpSet(pub SnmpSetRequest);
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(SNMP_PDUS, Tag = BerTag(asn1::Tag::UnknownTag(166))))]
@@ -775,7 +775,152 @@ pub struct SnmpInform(pub SnmpGetOrResponse);
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(SNMP_PDUS, Tag = BerTag(asn1::Tag::UnknownTag(165))))]
 #[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
-pub struct SnmpGetBulk(pub SnmpGetOrResponse);
+pub struct SnmpGetBulk(pub SnmpGetBulkRequest);
+
+
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(register(SNMP_PDUS, Tag = BerTag(asn1::Tag::UnknownTag(164))))]
+#[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
+pub struct SnmpTrap(pub SnmpTrapPdu);
+
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(register(SNMP_PDUS, Tag = BerTag(asn1::Tag::UnknownTag(167))))]
+#[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
+pub struct SnmpTrapV2(pub SnmpTrapV2Pdu);
+
+
+
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
+pub struct SnmpGetBulkRequest {
+    pub request_id: Value<u32>,
+    pub non_repeaters: Value<i32>,
+    pub max_repetitions: Value<i32>,
+    #[nproto(encode = Skip)]
+    pub _bindings_tag_len: Value<BerTagAndLen>,
+    #[nproto(post_encode = post_encode_bindings_tag_len_getbulk)]
+    pub var_bindings: Vec<SnmpVarBind>,
+}
+
+fn post_encode_bindings_tag_len_getbulk<E: Encoder>(
+    me: &SnmpGetBulkRequest,
+    stack: &LayerStack,
+    my_index: usize,
+    out: &mut Vec<u8>,
+    skip_points: &Vec<usize>,
+    encoded_data: &EncodingVecVec,
+) {
+    use std::convert::TryInto;
+    let mut skip_point = skip_points;
+    let old_len = skip_points[0];
+    let bindings_tag_len = if !me._bindings_tag_len.is_auto() {
+        me._bindings_tag_len.value()
+    } else {
+        BerTagAndLen(asn1::Tag::Sequence, out.len() - old_len)
+    };
+    let bytes = bindings_tag_len.encode::<E>();
+    out.splice(old_len..old_len, bytes);
+}
+
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
+pub struct SnmpSetRequest {
+    pub request_id: Value<u32>,
+    pub error_status: Value<i32>,
+    pub error_index: Value<i32>,
+    #[nproto(encode = Skip)]
+    pub _bindings_tag_len: Value<BerTagAndLen>,
+    #[nproto(post_encode = post_encode_bindings_tag_len_setrequest)]
+    pub var_bindings: Vec<SnmpVarBind>,
+}
+
+fn post_encode_bindings_tag_len_setrequest<E: Encoder>(
+    me: &SnmpSetRequest,
+    stack: &LayerStack,
+    my_index: usize,
+    out: &mut Vec<u8>,
+    skip_points: &Vec<usize>,
+    encoded_data: &EncodingVecVec,
+) {
+    use std::convert::TryInto;
+    let mut skip_point = skip_points;
+    let old_len = skip_points[0];
+    let bindings_tag_len = if !me._bindings_tag_len.is_auto() {
+        me._bindings_tag_len.value()
+    } else {
+        BerTagAndLen(asn1::Tag::Sequence, out.len() - old_len)
+    };
+    let bytes = bindings_tag_len.encode::<E>();
+    out.splice(old_len..old_len, bytes);
+}
+
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
+pub struct SnmpTrapPdu {
+    pub enterprise: Value<BerOid>,
+    pub agent_addr: Value<Ipv4Address>,
+    pub generic_trap: Value<i32>,
+    pub specific_trap: Value<i32>,
+    pub time_stamp: Value<u32>,
+    #[nproto(encode = Skip)]
+    pub _bindings_tag_len: Value<BerTagAndLen>,
+    #[nproto(post_encode = post_encode_bindings_tag_len_trap)]
+    pub var_bindings: Vec<SnmpVarBind>,
+}
+
+fn post_encode_bindings_tag_len_trap<E: Encoder>(
+    me: &SnmpTrapPdu,
+    stack: &LayerStack,
+    my_index: usize,
+    out: &mut Vec<u8>,
+    skip_points: &Vec<usize>,
+    encoded_data: &EncodingVecVec,
+) {
+    use std::convert::TryInto;
+    let mut skip_point = skip_points;
+    let old_len = skip_points[0];
+    let bindings_tag_len = if !me._bindings_tag_len.is_auto() {
+        me._bindings_tag_len.value()
+    } else {
+        BerTagAndLen(asn1::Tag::Sequence, out.len() - old_len)
+    };
+    let bytes = bindings_tag_len.encode::<E>();
+    out.splice(old_len..old_len, bytes);
+}
+
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
+pub struct SnmpTrapV2Pdu {
+    pub request_id: Value<u32>,
+    pub error_status: Value<i32>,
+    pub error_index: Value<i32>,
+    #[nproto(encode = Skip)]
+    pub _bindings_tag_len: Value<BerTagAndLen>,
+    #[nproto(post_encode = post_encode_bindings_tag_len_trapv2)]
+    pub var_bindings: Vec<SnmpVarBind>,
+}
+
+fn post_encode_bindings_tag_len_trapv2<E: Encoder>(
+    me: &SnmpTrapV2Pdu,
+    stack: &LayerStack,
+    my_index: usize,
+    out: &mut Vec<u8>,
+    skip_points: &Vec<usize>,
+    encoded_data: &EncodingVecVec,
+) {
+    use std::convert::TryInto;
+    let mut skip_point = skip_points;
+    let old_len = skip_points[0];
+    let bindings_tag_len = if !me._bindings_tag_len.is_auto() {
+        me._bindings_tag_len.value()
+    } else {
+        BerTagAndLen(asn1::Tag::Sequence, out.len() - old_len)
+    };
+    let bytes = bindings_tag_len.encode::<E>();
+    out.splice(old_len..old_len, bytes);
+}
+
+
 
 /*
 
@@ -1116,8 +1261,8 @@ impl ScopedPdu {
 pub enum SnmpV3Pdu {
     Get(SnmpGetOrResponse),
     GetNext(SnmpGetOrResponse),
-    GetBulk(SnmpGetOrResponse),
-    Set(SnmpGetOrResponse),
+    GetBulk(SnmpGetBulkRequest),
+    Set(SnmpSetRequest),
     Response(SnmpGetOrResponse),
     Inform(SnmpGetOrResponse),
     Report(SnmpGetOrResponse),
@@ -1136,8 +1281,8 @@ impl FromStr for SnmpV3Pdu {
         match s.to_lowercase().as_str() {
             "get" => Ok(SnmpV3Pdu::Get(SnmpGetOrResponse::default())),
             "getnext" => Ok(SnmpV3Pdu::GetNext(SnmpGetOrResponse::default())),
-            "getbulk" => Ok(SnmpV3Pdu::GetBulk(SnmpGetOrResponse::default())),
-            // "set" => Ok(SnmpV3Pdu::Set(SnmpSetRequest::default())),
+            "getbulk" => Ok(SnmpV3Pdu::GetBulk(SnmpGetBulkRequest::default())),
+            "set" => Ok(SnmpV3Pdu::Set(SnmpSetRequest::default())),
             "response" => Ok(SnmpV3Pdu::Response(SnmpGetOrResponse::default())),
             "inform" => Ok(SnmpV3Pdu::Inform(SnmpGetOrResponse::default())),
             "report" => Ok(SnmpV3Pdu::Report(SnmpGetOrResponse::default())),
@@ -1151,7 +1296,7 @@ impl Distribution<SnmpV3Pdu> for Standard {
         match rng.gen_range(0..8) {
             0 => SnmpV3Pdu::Get(SnmpGetOrResponse::default()),
             1 => SnmpV3Pdu::GetNext(SnmpGetOrResponse::default()),
-            2 => SnmpV3Pdu::GetBulk(SnmpGetOrResponse::default()),
+            2 => SnmpV3Pdu::GetBulk(SnmpGetBulkRequest::default()),
             // 3 => SnmpV3Pdu::Set(SnmpSetRequest::default()),
             4 => SnmpV3Pdu::Response(SnmpGetOrResponse::default()),
             6 => SnmpV3Pdu::Inform(SnmpGetOrResponse::default()),
@@ -1266,3 +1411,576 @@ impl From<SnmpError> for i32 {
         error as i32
     }
 }
+
+
+/* 
+
+// Step 3: Add convenience methods, builders, and complete the SNMP implementation
+
+use std::collections::HashMap;
+
+// Add convenience constructors and builder methods
+impl Snmp {
+    /// Create a new SNMPv1 GET request
+    pub fn v1_get(community: &str, oids: Vec<&str>) -> Self {
+        let var_bindings = oids.into_iter()
+            .map(|oid| SnmpVarBind {
+                name: Value::Set(BerOid::from_str(oid).unwrap_or_default()),
+                value: Value::Set(SnmpValue::Null),
+            })
+            .collect();
+
+        Snmp {
+            version: Value::Set(0), // SNMPv1
+            community: Value::Set(community.to_string()),
+            pdu: Value::Set(SnmpPdu::Get(SnmpGetOrResponse {
+                request_id: Value::Set(rand::random()),
+                error_status: Value::Set(0),
+                error_index: Value::Set(0),
+                _bindings_tag_len: Value::Auto,
+                var_bindings,
+            })),
+        }
+    }
+
+    /// Create a new SNMPv2c GET request
+    pub fn v2c_get(community: &str, oids: Vec<&str>) -> Self {
+        let mut snmp = Self::v1_get(community, oids);
+        snmp.version = Value::Set(1); // SNMPv2c
+        snmp
+    }
+
+    /// Create a new SNMPv2c SET request
+    pub fn v2c_set(community: &str, bindings: Vec<(&str, SnmpValue)>) -> Self {
+        let mut snmp = Self::v1_set(community, bindings);
+        snmp.version = Value::Set(1); // SNMPv2c
+        snmp
+    }
+
+    /// Create a new SNMPv2c GETBULK request
+    pub fn v2c_getbulk(community: &str, non_repeaters: i32, max_repetitions: i32, oids: Vec<&str>) -> Self {
+        let var_bindings = oids.into_iter()
+            .map(|oid| SnmpVarBind {
+                name: Value::Set(BerOid::from_str(oid).unwrap_or_default()),
+                value: Value::Set(SnmpValue::Null),
+            })
+            .collect();
+
+        Snmp {
+            version: Value::Set(1), // SNMPv2c
+            community: Value::Set(community.to_string()),
+            pdu: Value::Set(SnmpPdu::GetBulk(SnmpGetBulkRequest {
+                request_id: Value::Set(rand::random()),
+                non_repeaters: Value::Set(non_repeaters),
+                max_repetitions: Value::Set(max_repetitions),
+                _bindings_tag_len: Value::Auto,
+                var_bindings,
+            })),
+        }
+    }
+
+    /// Create a response from a request
+    pub fn create_response(&self, bindings: Vec<(&str, SnmpValue)>) -> Self {
+        let var_bindings = bindings.into_iter()
+            .map(|(oid, value)| SnmpVarBind {
+                name: Value::Set(BerOid::from_str(oid).unwrap_or_default()),
+                value: Value::Set(value),
+            })
+            .collect();
+
+        let request_id = match &self.pdu.value() {
+            SnmpPdu::Get(pdu) => pdu.request_id.value(),
+            SnmpPdu::GetNext(pdu) => pdu.request_id.value(),
+            SnmpPdu::Set(pdu) => pdu.request_id.value(),
+            SnmpPdu::GetBulk(pdu) => pdu.request_id.value(),
+            _ => rand::random(),
+        };
+
+        Snmp {
+            version: self.version.clone(),
+            community: self.community.clone(),
+            pdu: Value::Set(SnmpPdu::Response(SnmpGetOrResponse {
+                request_id: Value::Set(request_id),
+                error_status: Value::Set(0),
+                error_index: Value::Set(0),
+                _bindings_tag_len: Value::Auto,
+                var_bindings,
+            })),
+        }
+    }
+
+    /// Create an error response
+    pub fn create_error_response(&self, error_status: SnmpError, error_index: i32) -> Self {
+        let request_id = match &self.pdu.value() {
+            SnmpPdu::Get(pdu) => pdu.request_id.value(),
+            SnmpPdu::GetNext(pdu) => pdu.request_id.value(),
+            SnmpPdu::Set(pdu) => pdu.request_id.value(),
+            SnmpPdu::GetBulk(pdu) => pdu.request_id.value(),
+            _ => rand::random(),
+        };
+
+        Snmp {
+            version: self.version.clone(),
+            community: self.community.clone(),
+            pdu: Value::Set(SnmpPdu::Response(SnmpGetOrResponse {
+                request_id: Value::Set(request_id),
+                error_status: Value::Set(error_status as i32),
+                error_index: Value::Set(error_index),
+                _bindings_tag_len: Value::Auto,
+                var_bindings: vec![],
+            })),
+        }
+    }
+
+    /// Get the request ID from any PDU type
+    pub fn request_id(&self) -> u32 {
+        match &self.pdu.value() {
+            SnmpPdu::Get(pdu) => pdu.request_id.value(),
+            SnmpPdu::GetNext(pdu) => pdu.request_id.value(),
+            SnmpPdu::Response(pdu) => pdu.request_id.value(),
+            SnmpPdu::Set(pdu) => pdu.request_id.value(),
+            SnmpPdu::GetBulk(pdu) => pdu.request_id.value(),
+            SnmpPdu::TrapV2(pdu) => pdu.request_id.value(),
+            _ => 0,
+        }
+    }
+
+    /// Check if this is an error response
+    pub fn is_error(&self) -> bool {
+        match &self.pdu.value() {
+            SnmpPdu::Response(pdu) => pdu.error_status.value() != 0,
+            _ => false,
+        }
+    }
+
+    /// Get error information if this is an error response
+    pub fn error_info(&self) -> Option<(SnmpError, i32)> {
+        match &self.pdu.value() {
+            SnmpPdu::Response(pdu) if pdu.error_status.value() != 0 => {
+                Some((
+                    SnmpError::from_i32(pdu.error_status.value()),
+                    pdu.error_index.value()
+                ))
+            }
+            _ => None,
+        }
+    }
+}
+
+// Add convenience methods for SNMPv3
+impl SnmpV3 {
+    /// Create a new SNMPv3 GET request with no security
+    pub fn no_auth_get(oids: Vec<&str>) -> Self {
+        let var_bindings = oids.into_iter()
+            .map(|oid| SnmpVarBind {
+                name: Value::Set(BerOid::from_str(oid).unwrap_or_default()),
+                value: Value::Set(SnmpValue::Null),
+            })
+            .collect();
+
+        let scoped_pdu = ScopedPdu {
+            context_engine_id: Value::Set(ByteArray::from(vec![])),
+            context_name: Value::Set(ByteArray::from(vec![])),
+            pdu: Value::Set(SnmpV3Pdu::Get(SnmpGetOrResponse {
+                request_id: Value::Set(rand::random()),
+                error_status: Value::Set(0),
+                error_index: Value::Set(0),
+                _bindings_tag_len: Value::Auto,
+                var_bindings,
+            })),
+        };
+
+        SnmpV3 {
+            msg_version: Value::Set(3),
+            msg_id: Value::Set(rand::random()),
+            msg_max_size: Value::Set(65507),
+            msg_flags: Value::Set(0), // No auth, no priv
+            msg_security_model: Value::Set(3), // USM
+            msg_security_parameters: Value::Set(SnmpV3SecurityParameters::None),
+            scoped_pdu_data: Value::Set(SnmpV3ScopedPduData::PlainText(scoped_pdu)),
+        }
+    }
+
+    /// Create a new SNMPv3 GET request with USM authentication
+    pub fn usm_auth_get(user_name: &str, engine_id: &[u8], oids: Vec<&str>) -> Self {
+        let mut snmp = Self::no_auth_get(oids);
+        snmp = snmp.with_usm_auth(user_name, vec![]); // Empty auth params for now
+        
+        // Set the engine ID
+        if let Value::Set(SnmpV3SecurityParameters::Usm(ref mut usm)) = &mut snmp.msg_security_parameters {
+            usm.msg_authoritative_engine_id = Value::Set(ByteArray::from(engine_id));
+        }
+        
+        snmp
+    }
+
+    /// Get the request ID from the encapsulated PDU
+    pub fn request_id(&self) -> u32 {
+        match &self.scoped_pdu_data.value() {
+            SnmpV3ScopedPduData::PlainText(scoped_pdu) => {
+                match &scoped_pdu.pdu.value() {
+                    SnmpV3Pdu::Get(pdu) => pdu.request_id.value(),
+                    SnmpV3Pdu::GetNext(pdu) => pdu.request_id.value(),
+                    SnmpV3Pdu::Response(pdu) => pdu.request_id.value(),
+                    SnmpV3Pdu::Set(pdu) => pdu.request_id.value(),
+                    SnmpV3Pdu::GetBulk(pdu) => pdu.request_id.value(),
+                    SnmpV3Pdu::TrapV2(pdu) => pdu.request_id.value(),
+                    SnmpV3Pdu::Inform(pdu) => pdu.request_id.value(),
+                    SnmpV3Pdu::Report(pdu) => pdu.request_id.value(),
+                    _ => 0,
+                }
+            }
+            _ => 0, // Encrypted data - can't extract request ID
+        }
+    }
+
+    /// Check if the message requires authentication
+    pub fn requires_auth(&self) -> bool {
+        (self.msg_flags.value() & 0x01) != 0
+    }
+
+    /// Check if the message requires privacy (encryption)
+    pub fn requires_privacy(&self) -> bool {
+        (self.msg_flags.value() & 0x02) != 0
+    }
+
+    /// Get the user name from USM security parameters
+    pub fn user_name(&self) -> Option<String> {
+        match &self.msg_security_parameters.value() {
+            SnmpV3SecurityParameters::Usm(usm) => {
+                Some(String::from_utf8_lossy(&usm.msg_user_name.value().0).to_string())
+            }
+            _ => None,
+        }
+    }
+}
+
+// Add utility functions for working with SNMP values
+impl SnmpValue {
+    /// Create an integer value
+    pub fn integer(value: i64) -> Self {
+        SnmpValue::Integer(value)
+    }
+
+    /// Create a string value
+    pub fn string(value: &str) -> Self {
+        SnmpValue::OctetString(value.as_bytes().to_vec())
+    }
+
+    /// Create an OID value
+    pub fn oid(value: &str) -> Self {
+        SnmpValue::ObjectIdentifier(BerOid::from_str(value).unwrap_or_default())
+    }
+
+    /// Create a counter32 value
+    pub fn counter32(value: u32) -> Self {
+        SnmpValue::Counter32(value)
+    }
+
+    /// Create a gauge32 value
+    pub fn gauge32(value: u32) -> Self {
+        SnmpValue::Gauge32(value)
+    }
+
+    /// Create a timeticks value
+    pub fn timeticks(value: u32) -> Self {
+        SnmpValue::TimeTicks(value)
+    }
+
+    /// Create a counter64 value
+    pub fn counter64(value: u64) -> Self {
+        SnmpValue::Counter64(value)
+    }
+
+    /// Create an IP address value
+    pub fn ip_address(ip: &str) -> Self {
+        if let Ok(addr) = ip.parse::<std::net::Ipv4Addr>() {
+            SnmpValue::IpAddress(Ipv4Address::from(addr))
+        } else {
+            SnmpValue::Null
+        }
+    }
+
+    /// Get the type name as a string
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            SnmpValue::Integer(_) => "INTEGER",
+            SnmpValue::OctetString(_) => "OCTET STRING",
+            SnmpValue::Null => "NULL",
+            SnmpValue::ObjectIdentifier(_) => "OBJECT IDENTIFIER",
+            SnmpValue::IpAddress(_) => "IpAddress",
+            SnmpValue::Counter32(_) => "Counter32",
+            SnmpValue::Gauge32(_) => "Gauge32",
+            SnmpValue::TimeTicks(_) => "TimeTicks",
+            SnmpValue::Opaque(_) => "Opaque",
+            SnmpValue::Counter64(_) => "Counter64",
+            SnmpValue::NoSuchObject => "noSuchObject",
+            SnmpValue::NoSuchInstance => "noSuchInstance",
+            SnmpValue::EndOfMibView => "endOfMibView",
+        }
+    }
+
+    /// Try to convert to integer
+    pub fn as_integer(&self) -> Option<i64> {
+        match self {
+            SnmpValue::Integer(i) => Some(*i),
+            SnmpValue::Counter32(c) => Some(*c as i64),
+            SnmpValue::Gauge32(g) => Some(*g as i64),
+            SnmpValue::TimeTicks(t) => Some(*t as i64),
+            SnmpValue::Counter64(c) => Some(*c as i64),
+            _ => None,
+        }
+    }
+
+    /// Try to convert to string
+    pub fn as_string(&self) -> Option<String> {
+        match self {
+            SnmpValue::OctetString(bytes) => Some(String::from_utf8_lossy(bytes).to_string()),
+            SnmpValue::ObjectIdentifier(oid) => Some(oid.to_string()),
+            SnmpValue::IpAddress(ip) => Some(ip.to_string()),
+            _ => None,
+        }
+    }
+}
+
+// Add error handling utilities
+impl SnmpError {
+    pub fn from_i32(value: i32) -> Self {
+        match value {
+            0 => SnmpError::NoError,
+            1 => SnmpError::TooBig,
+            2 => SnmpError::NoSuchName,
+            3 => SnmpError::BadValue,
+            4 => SnmpError::ReadOnly,
+            5 => SnmpError::GenErr,
+            6 => SnmpError::NoAccess,
+            7 => SnmpError::WrongType,
+            8 => SnmpError::WrongLength,
+            9 => SnmpError::WrongEncoding,
+            10 => SnmpError::WrongValue,
+            11 => SnmpError::NoCreation,
+            12 => SnmpError::InconsistentValue,
+            13 => SnmpError::ResourceUnavailable,
+            14 => SnmpError::CommitFailed,
+            15 => SnmpError::UndoFailed,
+            16 => SnmpError::AuthorizationError,
+            17 => SnmpError::NotWritable,
+            18 => SnmpError::InconsistentName,
+            _ => SnmpError::GenErr,
+        }
+    }
+
+    pub fn description(&self) -> &'static str {
+        match self {
+            SnmpError::NoError => "No error",
+            SnmpError::TooBig => "Response too big",
+            SnmpError::NoSuchName => "No such name",
+            SnmpError::BadValue => "Bad value",
+            SnmpError::ReadOnly => "Read only",
+            SnmpError::GenErr => "General error",
+            SnmpError::NoAccess => "No access",
+            SnmpError::WrongType => "Wrong type",
+            SnmpError::WrongLength => "Wrong length",
+            SnmpError::WrongEncoding => "Wrong encoding",
+            SnmpError::WrongValue => "Wrong value",
+            SnmpError::NoCreation => "No creation",
+            SnmpError::InconsistentValue => "Inconsistent value",
+            SnmpError::ResourceUnavailable => "Resource unavailable",
+            SnmpError::CommitFailed => "Commit failed",
+            SnmpError::UndoFailed => "Undo failed",
+            SnmpError::AuthorizationError => "Authorization error",
+            SnmpError::NotWritable => "Not writable",
+            SnmpError::InconsistentName => "Inconsistent name",
+        }
+    }
+}
+
+// Add builder pattern for complex SNMP messages
+pub struct SnmpBuilder {
+    version: i32,
+    community: Option<String>,
+    request_id: Option<u32>,
+    bindings: Vec<(String, SnmpValue)>,
+}
+
+impl SnmpBuilder {
+    pub fn new() -> Self {
+        Self {
+            version: 1, // Default to SNMPv2c
+            community: None,
+            request_id: None,
+            bindings: Vec::new(),
+        }
+    }
+
+    pub fn version(mut self, version: i32) -> Self {
+        self.version = version;
+        self
+    }
+
+    pub fn community(mut self, community: &str) -> Self {
+        self.community = Some(community.to_string());
+        self
+    }
+
+    pub fn request_id(mut self, id: u32) -> Self {
+        self.request_id = Some(id);
+        self
+    }
+
+    pub fn add_binding(mut self, oid: &str, value: SnmpValue) -> Self {
+        self.bindings.push((oid.to_string(), value));
+        self
+    }
+
+    pub fn add_null_binding(mut self, oid: &str) -> Self {
+        self.bindings.push((oid.to_string(), SnmpValue::Null));
+        self
+    }
+
+    pub fn build_get(self) -> Snmp {
+        let community = self.community.unwrap_or_else(|| "public".to_string());
+        let request_id = self.request_id.unwrap_or_else(|| rand::random());
+        
+        let var_bindings = self.bindings.into_iter()
+            .map(|(oid, value)| SnmpVarBind {
+                name: Value::Set(BerOid::from_str(&oid).unwrap_or_default()),
+                value: Value::Set(value),
+            })
+            .collect();
+
+        Snmp {
+            version: Value::Set(self.version),
+            community: Value::Set(community),
+            pdu: Value::Set(SnmpPdu::Get(SnmpGetOrResponse {
+                request_id: Value::Set(request_id),
+                error_status: Value::Set(0),
+                error_index: Value::Set(0),
+                _bindings_tag_len: Value::Auto,
+                var_bindings,
+            })),
+        }
+    }
+}
+
+// Add common SNMP OIDs as constants
+pub mod oids {
+    pub const SYSTEM_DESCRIPTION: &str = "1.3.6.1.2.1.1.1.0";
+    pub const SYSTEM_OBJECT_ID: &str = "1.3.6.1.2.1.1.2.0";
+    pub const SYSTEM_UPTIME: &str = "1.3.6.1.2.1.1.3.0";
+    pub const SYSTEM_CONTACT: &str = "1.3.6.1.2.1.1.4.0";
+    pub const SYSTEM_NAME: &str = "1.3.6.1.2.1.1.5.0";
+    pub const SYSTEM_LOCATION: &str = "1.3.6.1.2.1.1.6.0";
+    pub const SYSTEM_SERVICES: &str = "1.3.6.1.2.1.1.7.0";
+    
+    pub const IF_TABLE: &str = "1.3.6.1.2.1.2.2";
+    pub const IF_NUMBER: &str = "1.3.6.1.2.1.2.1.0";
+    pub const IF_INDEX: &str = "1.3.6.1.2.1.2.2.1.1";
+    pub const IF_DESCR: &str = "1.3.6.1.2.1.2.2.1.2";
+    pub const IF_TYPE: &str = "1.3.6.1.2.1.2.2.1.3";
+    pub const IF_MTU: &str = "1.3.6.1.2.1.2.2.1.4";
+    pub const IF_SPEED: &str = "1.3.6.1.2.1.2.2.1.5";
+    pub const IF_PHYS_ADDRESS: &str = "1.3.6.1.2.1.2.2.1.6";
+    pub const IF_ADMIN_STATUS: &str = "1.3.6.1.2.1.2.2.1.7";
+    pub const IF_OPER_STATUS: &str = "1.3.6.1.2.1.2.2.1.8";
+    
+    pub const SNMP_IN_PKTS: &str = "1.3.6.1.2.1.11.1.0";
+    pub const SNMP_OUT_PKTS: &str = "1.3.6.1.2.1.11.2.0";
+    pub const SNMP_IN_BAD_VERSIONS: &str = "1.3.6.1.2.1.11.3.0";
+    pub const SNMP_IN_BAD_COMMUNITY_NAMES: &str = "1.3.6.1.2.1.11.4.0";
+    pub const SNMP_IN_ASN_PARSE_ERRS: &str = "1.3.6.1.2.1.11.6.0";
+}
+
+// Example usage functions
+impl Snmp {
+    /// Example: Create a simple system info query
+    pub fn system_info_query() -> Self {
+        Self::v2c_get("public", vec![
+            oids::SYSTEM_DESCRIPTION,
+            oids::SYSTEM_NAME,
+            oids::SYSTEM_LOCATION,
+            oids::SYSTEM_UPTIME,
+        ])
+    }
+
+    /// Example: Create an interface table walk request  
+    pub fn interface_walk() -> Self {
+        Self::v2c_getbulk("public", 0, 10, vec![oids::IF_TABLE])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_snmp_v1_get() {
+        let snmp = Snmp::v1_get("public", vec!["1.3.6.1.2.1.1.1.0"]);
+        assert_eq!(snmp.version.value(), 0);
+        assert_eq!(snmp.community.value(), "public");
+        
+        match snmp.pdu.value() {
+            SnmpPdu::Get(get_pdu) => {
+                assert_eq!(get_pdu.var_bindings.len(), 1);
+                assert_eq!(get_pdu.error_status.value(), 0);
+            }
+            _ => panic!("Expected Get PDU"),
+        }
+    }
+
+    #[test]
+    fn test_snmp_v2c_getbulk() {
+        let snmp = Snmp::v2c_getbulk("public", 0, 10, vec!["1.3.6.1.2.1.2.2"]);
+        assert_eq!(snmp.version.value(), 1);
+        
+        match snmp.pdu.value() {
+            SnmpPdu::GetBulk(getbulk_pdu) => {
+                assert_eq!(getbulk_pdu.non_repeaters.value(), 0);
+                assert_eq!(getbulk_pdu.max_repetitions.value(), 10);
+            }
+            _ => panic!("Expected GetBulk PDU"),
+        }
+    }
+
+    #[test]
+    fn test_snmpv3_no_auth() {
+        let snmp = SnmpV3::no_auth_get(vec!["1.3.6.1.2.1.1.1.0"]);
+        assert_eq!(snmp.msg_version.value(), 3);
+        assert_eq!(snmp.msg_flags.value(), 0); // No auth, no priv
+        assert!(!snmp.requires_auth());
+        assert!(!snmp.requires_privacy());
+    }
+
+    #[test]
+    fn test_snmp_value_creation() {
+        let int_val = SnmpValue::integer(42);
+        assert_eq!(int_val.as_integer(), Some(42));
+        assert_eq!(int_val.type_name(), "INTEGER");
+
+        let str_val = SnmpValue::string("test");
+        assert_eq!(str_val.as_string(), Some("test".to_string()));
+        assert_eq!(str_val.type_name(), "OCTET STRING");
+    }
+
+    #[test]
+    fn test_builder_pattern() {
+        let snmp = SnmpBuilder::new()
+            .version(1)
+            .community("test")
+            .add_null_binding("1.3.6.1.2.1.1.1.0")
+            .add_binding("1.3.6.1.2.1.1.5.0", SnmpValue::string("router1"))
+            .build_get();
+
+        assert_eq!(snmp.version.value(), 1);
+        assert_eq!(snmp.community.value(), "test");
+        
+        match snmp.pdu.value() {
+            SnmpPdu::Get(get_pdu) => {
+                assert_eq!(get_pdu.var_bindings.len(), 2);
+            }
+            _ => panic!("Expected Get PDU"),
+        }
+    }
+}
+
+*/
