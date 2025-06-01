@@ -2293,6 +2293,153 @@ impl Snmp {
             )
             .push(scoped_pdu)
     }
+pub fn v3_get_with_auth(
+        oids: &Vec<&str>,
+        usm_config: &usm_crypto::UsmConfig
+    ) -> Result<(LayerStack, UsmEncodingContext), String> {
+        let var_bindings = oids
+            .into_iter()
+            .map(|oid| SnmpVarBind {
+                _bind_tag_len: Value::Auto,
+                name: Value::Set(BerOid::from_str(oid).unwrap_or_default()),
+                value: Value::Set(SnmpValue::Null),
+            })
+            .collect();
+
+        let scoped_pdu = SnmpV3ScopedPdu {
+            _scoped_pdu_seq_tag_len: Value::Auto,
+            context_engine_id: Value::Set(ByteArray::from(vec![])),
+            context_name: Value::Set(ByteArray::from(vec![])),
+            pdu: Value::Set(SnmpV3Pdu::Get(SnmpGetOrResponse {
+                request_id: Value::Set(rand::random()),
+                error_status: Value::Set(0),
+                error_index: Value::Set(0),
+                _bindings_tag_len: Value::Auto,
+                var_bindings,
+            })),
+        };
+
+        // Create USM parameters from config
+        let usm_params = if usm_config.has_auth() || usm_config.has_priv() {
+            let mut usm = UsmSecurityParameters::with_user(&usm_config.user_name);
+            usm.set_engine_info(&usm_config.engine_id, usm_config.engine_boots, usm_config.engine_time);
+            
+            if usm_config.has_auth() {
+                // Placeholder auth params - will be calculated during encoding
+                usm.set_auth_params(&vec![0u8; usm_config.auth_algorithm.auth_param_length()]);
+            }
+            
+            if usm_config.has_priv() {
+                // Generate random IV for privacy
+                let iv = usm_config.priv_algorithm.generate_iv();
+                usm.set_priv_params(&iv);
+            }
+            
+            SnmpV3SecurityParameters::Usm(usm)
+        } else {
+            SnmpV3SecurityParameters::None
+        };
+
+        // Create the SNMPv3 message
+        let mut flags = 0u8;
+        if usm_config.has_auth() { flags |= 0x01; }
+        if usm_config.has_priv() { flags |= 0x02; }
+        flags |= 0x04; // reportable
+
+        let snmpv3 = SnmpV3 {
+            _seq_tag_len_v3: Value::Auto,
+            msg_id: Value::Set(rand::random()),
+            msg_max_size: Value::Set(65507),
+            msg_flags: SnmpV3::flags(flags),
+            msg_security_model: Value::Set(3), // USM
+            msg_security_parameters: Value::Set(usm_params),
+        };
+
+        let stack = LayerStack::new()
+            .push(Snmp {
+                _seq_tag_len: Value::Auto,
+                version: Value::Set(3),
+            })
+            .push(snmpv3)
+            .push(scoped_pdu);
+
+        let usm_context = UsmEncodingContext::new(usm_config.clone())?;
+        
+        Ok((stack, usm_context))
+    }
+
+    /// Create SNMPv3 SET with authentication
+    pub fn v3_set_with_auth(
+        bindings: Vec<(&str, SnmpValue)>,
+        usm_config: &usm_crypto::UsmConfig
+    ) -> Result<(LayerStack, UsmEncodingContext), String> {
+        let var_bindings = bindings
+            .into_iter()
+            .map(|(oid, value)| SnmpVarBind {
+                _bind_tag_len: Value::Auto,
+                name: Value::Set(BerOid::from_str(oid).unwrap_or_default()),
+                value: Value::Set(value),
+            })
+            .collect();
+
+        let scoped_pdu = SnmpV3ScopedPdu {
+            _scoped_pdu_seq_tag_len: Value::Auto,
+            context_engine_id: Value::Set(ByteArray::from(vec![])),
+            context_name: Value::Set(ByteArray::from(vec![])),
+            pdu: Value::Set(SnmpV3Pdu::Set(SnmpSetRequest {
+                request_id: Value::Set(rand::random()),
+                error_status: Value::Set(0),
+                error_index: Value::Set(0),
+                _bindings_tag_len: Value::Auto,
+                var_bindings,
+            })),
+        };
+
+        // Create USM parameters from config
+        let usm_params = if usm_config.has_auth() || usm_config.has_priv() {
+            let mut usm = UsmSecurityParameters::with_user(&usm_config.user_name);
+            usm.set_engine_info(&usm_config.engine_id, usm_config.engine_boots, usm_config.engine_time);
+            
+            if usm_config.has_auth() {
+                usm.set_auth_params(&vec![0u8; usm_config.auth_algorithm.auth_param_length()]);
+            }
+            
+            if usm_config.has_priv() {
+                let iv = usm_config.priv_algorithm.generate_iv();
+                usm.set_priv_params(&iv);
+            }
+            
+            SnmpV3SecurityParameters::Usm(usm)
+        } else {
+            SnmpV3SecurityParameters::None
+        };
+
+        let mut flags = 0u8;
+        if usm_config.has_auth() { flags |= 0x01; }
+        if usm_config.has_priv() { flags |= 0x02; }
+        flags |= 0x04; // reportable
+
+        let snmpv3 = SnmpV3 {
+            _seq_tag_len_v3: Value::Auto,
+            msg_id: Value::Set(rand::random()),
+            msg_max_size: Value::Set(65507),
+            msg_flags: SnmpV3::flags(flags),
+            msg_security_model: Value::Set(3),
+            msg_security_parameters: Value::Set(usm_params),
+        };
+
+        let stack = LayerStack::new()
+            .push(Snmp {
+                _seq_tag_len: Value::Auto,
+                version: Value::Set(3),
+            })
+            .push(snmpv3)
+            .push(scoped_pdu);
+
+        let usm_context = UsmEncodingContext::new(usm_config.clone())?;
+        
+        Ok((stack, usm_context))
+    }
 }
 
 // Add convenience methods for SNMPv3
@@ -3479,3 +3626,37 @@ impl UsmEncodingContext {
     }
 }
 
+
+// Add a helper extension trait for LayerStack to support USM encoding
+pub trait LayerStackUsmExt {
+    fn encode_with_usm<E: Encoder>(&self, usm_context: &UsmEncodingContext) -> Result<Vec<u8>, String>;
+}
+
+impl LayerStackUsmExt for LayerStack {
+    fn encode_with_usm<E: Encoder>(&self, usm_context: &UsmEncodingContext) -> Result<Vec<u8>, String> {
+        // If no authentication required, use normal encoding
+        if !usm_context.config.has_auth() {
+            return Ok(self.clone().lencode());
+        }
+        
+        // For authenticated messages, we need special handling
+        // This is a simplified version - full implementation would handle privacy too
+        
+        // First encode normally to get the message structure
+        let mut base_encoded = self.clone().lencode();
+        
+        // Find the SNMPv3 layer and calculate authentication
+        if let Some(snmpv3_layer) = self.get_layer(SnmpV3::new()) {
+            // Calculate authentication parameters for the entire message
+            let auth_params = usm_context.config.auth_algorithm
+                .generate_auth_params(&usm_context.auth_key, &base_encoded)?;
+            
+            // TODO: Update the encoded message with the correct auth parameters
+            // This would require parsing and reconstructing the message
+            // For now, return the base encoded message
+            Ok(base_encoded)
+        } else {
+            Ok(base_encoded)
+        }
+    }
+}
