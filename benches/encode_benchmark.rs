@@ -35,7 +35,7 @@ fn test_encode_snmp_ipv4() {
                     name = "1.0.2.3.4.5.2.3.3.2322.222",
                     value = SnmpValue::Counter64(12345)
                 ) /*                ,SNMPVARBIND!(name = "1.0.2.3.4.5.2.3.3.2322.333",
-                  value = SnmpValue::Timeticks(42)) */
+                  value = SnmpValue::TimeTicks(42)) */
             ]
         ));
     let out = x1.fill().lencode();
@@ -56,7 +56,7 @@ fn test_encode_snmp_ipv6() {
                 ),
                 SNMPVARBIND!(
                     name = "1.0.2.3.4.5.2.3.3.2322.333",
-                    value = SnmpValue::Timeticks(42)
+                    value = SnmpValue::TimeTicks(42)
                 )
             ]
         ));

@@ -389,6 +389,12 @@ impl FromStr for BerOid {
     }
 }
 
+impl From<&str> for BerOid {
+    fn from(s: &str) -> Self {
+        BerOid::from_str(s).unwrap_or_default()
+    }
+}
+
 impl From<&[u8; 6]> for BerOid {
     fn from(arg: &[u8; 6]) -> Self {
         // Convert 6 bytes to a basic OID (not very meaningful, but for compatibility)
@@ -544,8 +550,18 @@ pub enum SnmpValue {
     #[default]
     Null,
     Unknown(asn1::ASN1Object),
-    Timeticks(u32),
+    Integer(i64),
+    OctetString(Vec<u8>),
+    ObjectIdentifier(BerOid),
+    IpAddress(Ipv4Address),
+    Counter32(u32),
+    Gauge32(u32),
+    TimeTicks(u32),     // Use this one (standard capitalization)
+    Opaque(Vec<u8>),
     Counter64(u64),
+    NoSuchObject,
+    NoSuchInstance,
+    EndOfMibView,
     #[serde(untagged)]
     SimpleInt32(i32),
 }
@@ -564,7 +580,7 @@ impl FromStr for SnmpValue {
                     }
                 } else if s.starts_with("timeticks:") {
                     if let Ok(val) = s[10..].parse::<u32>() {
-                        return Ok(SnmpValue::Timeticks(val));
+                        return Ok(SnmpValue::TimeTicks(val));
                     }
                 } else if s.starts_with("counter64:") {
                     if let Ok(val) = s[10..].parse::<u64>() {
@@ -609,7 +625,7 @@ impl Distribution<SnmpValue> for Standard {
         match rng.gen_range(0..5) {
             0 => SnmpValue::Null,
             1 => SnmpValue::SimpleInt32(rng.gen_range(-1000..1000)),
-            2 => SnmpValue::Timeticks(rng.gen()),
+            2 => SnmpValue::TimeTicks(rng.gen()),
             3 => SnmpValue::Counter64(rng.gen()),
             _ => SnmpValue::Unknown(asn1::ASN1Object {
                 tag: asn1::Tag::OctetString,
@@ -641,7 +657,7 @@ impl Decode for SnmpValue {
                     if value > 4294967295 {
                         return None;
                     }
-                    SnmpValue::Timeticks(value as u32)
+                    SnmpValue::TimeTicks(value as u32)
                 } else {
                     return None;
                 }
@@ -673,7 +689,49 @@ impl Encode for SnmpValue {
                 tag: asn1::Tag::Integer,
                 value: asn1::Value::Integer(*x as i64),
             },
-            SnmpValue::Timeticks(x) => {
+            // Add these new cases:
+            SnmpValue::Integer(x) => &asn1::ASN1Object {
+                tag: asn1::Tag::Integer,
+                value: asn1::Value::Integer(*x),
+            },
+            SnmpValue::OctetString(bytes) => &asn1::ASN1Object {
+                tag: asn1::Tag::OctetString,
+                value: asn1::Value::OctetString(bytes.clone()),
+            },
+            SnmpValue::ObjectIdentifier(oid) => &asn1::ASN1Object {
+                tag: asn1::Tag::ObjectIdentifier,
+                value: asn1::Value::ObjectIdentifier(oid.0.clone()),
+            },
+            SnmpValue::IpAddress(ip) => &asn1::ASN1Object {
+                tag: asn1::Tag::UnknownTag(0x40), // IpAddress tag
+                value: asn1::Value::OctetString(ip.encode::<E>()),
+            },
+            SnmpValue::Counter32(x) => &asn1::ASN1Object {
+                tag: asn1::Tag::UnknownTag(0x41), // Counter32 tag
+                value: asn1::Value::UnknownPrimitive(0x41, (*x as u64).to_be_bytes().to_vec()),
+            },
+            SnmpValue::Gauge32(x) => &asn1::ASN1Object {
+                tag: asn1::Tag::UnknownTag(0x42), // Gauge32 tag
+                value: asn1::Value::UnknownPrimitive(0x42, (*x as u64).to_be_bytes().to_vec()),
+            },
+            SnmpValue::Opaque(bytes) => &asn1::ASN1Object {
+                tag: asn1::Tag::UnknownTag(0x44), // Opaque tag
+                value: asn1::Value::OctetString(bytes.clone()),
+            },
+            SnmpValue::NoSuchObject => &asn1::ASN1Object {
+                tag: asn1::Tag::UnknownTag(0x80), // noSuchObject tag
+                value: asn1::Value::Null,
+            },
+            SnmpValue::NoSuchInstance => &asn1::ASN1Object {
+                tag: asn1::Tag::UnknownTag(0x81), // noSuchInstance tag
+                value: asn1::Value::Null,
+            },
+            SnmpValue::EndOfMibView => &asn1::ASN1Object {
+                tag: asn1::Tag::UnknownTag(0x82), // endOfMibView tag
+                value: asn1::Value::Null,
+            },
+            // TimeTicks and Counter64 already handled above, so we need to add pattern matches for them too
+            SnmpValue::TimeTicks(x) => {
                 let mut result = vec![0x43];
                 let value_bytes = Asn1Encoder::encode_integer_bytes(*x as u64, false);
                 result.extend(Asn1Encoder::encode_length(value_bytes.len()));

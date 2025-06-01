@@ -17,7 +17,7 @@ fn encode_snmp_1() {
                 SNMPVARBIND!(name = "1.0.2.3.4.5.2.3.3.2322.222",
                              value = SnmpValue::Counter64(12345))
                 ,SNMPVARBIND!(name = "1.0.2.3.4.5.2.3.3.2322.333",
-                             value = SnmpValue::Timeticks(42))
+                             value = SnmpValue::TimeTicks(42))
             ]
 
         ));
