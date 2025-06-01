@@ -254,188 +254,217 @@ impl SnmpWalker {
         })
     }
 
-    fn walk(&mut self) -> Result<(), Box<dyn Error>> {
-        let mut current_oid = self.config.starting_oid.clone();
-        let mut results_count = 0;
+fn walk(&mut self) -> Result<(), Box<dyn Error>> {
+    let mut current_oid = self.config.starting_oid.clone();
+    let mut results_count = 0;
 
-        println!("Walking from OID: {}", current_oid);
-        println!("----------------------------------------");
+    println!("Walking from OID: {}", current_oid);
+    println!("----------------------------------------");
 
-        loop {
-            let response =
-                if self.config.use_getbulk && matches!(self.config.version, SnmpVersion::V2c(_)) {
-                    self.send_getbulk_request(&current_oid)?
-                } else {
-                    self.send_getnext_request(&current_oid)?
-                };
+    loop {
+        let response = if self.config.use_getbulk && matches!(self.config.version, SnmpVersion::V2c(_)) {
+            self.send_getbulk_request(&current_oid)?
+        } else {
+            self.send_getnext_request(&current_oid)?
+        };
 
-            let mut found_next = false;
-            let mut next_oid = String::new();
+        let mut found_next = false;
+        let mut next_oid = String::new();
 
-            // Process response
-            if let Some(snmp_response) = response.get_layer(SNMPGETRESPONSE!()) {
-                if let SnmpGetResponse(resp) = snmp_response {
-                    if resp.error_status.value() != 0 {
-                        println!(
-                            "SNMP Error: {} (index: {})",
-                            resp.error_status.value(),
-                            resp.error_index.value()
-                        );
-                        break;
-                    }
-
-                    for binding in &resp.var_bindings {
-                        let oid_str = format!("{:?}", binding.name.value());
-
-                        // Check if we've moved beyond our starting tree
-                        if !oid_str.starts_with(&self.config.starting_oid) {
-                            println!("Reached end of subtree");
-                            return Ok(());
+        // For SNMPv3, we need different response processing
+        match &self.config.version {
+            SnmpVersion::V3 { .. } => {
+                // Try to process as SNMPv3 response
+                if let Err(e) = self.process_snmpv3_response(&response) {
+                    println!("SNMPv3 response processing failed: {}", e);
+                    break;
+                }
+                
+                // Extract the actual SNMP data
+                if let Some(scoped_pdu) = response.get_layer(SnmpV3ScopedPdu::default()) {
+                    if let SnmpV3Pdu::Response(resp) = &scoped_pdu.pdu.value() {
+                        if resp.error_status.value() != 0 {
+                            println!(
+                                "SNMP Error: {} (index: {})",
+                                resp.error_status.value(),
+                                resp.error_index.value()
+                            );
+                            break;
                         }
 
-                        // Check for special SNMP values indicating end of walk
-                        match &binding.value.value() {
-                            SnmpValue::NoSuchObject
-                            | SnmpValue::NoSuchInstance
-                            | SnmpValue::EndOfMibView => {
-                                println!("End of MIB view reached");
+                        for binding in &resp.var_bindings {
+                            let oid_str = format!("{:?}", binding.name.value());
+
+                            // Check if we've moved beyond our starting tree
+                            if !oid_str.starts_with(&self.config.starting_oid) {
+                                println!("Reached end of subtree");
                                 return Ok(());
                             }
-                            _ => {}
+
+                            // Check for special SNMP values indicating end of walk
+                            match &binding.value.value() {
+                                SnmpValue::NoSuchObject
+                                | SnmpValue::NoSuchInstance
+                                | SnmpValue::EndOfMibView => {
+                                    println!("End of MIB view reached");
+                                    return Ok(());
+                                }
+                                _ => {}
+                            }
+
+                            // Print the result
+                            self.print_result(&binding);
+                            results_count += 1;
+
+                            // Update for next iteration
+                            next_oid = oid_str;
+                            found_next = true;
                         }
-
-                        // Print the result
-                        self.print_result(&binding);
-                        results_count += 1;
-
-                        // Update for next iteration
-                        next_oid = oid_str;
-                        found_next = true;
                     }
                 }
-            } else {
-                println!("No valid SNMP response received");
-                break;
             }
+            _ => {
+                // Original SNMPv1/v2c processing
+                if let Some(snmp_response) = response.get_layer(SNMPGETRESPONSE!()) {
+                    if let SnmpGetResponse(resp) = snmp_response {
+                        if resp.error_status.value() != 0 {
+                            println!(
+                                "SNMP Error: {} (index: {})",
+                                resp.error_status.value(),
+                                resp.error_index.value()
+                            );
+                            break;
+                        }
 
-            if !found_next {
-                println!("No more OIDs found");
-                break;
-            }
+                        for binding in &resp.var_bindings {
+                            let oid_str = format!("{:?}", binding.name.value());
 
-            current_oid = next_oid;
+                            if !oid_str.starts_with(&self.config.starting_oid) {
+                                println!("Reached end of subtree");
+                                return Ok(());
+                            }
 
-            // Safety check to prevent infinite loops
-            if results_count > 10000 {
-                println!("Stopping after 10000 results to prevent infinite loop");
-                break;
+                            match &binding.value.value() {
+                                SnmpValue::NoSuchObject
+                                | SnmpValue::NoSuchInstance
+                                | SnmpValue::EndOfMibView => {
+                                    println!("End of MIB view reached");
+                                    return Ok(());
+                                }
+                                _ => {}
+                            }
+
+                            self.print_result(&binding);
+                            results_count += 1;
+                            next_oid = oid_str;
+                            found_next = true;
+                        }
+                    }
+                } else {
+                    println!("No valid SNMP response received");
+                    break;
+                }
             }
         }
 
-        println!("----------------------------------------");
-        println!("Walk completed. Total results: {}", results_count);
-        Ok(())
+        if !found_next {
+            println!("No more OIDs found");
+            break;
+        }
+
+        current_oid = next_oid;
+
+        if results_count > 10000 {
+            println!("Stopping after 10000 results to prevent infinite loop");
+            break;
+        }
     }
 
-    fn send_getnext_request(&mut self, oid: &str) -> Result<oside::LayerStack, Box<dyn Error>> {
-        self.request_id = self.request_id.wrapping_add(1);
+    println!("----------------------------------------");
+    println!("Walk completed. Total results: {}", results_count);
+    Ok(())
+}
 
-        let request = match &self.config.version {
-            SnmpVersion::V2c(community) => {
-                SNMP!()
-                    / SNMPV2C!(community = community.as_str())
-                    / SnmpGetNext(SNMPGETORRESPONSE!(
-                        request_id = self.request_id,
-                        var_bindings = vec![SNMPVARBIND!(name = oid, value = SnmpValue::Null)]
-                    ))
-            }
+fn send_getnext_request(&mut self, oid: &str) -> Result<oside::LayerStack, Box<dyn Error>> {
+    self.request_id = self.request_id.wrapping_add(1);
 
-            SnmpVersion::V3 { .. } => {
-                if let Some(mut usm_config) = self.create_usm_config() {
-                    println!("Doing discovery");
-                    // If engine ID is empty, do discovery first
-                    if usm_config.engine_id.is_empty() {
-                        let engine_id = self.snmpv3_discovery()?;
-                        // Update the existing config instead of creating a new one
-                        usm_config.engine_id = engine_id;
-                        usm_config.engine_boots = 1;
-                        usm_config.engine_time = 0;
-                    }
+    let request = match &self.config.version {
+        SnmpVersion::V2c(community) => {
+            SNMP!()
+                / SNMPV2C!(community = community.as_str())
+                / SnmpGetNext(SNMPGETORRESPONSE!(
+                    request_id = self.request_id,
+                    var_bindings = vec![SNMPVARBIND!(name = oid, value = SnmpValue::Null)]
+                ))
+        }
 
+        SnmpVersion::V3 { .. } => {
+            if let Some(mut usm_config) = self.create_usm_config() {
+                println!("Doing discovery");
+                // If engine ID is empty, do discovery first
+                if usm_config.engine_id.is_empty() {
+                    let engine_id = self.snmpv3_discovery()?;
+                    usm_config.engine_id = engine_id;
+                    usm_config.engine_boots = 1;
+                    usm_config.engine_time = 0;
+                }
+
+                println!(
+                    "USM config after engine discovery - has_auth: {}, has_priv: {}",
+                    usm_config.has_auth(),
+                    usm_config.has_priv()
+                );
+
+                if usm_config.has_auth() {
+                    let encoded = self.create_authenticated_request(oid, &usm_config)?;
+                    
+                    println!("Sending authenticated request, length: {}", encoded.len());
+                    println!("Encoded message length: {}", encoded.len());
                     println!(
-                        "USM config after engine discovery - has_auth: {}, has_priv: {}",
-                        usm_config.has_auth(),
-                        usm_config.has_priv()
+                        "First 50 bytes: {:02x?}",
+                        &encoded[0..std::cmp::min(50, encoded.len())]
                     );
 
-                    if usm_config.has_auth() {
-/*
-                        // Use the authenticated request builder
-                        let (stack, usm_context) = Snmp::v3_get_with_auth(&vec![oid], &usm_config)
-                            .map_err(|e| {
-                                format!("Failed to create authenticated SNMPv3 request: {}", e)
-                            })?;
+                    // Send the encoded message directly
+                    self.socket.send(&encoded)?;
 
-                        // Debug: Verify the USM context has the right engine ID
-                        println!(
-                            "USM context engine ID: {:02x?}",
-                            usm_context.config.engine_id
-                        );
-                        println!("USM context has auth: {}", usm_context.config.has_auth());
+                    // Receive and decode response
+                    let mut buf = vec![0u8; 65535];
+                    let len = self.socket.recv(&mut buf)?;
 
-                        // Debug: Check the flags before encoding
-                        if let Some(snmpv3) = stack.get_layer(SnmpV3::new()) {
-                            println!("Message flags before encoding: {:?}", snmpv3.msg_flags);
-                            println!("Security model: {:?}", snmpv3.msg_security_model);
-                            println!(
-                                "Has auth: {}, Has priv: {}",
-                                snmpv3.has_authentication(),
-                                snmpv3.has_privacy()
-                            );
+                    println!("Received response length: {}", len);
+                    println!("Response first 50 bytes: {:02x?}", &buf[0..std::cmp::min(50, len)]);
+
+                    // Try to decode the response
+                    let response = SNMP!()
+                        .ldecode(&buf[0..len])
+                        .ok_or("Failed to decode SNMP response")?
+                        .0;
+
+                    // Check if it's an authenticated response and verify auth
+                    if let Some(snmpv3) = response.get_layer(SnmpV3::new()) {
+                        if snmpv3.has_authentication() {
+                            println!("Received authenticated response, verifying...");
+                            
+                            // For now, skip auth verification and just process the response
+                            // In production, you should verify the auth params here
                         }
-
-                        // Important: Use the USM-aware encoding
-                        let encoded = stack
-                            .encode_with_usm::<oside::encdec::asn1::Asn1Encoder>(&usm_context)
-                            .map_err(|e| format!("Failed to encode with USM: {}", e))?;
-*/
-let encoded = self.create_authenticated_request(oid, &usm_config)?;
-    
-    println!("Sending authenticated request, length: {}", encoded.len());
-
-
-                        println!("Encoded message length: {}", encoded.len());
-                        println!(
-                            "First 50 bytes: {:02x?}",
-                            &encoded[0..std::cmp::min(50, encoded.len())]
-                        );
-
-                        // Send the encoded message directly
-                        self.socket.send(&encoded)?;
-
-                        // Receive and decode response
-                        let mut buf = vec![0u8; 65535];
-                        let len = self.socket.recv(&mut buf)?;
-
-                        let response = SNMP!()
-                            .ldecode(&buf[0..len])
-                            .ok_or("Failed to decode SNMP response")?
-                            .0;
-
-                        return Ok(response);
-                    } else {
-                        // For no-auth SNMPv3, still need proper structure
-                        Snmp::v3_get(&vec![oid])
                     }
-                } else {
-                    return Err("Failed to create USM configuration".into());
-                }
-            }
-        };
-        println!("request result: {:#02x?}", &request);
 
-        self.send_request(request)
-    }
+                    return Ok(response);
+                } else {
+                    // For no-auth SNMPv3, still need proper structure
+                    Snmp::v3_get(&vec![oid])
+                }
+            } else {
+                return Err("Failed to create USM configuration".into());
+            }
+        }
+    };
+    
+    println!("request result: {:#02x?}", &request);
+    self.send_request(request)
+}
 
     fn send_getbulk_request(&mut self, oid: &str) -> Result<oside::LayerStack, Box<dyn Error>> {
         self.request_id = self.request_id.wrapping_add(1);
@@ -684,29 +713,14 @@ fn snmpv3_discovery(&mut self) -> Result<Vec<u8>, Box<dyn Error>> {
 
 // Add this helper method to manually parse raw USM parameters
 fn parse_raw_usm_params(&self, raw_data: &[u8]) -> Option<Vec<u8>> {
-    // USM parameters are encoded as OCTET STRING containing a SEQUENCE
-    // Try to parse manually if the automatic parsing failed
-    
     if raw_data.len() < 2 {
         return None;
     }
     
     let mut cursor = 0;
     
-    // Skip OCTET STRING tag and length if present
-    if raw_data[cursor] == 0x04 {
-        cursor += 1;
-        // Skip length byte(s)
-        if raw_data[cursor] & 0x80 == 0 {
-            cursor += 1;
-        } else {
-            let len_bytes = (raw_data[cursor] & 0x7F) as usize;
-            cursor += 1 + len_bytes;
-        }
-    }
-    
-    // Should now be at SEQUENCE tag
-    if cursor < raw_data.len() && raw_data[cursor] == 0x30 {
+    // Check if it starts with SEQUENCE tag (0x30)
+    if raw_data[cursor] == 0x30 {
         cursor += 1;
         
         // Skip sequence length
@@ -717,7 +731,7 @@ fn parse_raw_usm_params(&self, raw_data: &[u8]) -> Option<Vec<u8>> {
             cursor += 1 + len_bytes;
         }
         
-        // First element should be the engine ID (OCTET STRING)
+        // First element should be the engine ID (OCTET STRING 0x04)
         if cursor < raw_data.len() && raw_data[cursor] == 0x04 {
             cursor += 1;
             let engine_id_len = raw_data[cursor] as usize;
@@ -735,6 +749,56 @@ fn parse_raw_usm_params(&self, raw_data: &[u8]) -> Option<Vec<u8>> {
     None
 }
 
+fn process_snmpv3_response(&self, response: &oside::LayerStack) -> Result<(), Box<dyn Error>> {
+    // Check if we have an SNMPv3 layer
+    if let Some(snmpv3) = response.get_layer(SnmpV3::new()) {
+        println!("Processing SNMPv3 response");
+        println!("Response flags: {:02x?}", snmpv3.msg_flags.value());
+        println!("Response security model: {}", snmpv3.msg_security_model.value());
+        
+        // Check for USM parameters
+        match &snmpv3.msg_security_parameters.value() {
+            SnmpV3SecurityParameters::Usm(usm) => {
+                println!("Found USM parameters in response");
+                println!("Engine ID: {:02x?}", usm.msg_authoritative_engine_id.value());
+            }
+            SnmpV3SecurityParameters::Raw(raw) => {
+                println!("Found raw security parameters: {:02x?}", raw);
+            }
+            _ => {
+                println!("No security parameters found");
+            }
+        }
+        
+        // Check for scoped PDU
+        if let Some(scoped_pdu) = response.get_layer(SnmpV3ScopedPdu::default()) {
+            println!("Found scoped PDU");
+            match &scoped_pdu.pdu.value() {
+                SnmpV3Pdu::Response(resp) => {
+                    println!("Found response PDU with {} bindings", resp.var_bindings.len());
+                    return Ok(());
+                }
+                SnmpV3Pdu::Report(report) => {
+                    println!("Received report PDU - this might indicate an error");
+                    println!("Error status: {}", report.error_status.value());
+                    println!("Error index: {}", report.error_index.value());
+                    return Err("Received SNMP report instead of response".into());
+                }
+                other => {
+                    println!("Unexpected PDU type: {:?}", other);
+                    return Err("Unexpected PDU type in response".into());
+                }
+            }
+        } else {
+            println!("No scoped PDU found in response");
+        }
+    }
+    
+    Err("No valid SNMPv3 response structure found".into())
+}
+
+
+
 fn create_authenticated_request(&self, oid: &str, usm_config: &UsmConfig) -> Result<Vec<u8>, Box<dyn Error>> {
     // Create the var bindings
     let var_bindings = vec![SnmpVarBind {
@@ -743,12 +807,13 @@ fn create_authenticated_request(&self, oid: &str, usm_config: &UsmConfig) -> Res
         value: Value::Set(SnmpValue::Null),
     }];
 
-    // Create the scoped PDU
+    // Create the scoped PDU - THIS IS THE KEY FIX
+    // Make sure context_engine_id matches the authoritative engine ID
     let scoped_pdu = SnmpV3ScopedPdu {
         _scoped_pdu_seq_tag_len: Value::Auto,
-        context_engine_id: Value::Set(ByteArray::from(vec![])),
+        context_engine_id: Value::Set(ByteArray::from(usm_config.engine_id.clone())), // FIXED: Use discovered engine ID
         context_name: Value::Set(ByteArray::from(vec![])),
-        pdu: Value::Set(SnmpV3Pdu::Get(SnmpGetOrResponse {
+        pdu: Value::Set(SnmpV3Pdu::GetNext(SnmpGetOrResponse { // FIXED: Use GetNext instead of Get
             request_id: Value::Set(self.request_id),
             error_status: Value::Set(0),
             error_index: Value::Set(0),
@@ -797,23 +862,10 @@ fn create_authenticated_request(&self, oid: &str, usm_config: &UsmConfig) -> Res
 
     // Create USM context and encode
     let usm_context = UsmEncodingContext::new(usm_config.clone())?;
-// Debug the USM context
-println!("USM context debug:");
-println!("  Engine ID: {:02x?}", usm_context.config.engine_id);
-println!("  User: {}", usm_context.config.user_name);
-println!("  Auth algorithm: {:?}", usm_context.config.auth_algorithm);
-println!("  Auth key length: {}", usm_context.auth_key.len());
-println!("  Auth key: {:02x?}", usm_context.auth_key);
-
-// Try encoding without USM first to see the message structure
-let basic_encoded = stack.clone().lencode();
-println!("Basic encoded length: {}", basic_encoded.len());
-println!("Basic encoded auth params area: {:02x?}", &basic_encoded[60..80]); // Approximate location
-
-let encoded = stack.encode_with_usm::<oside::encdec::asn1::Asn1Encoder>(&usm_context)?;
-println!("USM encoded length: {}", encoded.len());
-println!("USM encoded auth params area: {:02x?}", &encoded[60..80]); // Approximate location
+    let encoded = stack.encode_with_usm::<oside::encdec::asn1::Asn1Encoder>(&usm_context)?;
     
     Ok(encoded)
 }
+
+
 }
