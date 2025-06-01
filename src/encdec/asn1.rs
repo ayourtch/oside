@@ -408,6 +408,54 @@ impl Decoder for Asn1Decoder {
 pub struct Asn1Encoder;
 
 impl Asn1Encoder {
+    pub fn decode_context_tag(expected_tag: u8, buf: &[u8]) -> Option<(Vec<u8>, usize)> {
+        if buf.is_empty() {
+            return None;
+        }
+
+        let tag = buf[0];
+        let expected_tag_byte = 0x80 | expected_tag; // Context-specific tag
+        
+        if tag != expected_tag_byte {
+            return None;
+        }
+
+        let mut offset = 1;
+        
+        // Decode length
+        if offset >= buf.len() {
+            return None;
+        }
+        
+        let length = if buf[offset] & 0x80 == 0 {
+            // Short form
+            let len = buf[offset] as usize;
+            offset += 1;
+            len
+        } else {
+            // Long form
+            let len_octets = (buf[offset] & 0x7F) as usize;
+            offset += 1;
+            
+            if len_octets == 0 || len_octets > 4 || offset + len_octets > buf.len() {
+                return None;
+            }
+            
+            let mut len = 0usize;
+            for _ in 0..len_octets {
+                len = (len << 8) | (buf[offset] as usize);
+                offset += 1;
+            }
+            len
+        };
+
+        if offset + length > buf.len() {
+            return None;
+        }
+
+        let data = buf[offset..offset + length].to_vec();
+        Some((data, offset + length))
+    }
     // Encode an ASN.1 tag according to DER rules
     pub fn encode_tag(tag: &asn1::Tag) -> Vec<u8> {
         match tag {

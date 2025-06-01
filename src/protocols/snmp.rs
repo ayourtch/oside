@@ -1412,6 +1412,210 @@ impl From<SnmpError> for i32 {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum SnmpPdu {
+    Get(SnmpGetOrResponse),
+    GetNext(SnmpGetOrResponse), 
+    Response(SnmpGetOrResponse),
+    Set(SnmpSetRequest),
+    GetBulk(SnmpGetBulkRequest),  // SNMPv2c only
+    TrapV1(SnmpTrapPdu),          // SNMPv1 trap
+    TrapV2(SnmpTrapV2Pdu),        // SNMPv2c trap
+}
+
+impl Default for SnmpPdu {
+    fn default() -> Self {
+        SnmpPdu::Get(SnmpGetOrResponse::default())
+    }
+}
+
+impl FromStr for SnmpPdu {
+    type Err = ValueParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "get" => Ok(SnmpPdu::Get(SnmpGetOrResponse::default())),
+            "getnext" => Ok(SnmpPdu::GetNext(SnmpGetOrResponse::default())),
+            "response" => Ok(SnmpPdu::Response(SnmpGetOrResponse::default())),
+            "set" => Ok(SnmpPdu::Set(SnmpSetRequest::default())),
+            "getbulk" => Ok(SnmpPdu::GetBulk(SnmpGetBulkRequest::default())),
+            "trapv1" => Ok(SnmpPdu::TrapV1(SnmpTrapPdu::default())),
+            "trapv2" => Ok(SnmpPdu::TrapV2(SnmpTrapV2Pdu::default())),
+            _ => Err(ValueParseError::Error),
+        }
+    }
+}
+
+impl Distribution<SnmpPdu> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> SnmpPdu {
+        match rng.gen_range(0..7) {
+            0 => SnmpPdu::Get(SnmpGetOrResponse::default()),
+            1 => SnmpPdu::GetNext(SnmpGetOrResponse::default()),
+            2 => SnmpPdu::Response(SnmpGetOrResponse::default()),
+            3 => SnmpPdu::Set(SnmpSetRequest::default()),
+            4 => SnmpPdu::GetBulk(SnmpGetBulkRequest::default()),
+            5 => SnmpPdu::TrapV1(SnmpTrapPdu::default()),
+            _ => SnmpPdu::TrapV2(SnmpTrapV2Pdu::default()),
+        }
+    }
+}
+
+impl Encode for SnmpPdu {
+    fn encode<E: Encoder>(&self) -> Vec<u8> {
+        match self {
+            SnmpPdu::Get(pdu) => {
+                // Context tag [0] for Get requests
+                let inner = pdu.encode::<E>();
+                Asn1Encoder::encode_context_tag(0, &inner)
+            }
+            SnmpPdu::GetNext(pdu) => {
+                // Context tag [1] for GetNext requests
+                let inner = pdu.encode::<E>();
+                Asn1Encoder::encode_context_tag(1, &inner)
+            }
+            SnmpPdu::Response(pdu) => {
+                // Context tag [2] for Response
+                let inner = pdu.encode::<E>();
+                Asn1Encoder::encode_context_tag(2, &inner)
+            }
+            SnmpPdu::Set(pdu) => {
+                // Context tag [3] for Set requests
+                let inner = pdu.encode::<E>();
+                Asn1Encoder::encode_context_tag(3, &inner)
+            }
+            SnmpPdu::GetBulk(pdu) => {
+                // Context tag [5] for GetBulk requests (SNMPv2c only)
+                let inner = pdu.encode::<E>();
+                Asn1Encoder::encode_context_tag(5, &inner)
+            }
+            SnmpPdu::TrapV1(pdu) => {
+                // Context tag [4] for SNMPv1 Trap
+                let inner = pdu.encode::<E>();
+                Asn1Encoder::encode_context_tag(4, &inner)
+            }
+            SnmpPdu::TrapV2(pdu) => {
+                // Context tag [7] for SNMPv2c Trap
+                let inner = pdu.encode::<E>();
+                Asn1Encoder::encode_context_tag(7, &inner)
+            }
+        }
+    }
+}
+
+impl Decode for SnmpPdu {
+    fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
+        if buf.is_empty() {
+            return None;
+        }
+
+        // Check the context tag to determine PDU type
+        let tag = buf[0];
+        if (tag & 0x80) == 0 {
+            return None; // Not a context-specific tag
+        }
+
+        let pdu_type = tag & 0x1F;
+        match pdu_type {
+            0 => {
+                // Get request
+                let (inner_data, size) = Asn1Decoder::decode_context_tag(0, buf)?;
+                let (pdu, _) = SnmpGetOrResponse::decode::<D>(&inner_data)?;
+                Some((SnmpPdu::Get(pdu), size))
+            }
+            1 => {
+                // GetNext request
+                let (inner_data, size) = Asn1Decoder::decode_context_tag(1, buf)?;
+                let (pdu, _) = SnmpGetOrResponse::decode::<D>(&inner_data)?;
+                Some((SnmpPdu::GetNext(pdu), size))
+            }
+            2 => {
+                // Response
+                let (inner_data, size) = Asn1Decoder::decode_context_tag(2, buf)?;
+                let (pdu, _) = SnmpGetOrResponse::decode::<D>(&inner_data)?;
+                Some((SnmpPdu::Response(pdu), size))
+            }
+            3 => {
+                // Set request
+                let (inner_data, size) = Asn1Decoder::decode_context_tag(3, buf)?;
+                let (pdu, _) = SnmpSetRequest::decode::<D>(&inner_data)?;
+                Some((SnmpPdu::Set(pdu), size))
+            }
+            4 => {
+                // SNMPv1 Trap
+                let (inner_data, size) = Asn1Decoder::decode_context_tag(4, buf)?;
+                let (pdu, _) = SnmpTrapPdu::decode::<D>(&inner_data)?;
+                Some((SnmpPdu::TrapV1(pdu), size))
+            }
+            5 => {
+                // GetBulk request (SNMPv2c only)
+                let (inner_data, size) = Asn1Decoder::decode_context_tag(5, buf)?;
+                let (pdu, _) = SnmpGetBulkRequest::decode::<D>(&inner_data)?;
+                Some((SnmpPdu::GetBulk(pdu), size))
+            }
+            7 => {
+                // SNMPv2c Trap
+                let (inner_data, size) = Asn1Decoder::decode_context_tag(7, buf)?;
+                let (pdu, _) = SnmpTrapV2Pdu::decode::<D>(&inner_data)?;
+                Some((SnmpPdu::TrapV2(pdu), size))
+            }
+            _ => None, // Unknown PDU type
+        }
+    }
+}
+
+// Add the decode_context_tag method to Asn1Decoder
+impl Asn1Decoder {
+    pub fn decode_context_tag(expected_tag: u8, buf: &[u8]) -> Option<(Vec<u8>, usize)> {
+        if buf.is_empty() {
+            return None;
+        }
+
+        let tag = buf[0];
+        let expected_tag_byte = 0x80 | expected_tag; // Context-specific tag
+        
+        if tag != expected_tag_byte {
+            return None;
+        }
+
+        let mut offset = 1;
+        
+        // Decode length
+        if offset >= buf.len() {
+            return None;
+        }
+        
+        let length = if buf[offset] & 0x80 == 0 {
+            // Short form
+            let len = buf[offset] as usize;
+            offset += 1;
+            len
+        } else {
+            // Long form
+            let len_octets = (buf[offset] & 0x7F) as usize;
+            offset += 1;
+            
+            if len_octets == 0 || len_octets > 4 || offset + len_octets > buf.len() {
+                return None;
+            }
+            
+            let mut len = 0usize;
+            for _ in 0..len_octets {
+                len = (len << 8) | (buf[offset] as usize);
+                offset += 1;
+            }
+            len
+        };
+
+        if offset + length > buf.len() {
+            return None;
+        }
+
+        let data = buf[offset..offset + length].to_vec();
+        Some((data, offset + length))
+    }
+}
+
+
 
 /* 
 
