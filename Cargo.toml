@@ -20,6 +20,13 @@ doc-comment = "*"
 serde = { version = "1.0", features = ["derive"] }
 typetag = "*"
 
+md-5 = "*"
+sha1 = "*"
+hmac = "*"
+aes = "*"
+des = "*"
+cbc = "*"
+
 [dev-dependencies]
 criterion = "0.3"
 pcap-parser = "0.14.*"
