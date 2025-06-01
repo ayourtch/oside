@@ -782,6 +782,22 @@ impl Encode for SnmpValue {
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ByteArray(Vec<u8>);
 
+impl From<Value<ByteArray>> for ByteArray {
+    fn from(value: Value<ByteArray>) -> Self {
+        match value {
+            Value::Set(data) => data,
+            Value::Auto => ByteArray::default(),
+            Value::Random => {
+                use rand::Rng;
+                let mut rng = rand::thread_rng();
+                rng.gen()
+            }
+            Value::Func(f) => f(),
+        }
+    }
+}
+
+
 impl FromStr for ByteArray {
     type Err = ValueParseError;
 
@@ -3897,14 +3913,30 @@ pub trait LayerStackUsmExt {
         &self,
         usm_context: &UsmEncodingContext,
     ) -> Result<Vec<u8>, String>;
+
+fn encode_with_privacy<E: Encoder>(&self, usm_context: &UsmEncodingContext) -> Result<Vec<u8>, String>;
+fn create_encrypted_stack(&self, encrypted_data: &[u8], iv: &[u8], usm_context: &UsmEncodingContext) -> Result<LayerStack, String>;
+   
+
 }
 
 impl LayerStackUsmExt for LayerStack {
     fn encode_with_usm<E: Encoder>(&self, usm_context: &UsmEncodingContext) -> Result<Vec<u8>, String> {
+        // Check if privacy is enabled
+        if usm_context.config.has_priv() {
+            println!("Privacy enabled - encrypting scoped PDU");
+            
+            // We need to encode differently when privacy is enabled
+            return self.encode_with_privacy::<E>(usm_context);
+        }
+        
         // If no authentication required, use normal encoding
         if !usm_context.config.has_auth() {
             return Ok(self.clone().lencode());
         }
+        
+        // Authentication only (no privacy)
+        println!("Authentication only - no encryption");
         
         // First pass: encode with placeholder auth params (zeros)
         let mut encoded_message = self.clone().lencode();
@@ -3919,13 +3951,10 @@ impl LayerStackUsmExt for LayerStack {
         println!("Calculated auth params: {:02x?}", auth_params);
         
         // Find and replace the auth params in the encoded message
-        // We need to find the 12-byte sequence of zeros in the USM parameters
         let zero_auth_params = vec![0u8; 12];
         if let Some(pos) = find_subsequence(&encoded_message, &zero_auth_params) {
             println!("Found auth params at position {}", pos);
-            // Replace the 12 zeros with the calculated auth params
             encoded_message[pos..pos + 12].copy_from_slice(&auth_params);
-            
             println!("Updated message with auth params: {:02x?}", &encoded_message[pos-5..pos+17]);
         } else {
             return Err("Could not find auth params placeholder in encoded message".to_string());
@@ -3933,6 +3962,109 @@ impl LayerStackUsmExt for LayerStack {
         
         Ok(encoded_message)
     }
+
+fn encode_with_privacy<E: Encoder>(&self, usm_context: &UsmEncodingContext) -> Result<Vec<u8>, String> {
+        println!("Encoding with privacy (encryption)");
+        
+        // Step 1: Extract and encode the scoped PDU separately
+        let scoped_pdu = self.get_layer(SnmpV3ScopedPdu::default())
+            .ok_or("No scoped PDU found in layer stack")?;
+        
+        // Encode the scoped PDU
+        let scoped_pdu_encoded = scoped_pdu.encode::<E>();
+        println!("Scoped PDU encoded length: {}", scoped_pdu_encoded.len());
+        println!("Scoped PDU first 50 bytes: {:02x?}", &scoped_pdu_encoded[0..std::cmp::min(50, scoped_pdu_encoded.len())]);
+        
+        // Step 2: Encrypt the scoped PDU
+        let iv = usm_context.config.priv_algorithm.generate_iv();
+        println!("Generated IV: {:02x?}", iv);
+        
+        let encrypted_data = usm_context.config.priv_algorithm
+            .encrypt(&usm_context.priv_key, &iv, &scoped_pdu_encoded)
+            .map_err(|e| format!("Encryption failed: {}", e))?;
+        
+        println!("Encrypted data length: {}", encrypted_data.len());
+        println!("Encrypted data first 50 bytes: {:02x?}", &encrypted_data[0..std::cmp::min(50, encrypted_data.len())]);
+        
+        // Step 3: Create a new layer stack without the scoped PDU, but with encrypted data
+        let encrypted_stack = self.create_encrypted_stack(&encrypted_data, &iv, usm_context)?;
+        
+        // Step 4: Encode the new stack with authentication
+        let mut encoded_message = encrypted_stack.lencode();
+        
+        // Step 5: Calculate and insert HMAC if authentication is enabled
+        if usm_context.config.has_auth() {
+            println!("Calculating HMAC for encrypted message");
+            
+            let auth_params = usm_context.config.auth_algorithm
+                .generate_auth_params(&usm_context.auth_key, &encoded_message)
+                .map_err(|e| format!("HMAC calculation failed: {}", e))?;
+            
+            println!("Calculated auth params for encrypted message: {:02x?}", auth_params);
+            
+            // Find and replace the auth params
+            let zero_auth_params = vec![0u8; 12];
+            if let Some(pos) = find_subsequence(&encoded_message, &zero_auth_params) {
+                encoded_message[pos..pos + 12].copy_from_slice(&auth_params);
+                println!("Updated encrypted message with auth params");
+            } else {
+                return Err("Could not find auth params placeholder in encrypted message".to_string());
+            }
+        }
+        
+        Ok(encoded_message)
+    }
+    
+    fn create_encrypted_stack(&self, encrypted_data: &[u8], iv: &[u8], usm_context: &UsmEncodingContext) -> Result<LayerStack, String> {
+        // Create USM parameters with the IV in privacy parameters
+        let mut usm_params = UsmSecurityParameters::with_user(&usm_context.config.user_name);
+        usm_params.set_engine_info(
+            &usm_context.config.engine_id,
+            usm_context.config.engine_boots,
+            usm_context.config.engine_time,
+        );
+        
+        if usm_context.config.has_auth() {
+            // Placeholder auth params - will be calculated during encoding
+            usm_params.set_auth_params(&vec![0u8; usm_context.config.auth_algorithm.auth_param_length()]);
+        }
+        
+        if usm_context.config.has_priv() {
+            // Set the actual IV in privacy parameters
+            usm_params.set_priv_params(iv);
+        }
+        
+        // Create the SNMPv3 message with proper flags
+        let mut flags = 0u8;
+        if usm_context.config.has_auth() { flags |= 0x01; }
+        if usm_context.config.has_priv() { flags |= 0x02; }
+        flags |= 0x04; // reportable
+        
+        let snmpv3 = SnmpV3 {
+            _seq_tag_len_v3: Value::Auto,
+            msg_id: Value::Set(rand::random()),
+            msg_max_size: Value::Set(65507),
+            msg_flags: SnmpV3::flags(flags),
+            msg_security_model: Value::Set(3), // USM
+            msg_security_parameters: Value::Set(SnmpV3SecurityParameters::Usm(usm_params)),
+        };
+        
+        // Create encrypted scoped PDU placeholder
+        let encrypted_scoped_pdu = EncryptedScopedPdu {
+            encrypted_data: Value::Set(ByteArray::from(encrypted_data)),
+        };
+        
+        let stack = LayerStack::new()
+            .push(Snmp {
+                _seq_tag_len: Value::Auto,
+                version: Value::Set(3),
+            })
+            .push(snmpv3)
+            .push(encrypted_scoped_pdu);
+        
+        Ok(stack)
+    }
+
 }
 
 // Helper function to find a subsequence in a byte array
@@ -3997,3 +4129,36 @@ mod usm_tests {
         assert_eq!(plaintext, &decrypted[..plaintext.len()]);
     }
 }
+
+
+// 3. Create a new EncryptedScopedPdu layer for encrypted data
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
+pub struct EncryptedScopedPdu {
+    #[nproto(decode = decode_encrypted_data, encode = encode_encrypted_data)]
+    pub encrypted_data: Value<ByteArray>,
+}
+
+fn decode_encrypted_data<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    me: &mut EncryptedScopedPdu,
+) -> Option<(Value<ByteArray>, usize)> {
+    // For encrypted data, we just read the remaining bytes as an octet string
+    let remaining = &buf[ci..];
+    Some((Value::Set(ByteArray::from(remaining)), remaining.len()))
+}
+
+fn encode_encrypted_data<E: Encoder>(
+    me: &EncryptedScopedPdu,
+    stack: &LayerStack,
+    my_index: usize,
+    encoded_data: &EncodingVecVec,
+) -> Vec<u8> {
+    // For encrypted scoped PDU, we encode as an OCTET STRING
+    let data = &me.encrypted_data.value().0;
+    Asn1Encoder::encode_octetstring(data)
+}
+
+
+
