@@ -92,7 +92,7 @@ fn encode_udp_chksum<E: Encoder>(
             // eprintln!("CHECKSUM B4 data: {:04x}", sum);
             let mut carry: Option<u8> = None;
             // Have to do from outermost to innermost payload, to account for a carry byte
-            for i in (my_index + 1..encoded_data.len()).rev() {
+            for i in (my_index + 1..encoded_data.len()) {
                 (sum, carry) = update_inet_sum_with_carry(sum, &encoded_data[i], carry);
             }
             (sum, carry) = update_inet_sum_with_carry(sum, &vec![], carry);
@@ -109,7 +109,7 @@ fn encode_udp_chksum<E: Encoder>(
             let mut sum = update_inet_sum(sum, &encoded_udp_header);
             let mut carry: Option<u8> = None;
             // Have to do from outermost to innermost payload, to account for a carry byte
-            for i in (my_index + 1..encoded_data.len()).rev() {
+            for i in (my_index + 1..encoded_data.len()) {
                 (sum, carry) = update_inet_sum_with_carry(sum, &encoded_data[i], carry);
             }
             (sum, carry) = update_inet_sum_with_carry(sum, &vec![], carry);

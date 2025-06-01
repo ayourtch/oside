@@ -749,8 +749,13 @@ impl Index<usize> for EncodingVecVec {
     type Output = Vec<u8>;
 
     fn index(&self, idx: usize) -> &Self::Output {
+        // println!("PREVECVEC index {}, curr idx {} data len {}", idx, self.curr_idx, self.data.len());
+        // This is actually correct calculation 
+        //let calc_idx = idx - self.curr_idx - 1;
+        let calc_idx = self.data.len() + self.curr_idx - idx;
+        // println!("VECVEC index {}, curr idx {} data len {}, calc_idx {}", idx, self.curr_idx, self.data.len(), calc_idx);
         if idx > self.curr_idx {
-            &self.data[idx - self.curr_idx - 1]
+            &self.data[calc_idx]
         } else {
             panic!("encoding data at layer {} not yet ready", idx);
         }
@@ -877,7 +882,7 @@ impl LayerStack {
         };
         for (i, ll) in (&target.layers).into_iter().enumerate().rev() {
             out.curr_idx = i;
-            // println!("{}: {:?}", i, &ll);
+            // println!("LENCODE {}: {:?}", i, &ll);
             let ev = ll.lencode(&target, i, &out);
             out.data.push(ev);
         }
