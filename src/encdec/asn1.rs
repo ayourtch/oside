@@ -4,6 +4,27 @@ use crate::{Decoder, Encoder};
 pub struct Asn1Decoder;
 
 impl Asn1Decoder {
+
+/// Decode an INTEGER and return the value and bytes consumed
+    pub fn decode_integer(buf: &[u8]) -> Option<(i64, usize)> {
+        let ((tag, len), tag_len_consumed) = Self::parse_tag_and_len(buf, 0)?;
+        if tag != asn1::Tag::Integer {
+            return None;
+        }
+        
+        let value_start = tag_len_consumed;
+        let value_end = value_start + len;
+        
+        if value_end > buf.len() {
+            return None;
+        }
+        
+        let value_bytes = &buf[value_start..value_end];
+        let (value, _) = Self::parse_just_integer_unsigned(value_bytes, len).ok()?;
+        
+        Some((value as i64, value_end))
+    }
+
     pub fn parse_tag(buf: &[u8], ci: usize) -> Result<(asn1::Tag, usize), String> {
         use crate::asn1::*;
         let start = ci;

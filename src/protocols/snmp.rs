@@ -1138,12 +1138,99 @@ impl Distribution<SnmpV3SecurityParameters> for Standard {
     }
 }
 
+impl SnmpV3SecurityParameters {
+    /// Helper function to decode USM security parameters from the inner SEQUENCE
+    fn decode_usm_parameters(buf: &[u8]) -> Option<(UsmSecurityParameters, usize)> {
+        let mut cursor = 0;
+        
+        // Parse the outer SEQUENCE tag and length
+        let ((tag, seq_len), tag_len_consumed) = Asn1Decoder::parse_tag_and_len(buf, cursor)?;
+        if tag != asn1::Tag::Sequence {
+            return None;
+        }
+        cursor += tag_len_consumed;
+        
+        let sequence_start = cursor;
+        let sequence_end = cursor + seq_len;
+        
+        // Parse each field of the USM parameters in order:
+        // 1. msgAuthoritativeEngineID (OCTET STRING)
+        let (engine_id_bytes, consumed) = Asn1Decoder::decode_octetstring(&buf[cursor..])?;
+        cursor += consumed;
+        
+        // 2. msgAuthoritativeEngineBoots (INTEGER)
+        let (engine_boots, consumed) = Asn1Decoder::decode_integer(&buf[cursor..])?;
+        cursor += consumed;
+        let engine_boots = if engine_boots >= 0 && engine_boots <= u32::MAX as i64 {
+            engine_boots as u32
+        } else {
+            return None; // Invalid engine boots value
+        };
+        
+        // 3. msgAuthoritativeEngineTime (INTEGER)
+        let (engine_time, consumed) = Asn1Decoder::decode_integer(&buf[cursor..])?;
+        cursor += consumed;
+        let engine_time = if engine_time >= 0 && engine_time <= u32::MAX as i64 {
+            engine_time as u32
+        } else {
+            return None; // Invalid engine time value
+        };
+        
+        // 4. msgUserName (OCTET STRING)
+        let (user_name_bytes, consumed) = Asn1Decoder::decode_octetstring(&buf[cursor..])?;
+        cursor += consumed;
+        
+        // 5. msgAuthenticationParameters (OCTET STRING)
+        let (auth_params_bytes, consumed) = Asn1Decoder::decode_octetstring(&buf[cursor..])?;
+        cursor += consumed;
+        
+        // 6. msgPrivacyParameters (OCTET STRING)
+        let (priv_params_bytes, consumed) = Asn1Decoder::decode_octetstring(&buf[cursor..])?;
+        cursor += consumed;
+        
+        // Verify we consumed exactly the sequence length
+        if cursor - sequence_start != seq_len {
+            return None; // Sequence length mismatch
+        }
+        
+        // Create the USM security parameters
+        let usm_params = UsmSecurityParameters {
+            _octet_string_tag_len: Value::Auto, // Will be calculated during encoding
+            _seq_tag_len: Value::Auto,         // Will be calculated during encoding
+            msg_authoritative_engine_id: Value::Set(ByteArray::from(engine_id_bytes)),
+            msg_authoritative_engine_boots: Value::Set(engine_boots),
+            msg_authoritative_engine_time: Value::Set(engine_time),
+            msg_user_name: Value::Set(ByteArray::from(user_name_bytes)),
+            msg_authentication_parameters: Value::Set(ByteArray::from(auth_params_bytes)),
+            msg_privacy_parameters: Value::Set(ByteArray::from(priv_params_bytes)),
+        };
+        
+        Some((usm_params, tag_len_consumed + seq_len))
+    }
+}
+
+
 impl Decode for SnmpV3SecurityParameters {
     fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
-        // FIXME: For now, decode as raw bytes - in a full implementation,
-        // this would parse the specific security model format
-        let (bytes, size) = D::decode_octetstring(buf)?;
-        Some((SnmpV3SecurityParameters::Raw(ByteArray(bytes)), size))
+        // First, decode the outer OCTET STRING that contains the security parameters
+        let (security_params_bytes, outer_consumed) = D::decode_octetstring(buf)?;
+        
+        // If the octet string is empty, this indicates no security
+        if security_params_bytes.is_empty() {
+            return Some((SnmpV3SecurityParameters::None, outer_consumed));
+        }
+        
+        // Try to parse the inner content as USM security parameters
+        // USM parameters are encoded as a SEQUENCE inside the OCTET STRING
+        if let Some((usm_params, _inner_consumed)) = Self::decode_usm_parameters(&security_params_bytes) {
+            Some((SnmpV3SecurityParameters::Usm(usm_params), outer_consumed))
+        } else {
+            // If we can't parse as USM, fall back to raw bytes
+            Some((
+                SnmpV3SecurityParameters::Raw(ByteArray(security_params_bytes)),
+                outer_consumed,
+            ))
+        }
     }
 }
 

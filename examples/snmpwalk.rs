@@ -417,6 +417,7 @@ fn send_getnext_request(&mut self, oid: &str) -> Result<oside::LayerStack, Box<d
 
                 if usm_config.has_auth() {
                     let encoded = self.create_authenticated_request(oid, &usm_config)?;
+                    println!("ENCODED: {:?}", &encoded);
                     
                     println!("Sending authenticated request, length: {}", encoded.len());
                     println!("Encoded message length: {}", encoded.len());
