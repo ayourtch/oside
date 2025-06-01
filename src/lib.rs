@@ -781,6 +781,10 @@ impl Serialize for dyn Layer {
 */
 
 impl LayerStack {
+    pub fn push<T: Layer>(mut self, layer: T) -> Self {
+        self.layers.push(layer.embox());
+        self
+    }
     pub fn gg<T: Layer + Clone>(layer: Box<dyn Layer>) -> T {
         if layer.type_id() == TypeId::of::<T>() {
             (*layer.downcast_ref::<T>().unwrap()).clone()
