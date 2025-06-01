@@ -750,7 +750,7 @@ impl Index<usize> for EncodingVecVec {
 
     fn index(&self, idx: usize) -> &Self::Output {
         // println!("PREVECVEC index {}, curr idx {} data len {}", idx, self.curr_idx, self.data.len());
-        // This is actually correct calculation 
+        // This is actually correct calculation
         //let calc_idx = idx - self.curr_idx - 1;
         let calc_idx = self.data.len() + self.curr_idx - idx;
         // println!("VECVEC index {}, curr idx {} data len {}, calc_idx {}", idx, self.curr_idx, self.data.len(), calc_idx);

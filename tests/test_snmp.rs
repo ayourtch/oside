@@ -34,7 +34,7 @@ fn encode_snmp_1() {
 #[test]
 pub fn test_snmpv3_encoding() {
     let test_oid = "1.3.6.1.2.1.1.1.0";
-        let x1 = Ether!()
+    let x1 = Ether!()
         // / IP!(src = "192.0.1.2", dst="192.0.1.3")
         / IPV6!(src = "2001:db8::1", dst="2001:db8::2")
         / UDP!(sport = 9999)
@@ -48,4 +48,3 @@ pub fn test_snmpv3_encoding() {
     pcap.write_pcap("test_snmp_v3.cap");
     assert_eq!(1, 2);
 }
-

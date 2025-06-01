@@ -296,64 +296,64 @@ impl SnmpWalker {
         Ok(())
     }
 
-fn send_getnext_request(&mut self, oid: &str) -> Result<oside::LayerStack, Box<dyn Error>> {
-    self.request_id = self.request_id.wrapping_add(1);
+    fn send_getnext_request(&mut self, oid: &str) -> Result<oside::LayerStack, Box<dyn Error>> {
+        self.request_id = self.request_id.wrapping_add(1);
 
-    let request = match &self.config.version {
-        SnmpVersion::V2c(community) => {
-            SNMP!()
-                / SNMPV2C!(community = community.as_str())
-                / SnmpGetNext(SNMPGETORRESPONSE!(
-                    request_id = self.request_id,
-                    var_bindings = vec![SNMPVARBIND!(name = oid, value = SnmpValue::Null)]
-                ))
-        }
-        SnmpVersion::V3 {
-            user,
-            auth_key,
-            priv_key,
-        } => {
-            // Use the new LayerStack-based SNMPv3 implementation
-            if auth_key.is_some() {
-                Snmp::v3_get_auth(
-                    user,
-                    &[], // Empty engine ID for discovery
-                    &vec![oid]
-                )
-            } else {
-                Snmp::v3_get(&vec![oid])
+        let request = match &self.config.version {
+            SnmpVersion::V2c(community) => {
+                SNMP!()
+                    / SNMPV2C!(community = community.as_str())
+                    / SnmpGetNext(SNMPGETORRESPONSE!(
+                        request_id = self.request_id,
+                        var_bindings = vec![SNMPVARBIND!(name = oid, value = SnmpValue::Null)]
+                    ))
             }
-        }
-    };
-    println!("request result: {:#02x?}", &request);
+            SnmpVersion::V3 {
+                user,
+                auth_key,
+                priv_key,
+            } => {
+                // Use the new LayerStack-based SNMPv3 implementation
+                if auth_key.is_some() {
+                    Snmp::v3_get_auth(
+                        user,
+                        &[], // Empty engine ID for discovery
+                        &vec![oid],
+                    )
+                } else {
+                    Snmp::v3_get(&vec![oid])
+                }
+            }
+        };
+        println!("request result: {:#02x?}", &request);
 
-    self.send_request(request)
-}
+        self.send_request(request)
+    }
 
-fn send_getbulk_request(&mut self, oid: &str) -> Result<oside::LayerStack, Box<dyn Error>> {
-    self.request_id = self.request_id.wrapping_add(1);
+    fn send_getbulk_request(&mut self, oid: &str) -> Result<oside::LayerStack, Box<dyn Error>> {
+        self.request_id = self.request_id.wrapping_add(1);
 
-    let request = match &self.config.version {
-        SnmpVersion::V2c(community) => {
-            SNMP!()
-                / SNMPV2C!(community = community.as_str())
-                / SnmpGetBulk(SnmpGetBulkRequest {
-                    request_id: Value::Set(self.request_id),
-                    non_repeaters: Value::Set(0),
-                    max_repetitions: Value::Set(self.config.max_repetitions),
-                    _bindings_tag_len: Value::Auto,
-                    var_bindings: vec![SNMPVARBIND!(name = oid, value = SnmpValue::Null)],
-                })
-        }
-        SnmpVersion::V3 { .. } => {
-            // SNMPv3 doesn't typically use GetBulk in the same way
-            // Fall back to GetNext
-            return self.send_getnext_request(oid);
-        }
-    };
+        let request = match &self.config.version {
+            SnmpVersion::V2c(community) => {
+                SNMP!()
+                    / SNMPV2C!(community = community.as_str())
+                    / SnmpGetBulk(SnmpGetBulkRequest {
+                        request_id: Value::Set(self.request_id),
+                        non_repeaters: Value::Set(0),
+                        max_repetitions: Value::Set(self.config.max_repetitions),
+                        _bindings_tag_len: Value::Auto,
+                        var_bindings: vec![SNMPVARBIND!(name = oid, value = SnmpValue::Null)],
+                    })
+            }
+            SnmpVersion::V3 { .. } => {
+                // SNMPv3 doesn't typically use GetBulk in the same way
+                // Fall back to GetNext
+                return self.send_getnext_request(oid);
+            }
+        };
 
-    self.send_request(request)
-}
+        self.send_request(request)
+    }
 
     fn send_request(
         &mut self,

@@ -408,18 +408,17 @@ impl Decoder for Asn1Decoder {
 pub struct Asn1Encoder;
 
 impl Asn1Encoder {
-
-pub fn encode_null() -> Vec<u8> {
-        vec![0x05, 0x00]  // NULL tag + zero length
+    pub fn encode_null() -> Vec<u8> {
+        vec![0x05, 0x00] // NULL tag + zero length
     }
-    
+
     // Helper method to encode boolean values
     pub fn encode_boolean(value: bool) -> Vec<u8> {
-        let mut result = vec![0x01, 0x01];  // BOOLEAN tag + length 1
+        let mut result = vec![0x01, 0x01]; // BOOLEAN tag + length 1
         result.push(if value { 0xFF } else { 0x00 });
         result
     }
-    
+
     // Method to encode a raw tag with data (useful for unknown/custom tags)
     pub fn encode_with_tag(tag: u8, data: &[u8]) -> Vec<u8> {
         let mut result = vec![tag];
