@@ -641,18 +641,36 @@ fn snmpv3_discovery(&mut self) -> Result<Vec<u8>, Box<dyn Error>> {
         // Look for SNMPv3 layer with USM parameters
         if let Some(snmpv3) = response_stack.get_layer(SnmpV3::new()) {
             println!("Found SNMPv3 layer in response");
+            println!("Response msg_flags: {:?}", snmpv3.msg_flags);
+            println!("Response security_model: {:?}", snmpv3.msg_security_model);
             
-            if let Value::Set(SnmpV3SecurityParameters::Usm(ref usm)) = &snmpv3.msg_security_parameters {
-                let engine_id = usm.msg_authoritative_engine_id.value().to_vec();
-                println!("Extracted engine ID: {:02x?}", engine_id);
-                
-                if !engine_id.is_empty() {
-                    return Ok(engine_id);
-                } else {
-                    println!("Engine ID is empty in response");
+            // Debug: Print the security parameters type
+            match &snmpv3.msg_security_parameters {
+                Value::Set(SnmpV3SecurityParameters::Usm(ref usm)) => {
+                    println!("Found USM parameters in response");
+                    let engine_id = usm.msg_authoritative_engine_id.value().to_vec();
+                    println!("Extracted engine ID: {:02x?}", engine_id);
+                    
+                    if !engine_id.is_empty() {
+                        return Ok(engine_id);
+                    } else {
+                        println!("Engine ID is empty in response");
+                    }
                 }
-            } else {
-                println!("No USM parameters in SNMPv3 response");
+                Value::Set(SnmpV3SecurityParameters::Raw(ref raw)) => {
+                    println!("Found RAW security parameters: {:02x?}", raw.to_vec());
+                    // Try to parse the raw security parameters manually
+                    if let Some(engine_id) = self.parse_raw_usm_params(&raw.to_vec()) {
+                        println!("Extracted engine ID from raw params: {:02x?}", engine_id);
+                        return Ok(engine_id);
+                    }
+                }
+                Value::Set(SnmpV3SecurityParameters::None) => {
+                    println!("No security parameters in response");
+                }
+                _ => {
+                    println!("Other security parameters type: {:?}", snmpv3.msg_security_parameters);
+                }
             }
         } else {
             println!("No SNMPv3 layer found in response");
@@ -662,6 +680,59 @@ fn snmpv3_discovery(&mut self) -> Result<Vec<u8>, Box<dyn Error>> {
     }
     
     Err("Failed to discover engine ID".into())
+}
+
+// Add this helper method to manually parse raw USM parameters
+fn parse_raw_usm_params(&self, raw_data: &[u8]) -> Option<Vec<u8>> {
+    // USM parameters are encoded as OCTET STRING containing a SEQUENCE
+    // Try to parse manually if the automatic parsing failed
+    
+    if raw_data.len() < 2 {
+        return None;
+    }
+    
+    let mut cursor = 0;
+    
+    // Skip OCTET STRING tag and length if present
+    if raw_data[cursor] == 0x04 {
+        cursor += 1;
+        // Skip length byte(s)
+        if raw_data[cursor] & 0x80 == 0 {
+            cursor += 1;
+        } else {
+            let len_bytes = (raw_data[cursor] & 0x7F) as usize;
+            cursor += 1 + len_bytes;
+        }
+    }
+    
+    // Should now be at SEQUENCE tag
+    if cursor < raw_data.len() && raw_data[cursor] == 0x30 {
+        cursor += 1;
+        
+        // Skip sequence length
+        if raw_data[cursor] & 0x80 == 0 {
+            cursor += 1;
+        } else {
+            let len_bytes = (raw_data[cursor] & 0x7F) as usize;
+            cursor += 1 + len_bytes;
+        }
+        
+        // First element should be the engine ID (OCTET STRING)
+        if cursor < raw_data.len() && raw_data[cursor] == 0x04 {
+            cursor += 1;
+            let engine_id_len = raw_data[cursor] as usize;
+            cursor += 1;
+            
+            if cursor + engine_id_len <= raw_data.len() {
+                let engine_id = raw_data[cursor..cursor + engine_id_len].to_vec();
+                if !engine_id.is_empty() {
+                    return Some(engine_id);
+                }
+            }
+        }
+    }
+    
+    None
 }
 
 fn create_authenticated_request(&self, oid: &str, usm_config: &UsmConfig) -> Result<Vec<u8>, Box<dyn Error>> {
