@@ -17,13 +17,18 @@ use oside::SNMPGETRESPONSE;
 use oside::SNMPV2C;
 use oside::SNMPVARBIND;
 
+use oside::protocols::snmp::usm_crypto::{AuthAlgorithm, PrivAlgorithm, UsmConfig};
+
 #[derive(Debug, Clone)]
 enum SnmpVersion {
     V2c(String), // community string
     V3 {
         user: String,
-        auth_key: Option<String>,
-        priv_key: Option<String>,
+        auth_algorithm: Option<AuthAlgorithm>,
+        auth_password: Option<String>,
+        priv_algorithm: Option<PrivAlgorithm>,
+        priv_password: Option<String>,
+        engine_id: Vec<u8>,
     },
 }
 
@@ -98,39 +103,60 @@ fn parse_args(args: &[String]) -> Result<SnmpWalkConfig, Box<dyn Error>> {
                         };
                         config.version = SnmpVersion::V2c(community);
                     }
-                    "3" => {
-                        if i + 2 >= args.len() {
-                            return Err("SNMPv3 requires username".into());
-                        }
-                        let user = args[i + 2].clone();
-                        i += 1;
+"3" => {
+    if i + 2 >= args.len() {
+        return Err("SNMPv3 requires username".into());
+    }
+    let user = args[i + 2].clone();
+    i += 1;
 
-                        let mut auth_key = None;
-                        let mut priv_key = None;
+    let mut auth_algorithm = None;
+    let mut auth_password = None;
+    let mut priv_algorithm = None;
+    let mut priv_password = None;
 
-                        // Check for optional auth and priv keys
-                        if i + 2 < args.len() && args[i + 2] == "-a" {
-                            if i + 3 >= args.len() {
-                                return Err("Auth key requires a value".into());
-                            }
-                            auth_key = Some(args[i + 3].clone());
-                            i += 2;
+    // Check for optional auth and priv parameters
+    if i + 2 < args.len() && args[i + 2] == "-a" {
+        if i + 4 >= args.len() {
+            return Err("Auth requires algorithm and password".into());
+        }
+        
+        let auth_alg_str = &args[i + 3];
+        auth_algorithm = Some(match auth_alg_str.to_lowercase().as_str() {
+            "md5" => AuthAlgorithm::HmacMd5,
+            "sha1" | "sha" => AuthAlgorithm::HmacSha1,
+            _ => return Err("Unsupported auth algorithm. Use 'md5' or 'sha1'".into()),
+        });
+        
+        auth_password = Some(args[i + 4].clone());
+        i += 3;
 
-                            if i + 2 < args.len() && args[i + 2] == "-x" {
-                                if i + 3 >= args.len() {
-                                    return Err("Priv key requires a value".into());
-                                }
-                                priv_key = Some(args[i + 3].clone());
-                                i += 2;
-                            }
-                        }
+        if i + 2 < args.len() && args[i + 2] == "-x" {
+            if i + 4 >= args.len() {
+                return Err("Privacy requires algorithm and password".into());
+            }
+            
+            let priv_alg_str = &args[i + 3];
+            priv_algorithm = Some(match priv_alg_str.to_lowercase().as_str() {
+                "des" => PrivAlgorithm::DesCbc,
+                "aes" | "aes128" => PrivAlgorithm::Aes128,
+                _ => return Err("Unsupported privacy algorithm. Use 'des' or 'aes'".into()),
+            });
+            
+            priv_password = Some(args[i + 4].clone());
+            i += 3;
+        }
+    }
 
-                        config.version = SnmpVersion::V3 {
-                            user,
-                            auth_key,
-                            priv_key,
-                        };
-                    }
+    config.version = SnmpVersion::V3 {
+        user,
+        auth_algorithm,
+        auth_password,
+        priv_algorithm,
+        priv_password,
+        engine_id: vec![], // Will be discovered
+    };
+}
                     _ => return Err("Unsupported SNMP version. Use '2c' or '3'".into()),
                 }
                 i += 1;
@@ -174,7 +200,9 @@ fn print_usage(program_name: &str) {
     println!("Options:");
     println!("  -v, --version <2c|3>       SNMP version (default: 2c)");
     println!("      For v2c: -v 2c [community]  (default community: public)");
-    println!("      For v3:  -v 3 <username> [-a <auth_key>] [-x <priv_key>]");
+    println!("      For v3:  -v 3 <username> [-a <auth_alg> <auth_pass>] [-x <priv_alg> <priv_pass>]");
+    println!("               Auth algorithms: md5, sha1");
+    println!("               Privacy algorithms: des, aes");
     println!("  -p, --port <port>          Target port (default: 161)");
     println!("  -m, --max-repetitions <n>  Max repetitions for GetBulk (default: 10)");
     println!("  --no-bulk                  Use GetNext instead of GetBulk");
@@ -183,14 +211,9 @@ fn print_usage(program_name: &str) {
     println!("Examples:");
     println!("  {} 192.168.1.1 1.3.6.1.2.1.1", program_name);
     println!("  {} 192.168.1.1 1.3.6.1.2.1.1 -v 2c private", program_name);
-    println!(
-        "  {} 192.168.1.1 1.3.6.1.2.1.1 -v 3 myuser -a myauthkey",
-        program_name
-    );
-    println!(
-        "  {} 192.168.1.1 1.3.6.1.2.1.1 -v 3 myuser -a myauthkey -x myprivkey",
-        program_name
-    );
+    println!("  {} 192.168.1.1 1.3.6.1.2.1.1 -v 3 myuser", program_name);
+    println!("  {} 192.168.1.1 1.3.6.1.2.1.1 -v 3 myuser -a md5 authpass", program_name);
+    println!("  {} 192.168.1.1 1.3.6.1.2.1.1 -v 3 myuser -a sha1 authpass -x aes privpass", program_name);
 }
 
 struct SnmpWalker {
@@ -308,22 +331,22 @@ impl SnmpWalker {
                         var_bindings = vec![SNMPVARBIND!(name = oid, value = SnmpValue::Null)]
                     ))
             }
-            SnmpVersion::V3 {
-                user,
-                auth_key,
-                priv_key,
-            } => {
-                // Use the new LayerStack-based SNMPv3 implementation
-                if auth_key.is_some() {
-                    Snmp::v3_get_auth(
-                        user,
-                        &[], // Empty engine ID for discovery
-                        &vec![oid],
-                    )
-                } else {
-                    Snmp::v3_get(&vec![oid])
-                }
-            }
+SnmpVersion::V3 { .. } => {
+    if let Some(usm_config) = self.create_usm_config() {
+        if usm_config.has_auth() {
+            // Use authenticated request
+            let (stack, _usm_context) = Snmp::v3_get_with_auth(&vec![oid], &usm_config)
+                .map_err(|e| format!("Failed to create authenticated SNMPv3 request: {}", e))?;
+            stack
+        } else {
+            // Use unauthenticated request
+            Snmp::v3_get(&vec![oid])
+        }
+    } else {
+        return Err("Failed to create USM configuration".into());
+    }
+}
+
         };
         println!("request result: {:#02x?}", &request);
 
@@ -428,4 +451,33 @@ impl SnmpWalker {
 
         println!("{} = {}", oid, value_str);
     }
+fn create_usm_config(&self) -> Option<UsmConfig> {
+    match &self.config.version {
+        SnmpVersion::V3 {
+            user,
+            auth_algorithm,
+            auth_password,
+            priv_algorithm,
+            priv_password,
+            engine_id,
+        } => {
+            let mut usm_config = UsmConfig::new(user);
+            
+            if let (Some(auth_alg), Some(auth_pass)) = (auth_algorithm, auth_password) {
+                usm_config = usm_config.with_auth(auth_alg.clone(), auth_pass);
+                
+                if let (Some(priv_alg), Some(priv_pass)) = (priv_algorithm, priv_password) {
+                    usm_config = usm_config.with_priv(priv_alg.clone(), priv_pass);
+                }
+            }
+            
+            if !engine_id.is_empty() {
+                usm_config = usm_config.with_engine_info(engine_id, 1, 0);
+            }
+            
+            Some(usm_config)
+        }
+        _ => None,
+    }
+}
 }
