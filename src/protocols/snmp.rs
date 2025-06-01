@@ -3536,21 +3536,20 @@ pub mod usm_crypto {
                     return Err("DES IV must be exactly 8 bytes".to_string());
                 }
                 
-                // Pad plaintext to DES block size (8 bytes)
-                let mut padded_plaintext = plaintext.to_vec();
-                let padding_len = 8 - (padded_plaintext.len() % 8);
-                if padding_len != 8 {
-                    padded_plaintext.extend(vec![padding_len as u8; padding_len]);
-                }
-                
-                let cipher = DesCbcEnc::new_from_slices(&key[..8], iv)
-                    .map_err(|e| format!("Failed to create DES cipher: {:?}", e))?;
-                
-                let mut ciphertext = padded_plaintext.clone();
-                cipher.encrypt_padded_mut::<cipher::block_padding::Pkcs7>(&mut ciphertext, padded_plaintext.len())
-                    .map_err(|e| format!("DES encryption failed: {:?}", e))?;
-                
-                Ok(ciphertext)
+               let cipher = DesCbcEnc::new_from_slices(&key[..8], iv)
+    .map_err(|e| format!("Failed to create DES cipher: {:?}", e))?;
+
+let mut buffer = plaintext.to_vec();
+// Reserve space for padding (up to one block)
+buffer.reserve(8);
+let ciphertext_len = buffer.len();
+// Resize to accommodate potential padding  
+buffer.resize(ciphertext_len + 8, 0);
+
+let ciphertext = cipher.encrypt_padded_mut::<cipher::block_padding::Pkcs7>(&mut buffer, ciphertext_len)
+    .map_err(|e| format!("DES encryption failed: {:?}", e))?;
+ 
+                Ok(ciphertext.to_vec())
             }
             PrivAlgorithm::Aes128 => {
                 use aes::Aes128;
@@ -3565,22 +3564,21 @@ pub mod usm_crypto {
                 if iv.len() != 16 {
                     return Err("AES IV must be exactly 16 bytes".to_string());
                 }
-                
-                // Pad plaintext to AES block size (16 bytes)
-                let mut padded_plaintext = plaintext.to_vec();
-                let padding_len = 16 - (padded_plaintext.len() % 16);
-                if padding_len != 16 {
-                    padded_plaintext.extend(vec![padding_len as u8; padding_len]);
-                }
-                
-                let cipher = Aes128CbcEnc::new_from_slices(key, iv)
-                    .map_err(|e| format!("Failed to create AES cipher: {:?}", e))?;
-                
-                let mut ciphertext = padded_plaintext.clone();
-                cipher.encrypt_padded_mut::<cipher::block_padding::Pkcs7>(&mut ciphertext, padded_plaintext.len())
-                    .map_err(|e| format!("AES encryption failed: {:?}", e))?;
-                
-                Ok(ciphertext)
+               
+let cipher = Aes128CbcEnc::new_from_slices(key, iv)
+    .map_err(|e| format!("Failed to create AES cipher: {:?}", e))?;
+
+let mut buffer = plaintext.to_vec();
+// Reserve space for padding (up to one block)
+buffer.reserve(16);
+let ciphertext_len = buffer.len();
+// Resize to accommodate potential padding
+buffer.resize(ciphertext_len + 16, 0);
+
+let ciphertext = cipher.encrypt_padded_mut::<cipher::block_padding::Pkcs7>(&mut buffer, ciphertext_len)
+    .map_err(|e| format!("AES encryption failed: {:?}", e))?;
+ 
+                Ok(ciphertext.to_vec())
             }
         }
     }
