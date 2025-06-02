@@ -27,6 +27,7 @@ aes = "*"
 des = "*"
 cbc = "*"
 cipher = "*"
+cfb-mode = "*"
 
 [dev-dependencies]
 criterion = "0.3"

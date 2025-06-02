@@ -3625,34 +3625,59 @@ pub mod usm_crypto {
 
     impl PrivAlgorithm {
 
-    pub fn generate_salt(&self, engine_boots: u32, counter: u32) -> Vec<u8> {
-        let mut salt = Vec::with_capacity(8);
-        salt.extend_from_slice(&engine_boots.to_be_bytes());
-        salt.extend_from_slice(&counter.to_be_bytes());
-        salt
+pub fn generate_salt(&self, engine_boots: u32, counter: u64) -> Vec<u8> {
+        match self {
+            PrivAlgorithm::DesCbc => {
+                // DES uses 8-byte salt (RFC 3414)
+                let mut salt = Vec::with_capacity(8);
+                salt.extend_from_slice(&engine_boots.to_be_bytes());
+                salt.extend_from_slice(&counter.to_be_bytes());
+                salt
+            }
+            PrivAlgorithm::Aes128 => {
+                // AES uses 8-byte salt for privParameters (RFC 3826)
+                // But this is only the 64-bit integer part
+                counter.to_be_bytes().to_vec()
+            }
+            _ => vec![]
+        }
     }
 
-/// Calculate the actual IV from salt and privacy key
-    pub fn calculate_iv(&self, salt: &[u8], priv_key: &[u8]) -> Result<Vec<u8>, String> {
-        if salt.len() != 8 {
-            return Err("Salt must be exactly 8 bytes".to_string());
+/// Calculate IV based on algorithm
+    pub fn calculate_iv(&self, salt: &[u8], priv_key: &[u8], engine_boots: u32, engine_time: u32) -> Result<Vec<u8>, String> {
+        match self {
+            PrivAlgorithm::DesCbc => {
+                // DES IV calculation (RFC 3414)
+                if salt.len() != 8 {
+                    return Err("DES salt must be exactly 8 bytes".to_string());
+                }
+                if priv_key.len() < 16 {
+                    return Err("Privacy key must be at least 16 bytes".to_string());
+                }
+                
+                let pre_iv = &priv_key[8..16];
+                let mut iv = vec![0u8; 8];
+                for i in 0..8 {
+                    iv[i] = salt[i] ^ pre_iv[i];
+                }
+                Ok(iv)
+            }
+            PrivAlgorithm::Aes128 => {
+                // AES IV calculation (RFC 3826 Section 3.1.2.1)
+                if salt.len() != 8 {
+                    return Err("AES salt must be exactly 8 bytes".to_string());
+                }
+                
+                // IV = engine_boots (4 bytes) + engine_time (4 bytes) + salt (8 bytes)
+                let mut iv = Vec::with_capacity(16);
+                iv.extend_from_slice(&engine_boots.to_be_bytes());  // First 4 bytes
+                iv.extend_from_slice(&engine_time.to_be_bytes());   // Next 4 bytes  
+                iv.extend_from_slice(salt);                         // Last 8 bytes
+                Ok(iv)
+            }
+            _ => Err("Unsupported privacy algorithm".to_string())
         }
-        if priv_key.len() < 16 {
-            return Err("Privacy key must be at least 16 bytes".to_string());
-        }
-
-        // Pre-IV is the last 8 bytes of the 16-byte privacy key
-        let pre_iv = &priv_key[8..16];
-        
-        // IV = salt XOR pre-IV
-        let mut iv = vec![0u8; 8];
-        for i in 0..8 {
-            iv[i] = salt[i] ^ pre_iv[i];
-        }
-        
-        Ok(iv)
     }
-
 
 
         /// Get the key length for this privacy algorithm
@@ -3755,39 +3780,28 @@ println!("Ciphertext first 16 bytes: {:02x?}", &ciphertext[0..std::cmp::min(16, 
 
                     Ok(ciphertext.to_vec())
                 }
-                PrivAlgorithm::Aes128 => {
-                    use aes::Aes128;
-                    use cbc::Encryptor;
-                    use cipher::{BlockEncryptMut, KeyIvInit};
+PrivAlgorithm::Aes128 => {
+    use aes::Aes128;
+    use cfb_mode::Encryptor;
+    use cipher::{AsyncStreamCipher, KeyIvInit};
 
-                    type Aes128CbcEnc = Encryptor<Aes128>;
+    type Aes128CfbEnc = Encryptor<Aes128>;
 
-                    if key.len() != 16 {
-                        return Err("AES-128 key must be exactly 16 bytes".to_string());
-                    }
-                    if iv.len() != 16 {
-                        return Err("AES IV must be exactly 16 bytes".to_string());
-                    }
+    if key.len() != 16 {
+        return Err("AES-128 key must be exactly 16 bytes".to_string());
+    }
+    if iv.len() != 16 {
+        return Err("AES IV must be exactly 16 bytes".to_string());
+    }
 
-                    let cipher = Aes128CbcEnc::new_from_slices(key, iv)
-                        .map_err(|e| format!("Failed to create AES cipher: {:?}", e))?;
+    let mut cipher = Aes128CfbEnc::new_from_slices(key, iv)
+        .map_err(|e| format!("Failed to create AES CFB cipher: {:?}", e))?;
 
-                    let mut buffer = plaintext.to_vec();
-                    // Reserve space for padding (up to one block)
-                    buffer.reserve(16);
-                    let ciphertext_len = buffer.len();
-                    // Resize to accommodate potential padding
-                    buffer.resize(ciphertext_len + 16, 0);
+    let mut ciphertext = plaintext.to_vec();
+    cipher.encrypt(&mut ciphertext);
 
-                    let ciphertext = cipher
-                        .encrypt_padded_mut::<cipher::block_padding::Pkcs7>(
-                            &mut buffer,
-                            ciphertext_len,
-                        )
-                        .map_err(|e| format!("AES encryption failed: {:?}", e))?;
-
-                    Ok(ciphertext.to_vec())
-                }
+    Ok(ciphertext)
+}
             }
         }
 
@@ -3824,35 +3838,28 @@ println!("Ciphertext first 16 bytes: {:02x?}", &ciphertext[0..std::cmp::min(16, 
                     plaintext.truncate(decrypted_len);
                     Ok(plaintext)
                 }
-                PrivAlgorithm::Aes128 => {
-                    use aes::Aes128;
-                    use cbc::Decryptor;
-                    use cipher::{BlockDecryptMut, KeyIvInit};
+PrivAlgorithm::Aes128 => {
+    use aes::Aes128;
+    use cfb_mode::Decryptor;
+    use cipher::{AsyncStreamCipher, KeyIvInit};
 
-                    type Aes128CbcDec = Decryptor<Aes128>;
+    type Aes128CfbDec = Decryptor<Aes128>;
 
-                    if key.len() != 16 {
-                        return Err("AES-128 key must be exactly 16 bytes".to_string());
-                    }
-                    if iv.len() != 16 {
-                        return Err("AES IV must be exactly 16 bytes".to_string());
-                    }
-                    if ciphertext.len() % 16 != 0 {
-                        return Err("AES ciphertext length must be multiple of 16".to_string());
-                    }
+    if key.len() != 16 {
+        return Err("AES-128 key must be exactly 16 bytes".to_string());
+    }
+    if iv.len() != 16 {
+        return Err("AES IV must be exactly 16 bytes".to_string());
+    }
 
-                    let cipher = Aes128CbcDec::new_from_slices(key, iv)
-                        .map_err(|e| format!("Failed to create AES cipher: {:?}", e))?;
+    let mut cipher = Aes128CfbDec::new_from_slices(key, iv)
+        .map_err(|e| format!("Failed to create AES CFB cipher: {:?}", e))?;
 
-                    let mut plaintext = ciphertext.to_vec();
-                    let decrypted_len = cipher
-                        .decrypt_padded_mut::<cipher::block_padding::Pkcs7>(&mut plaintext)
-                        .map_err(|e| format!("AES decryption failed: {:?}", e))?
-                        .len();
+    let mut plaintext = ciphertext.to_vec();
+    cipher.decrypt(&mut plaintext);
 
-                    plaintext.truncate(decrypted_len);
-                    Ok(plaintext)
-                }
+    Ok(plaintext)
+}
             }
         }
         /// Generate a random IV for encryption
@@ -3879,7 +3886,7 @@ println!("=== SALT/IV DEBUG (generate_iv - should not be hit) ===");
         pub engine_id: Vec<u8>,
         pub engine_boots: u32,
         pub engine_time: u32,
-        pub priv_counter: u32,
+        pub priv_counter: u64,
     }
 
     impl UsmConfig {
@@ -3898,7 +3905,7 @@ println!("=== SALT/IV DEBUG (generate_iv - should not be hit) ===");
         }
 
 /// Increment and return the privacy counter
-    pub fn next_priv_counter(&mut self) -> u32 {
+    pub fn next_priv_counter(&mut self) -> u64 {
         let current = self.priv_counter;
         self.priv_counter = self.priv_counter.wrapping_add(1);
         current
@@ -3937,17 +3944,34 @@ pub fn priv_key(&self) -> Result<Vec<u8>, String> {
         return Ok(vec![]);
     }
     
-    // Try deriving directly from password instead of auth key
+    // ADD THIS DEBUG TO SEE WHICH PATH IS TAKEN:
+    println!("=== PRIV KEY METHOD DEBUG ===");
+    
+    // Derive directly from password for both DES and AES
     if let Some(password) = &self.priv_password {
+        println!("Using password derivation path");
         let priv_key = self.auth_algorithm.derive_key(password, &self.engine_id)?;
-        return Ok(priv_key[..16].to_vec()); // Take first 16 bytes for DES
+        
+        match self.priv_algorithm {
+            PrivAlgorithm::DesCbc => {
+                println!("DES: taking first 16 bytes");
+                return Ok(priv_key[..16].to_vec());
+            }
+            PrivAlgorithm::Aes128 => {
+                println!("AES: taking first 16 bytes");
+                return Ok(priv_key[..16].to_vec());
+            }
+            _ => {}
+        }
+    } else {
+        println!("No password available, using fallback");
     }
     
     // Fallback to current method
+    println!("Using fallback method");
     let auth_key = self.auth_key()?;
     self.priv_algorithm.derive_key(&auth_key)
 }
-
         /// Check if authentication is enabled
         pub fn has_auth(&self) -> bool {
             self.auth_algorithm != AuthAlgorithm::None && self.auth_password.is_some()
@@ -4160,14 +4184,19 @@ fn encode_with_privacy<E: Encoder>(
     println!("Scoped PDU last 10 bytes: {:02x?}", &scoped_pdu_encoded[scoped_pdu_encoded.len().saturating_sub(10)..]);
 
     // Step 2: Generate proper salt and calculate IV
-    let counter = usm_context.config.next_priv_counter();
-    let salt = usm_context.config.priv_algorithm.generate_salt(
-        usm_context.config.engine_boots,
-        counter
-    );
-    
-    let iv = usm_context.config.priv_algorithm.calculate_iv(&salt, &usm_context.priv_key)?;
-    
+   let counter = usm_context.config.next_priv_counter();
+let salt = usm_context.config.priv_algorithm.generate_salt(
+    usm_context.config.engine_boots,
+    counter
+);
+
+let iv = usm_context.config.priv_algorithm.calculate_iv(
+    &salt, 
+    &usm_context.priv_key,
+    usm_context.config.engine_boots,
+    usm_context.config.engine_time
+)?;
+ 
     println!("=== SALT/IV DEBUG ===");
     println!("Generated salt: {:02x?}", salt);
     println!("Calculated IV: {:02x?}", iv);
@@ -4182,6 +4211,18 @@ fn encode_with_privacy<E: Encoder>(
         .map_err(|e| format!("Encryption failed: {}", e))?;
 
     println!("=== ENCRYPTION DEBUG ===");
+
+match usm_context.config.priv_algorithm {
+    usm_crypto::PrivAlgorithm::DesCbc => {
+        println!("DES Privacy key (first 8 bytes): {:02x?}", &usm_context.priv_key[0..8]);
+        println!("DES Pre-IV (last 8 bytes): {:02x?}", &usm_context.priv_key[8..16]);
+    }
+    usm_crypto::PrivAlgorithm::Aes128 => {
+        println!("AES key (full 16 bytes): {:02x?}", &usm_context.priv_key);
+    }
+    _ => {}
+}
+
     println!("Privacy key (first 8 bytes for DES): {:02x?}", &usm_context.priv_key[0..8]);
     println!("Pre-IV (last 8 bytes of priv key): {:02x?}", &usm_context.priv_key[8..16]);
 println!("Full 16-byte privacy key: {:02x?}", &usm_context.priv_key);  // ADD THIS
