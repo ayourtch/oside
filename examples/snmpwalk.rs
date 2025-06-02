@@ -1053,10 +1053,10 @@ impl SnmpWalker {
         if usm_config.has_priv() {
             // Generate random IV for privacy
             let iv = usm_config.priv_algorithm.generate_iv();
-println!("=== SALT/IV DEBUG (USM setup) ===");
-    println!("Generated IV for USM: {:02x?}", iv);
-    println!("Engine boots: {}", usm_config.engine_boots);
-    println!("Engine time: {}", usm_config.engine_time);
+            println!("=== SALT/IV DEBUG (USM setup) ===");
+            println!("Generated IV for USM: {:02x?}", iv);
+            println!("Engine boots: {}", usm_config.engine_boots);
+            println!("Engine time: {}", usm_config.engine_time);
 
             usm_params.set_priv_params(&iv);
         }
@@ -1091,7 +1091,8 @@ println!("=== SALT/IV DEBUG (USM setup) ===");
 
         // Create USM context and encode
         let mut usm_context = UsmEncodingContext::new(usm_config.clone())?;
-        let encoded = stack.encode_with_usm::<oside::encdec::asn1::Asn1Encoder>(&mut usm_context)?;
+        let encoded =
+            stack.encode_with_usm::<oside::encdec::asn1::Asn1Encoder>(&mut usm_context)?;
 
         Ok(encoded)
     }

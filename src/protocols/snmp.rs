@@ -2447,7 +2447,7 @@ impl Snmp {
             .push(
                 SnmpV3 {
                     _seq_tag_len_v3: Value::Auto,
-                    msg_id: Value::Set(rand::random::<u32>() &0x7fffffff),
+                    msg_id: Value::Set(rand::random::<u32>() & 0x7fffffff),
                     msg_max_size: Value::Set(65507),
                     msg_flags: SnmpV3::flags(1), // Value::Set(1),          // Auth, no priv
                     msg_security_model: Value::Auto,
@@ -3624,59 +3624,63 @@ pub mod usm_crypto {
     }
 
     impl PrivAlgorithm {
-
-pub fn generate_salt(&self, engine_boots: u32, counter: u64) -> Vec<u8> {
-    match self {
-        PrivAlgorithm::DesCbc => {
-            // DES uses 8-byte salt (RFC 3414)
-            let mut salt = Vec::with_capacity(8);
-            salt.extend_from_slice(&engine_boots.to_be_bytes());        // 4 bytes
-            salt.extend_from_slice(&(counter as u32).to_be_bytes());    // 4 bytes = 8 total
-            salt
-        }
-        PrivAlgorithm::Aes128 => {
-            // AES uses 8-byte salt for privParameters (RFC 3826)
-            counter.to_be_bytes().to_vec()  // 8 bytes
-        }
-        _ => vec![]
-    }
-}
-/// Calculate IV based on algorithm
-    pub fn calculate_iv(&self, salt: &[u8], priv_key: &[u8], engine_boots: u32, engine_time: u32) -> Result<Vec<u8>, String> {
-        match self {
-            PrivAlgorithm::DesCbc => {
-                // DES IV calculation (RFC 3414)
-                if salt.len() != 8 {
-                    return Err("DES salt must be exactly 8 bytes".to_string());
+        pub fn generate_salt(&self, engine_boots: u32, counter: u64) -> Vec<u8> {
+            match self {
+                PrivAlgorithm::DesCbc => {
+                    // DES uses 8-byte salt (RFC 3414)
+                    let mut salt = Vec::with_capacity(8);
+                    salt.extend_from_slice(&engine_boots.to_be_bytes()); // 4 bytes
+                    salt.extend_from_slice(&(counter as u32).to_be_bytes()); // 4 bytes = 8 total
+                    salt
                 }
-                if priv_key.len() < 16 {
-                    return Err("Privacy key must be at least 16 bytes".to_string());
+                PrivAlgorithm::Aes128 => {
+                    // AES uses 8-byte salt for privParameters (RFC 3826)
+                    counter.to_be_bytes().to_vec() // 8 bytes
                 }
-                
-                let pre_iv = &priv_key[8..16];
-                let mut iv = vec![0u8; 8];
-                for i in 0..8 {
-                    iv[i] = salt[i] ^ pre_iv[i];
-                }
-                Ok(iv)
+                _ => vec![],
             }
-            PrivAlgorithm::Aes128 => {
-                // AES IV calculation (RFC 3826 Section 3.1.2.1)
-                if salt.len() != 8 {
-                    return Err("AES salt must be exactly 8 bytes".to_string());
-                }
-                
-                // IV = engine_boots (4 bytes) + engine_time (4 bytes) + salt (8 bytes)
-                let mut iv = Vec::with_capacity(16);
-                iv.extend_from_slice(&engine_boots.to_be_bytes());  // First 4 bytes
-                iv.extend_from_slice(&engine_time.to_be_bytes());   // Next 4 bytes  
-                iv.extend_from_slice(salt);                         // Last 8 bytes
-                Ok(iv)
-            }
-            _ => Err("Unsupported privacy algorithm".to_string())
         }
-    }
+        /// Calculate IV based on algorithm
+        pub fn calculate_iv(
+            &self,
+            salt: &[u8],
+            priv_key: &[u8],
+            engine_boots: u32,
+            engine_time: u32,
+        ) -> Result<Vec<u8>, String> {
+            match self {
+                PrivAlgorithm::DesCbc => {
+                    // DES IV calculation (RFC 3414)
+                    if salt.len() != 8 {
+                        return Err("DES salt must be exactly 8 bytes".to_string());
+                    }
+                    if priv_key.len() < 16 {
+                        return Err("Privacy key must be at least 16 bytes".to_string());
+                    }
 
+                    let pre_iv = &priv_key[8..16];
+                    let mut iv = vec![0u8; 8];
+                    for i in 0..8 {
+                        iv[i] = salt[i] ^ pre_iv[i];
+                    }
+                    Ok(iv)
+                }
+                PrivAlgorithm::Aes128 => {
+                    // AES IV calculation (RFC 3826 Section 3.1.2.1)
+                    if salt.len() != 8 {
+                        return Err("AES salt must be exactly 8 bytes".to_string());
+                    }
+
+                    // IV = engine_boots (4 bytes) + engine_time (4 bytes) + salt (8 bytes)
+                    let mut iv = Vec::with_capacity(16);
+                    iv.extend_from_slice(&engine_boots.to_be_bytes()); // First 4 bytes
+                    iv.extend_from_slice(&engine_time.to_be_bytes()); // Next 4 bytes
+                    iv.extend_from_slice(salt); // Last 8 bytes
+                    Ok(iv)
+                }
+                _ => Err("Unsupported privacy algorithm".to_string()),
+            }
+        }
 
         /// Get the key length for this privacy algorithm
         pub fn key_length(&self) -> usize {
@@ -3700,23 +3704,23 @@ pub fn generate_salt(&self, engine_boots: u32, counter: u64) -> Vec<u8> {
         pub fn derive_key(&self, auth_key: &[u8]) -> Result<Vec<u8>, String> {
             match self {
                 PrivAlgorithm::None => Ok(vec![]),
-PrivAlgorithm::DesCbc => {
-            // Add this debug block HERE:
-            println!("=== PRIV KEY DERIVATION DEBUG ===");
-            println!("Input auth_key length: {}", auth_key.len());
-            println!("Input auth_key: {:02x?}", auth_key);
-            
-            if auth_key.len() < 16 {
-                return Err("Authentication key too short for DES privacy".to_string());
-            }
-            // For DES, use the last 16 bytes of the auth key
-            let result = auth_key[auth_key.len() - 16..].to_vec();
-            
-            println!("Derived priv_key: {:02x?}", result);
-            println!("=== END PRIV KEY DERIVATION DEBUG ===");
-            
-            Ok(result)
-        }
+                PrivAlgorithm::DesCbc => {
+                    // Add this debug block HERE:
+                    println!("=== PRIV KEY DERIVATION DEBUG ===");
+                    println!("Input auth_key length: {}", auth_key.len());
+                    println!("Input auth_key: {:02x?}", auth_key);
+
+                    if auth_key.len() < 16 {
+                        return Err("Authentication key too short for DES privacy".to_string());
+                    }
+                    // For DES, use the last 16 bytes of the auth key
+                    let result = auth_key[auth_key.len() - 16..].to_vec();
+
+                    println!("Derived priv_key: {:02x?}", result);
+                    println!("=== END PRIV KEY DERIVATION DEBUG ===");
+
+                    Ok(result)
+                }
                 PrivAlgorithm::Aes128 => {
                     if auth_key.len() < 16 {
                         return Err("Authentication key too short for AES privacy".to_string());
@@ -3756,14 +3760,15 @@ PrivAlgorithm::DesCbc => {
                     // Resize to accommodate potential padding
                     buffer.resize(ciphertext_len + 8, 0);
 
-
-// Before encryption (in the encrypt method)
-println!("=== ENCRYPTION DEBUG ===");
-println!("Privacy key (first 8 bytes for DES): {:02x?}", &key[0..8]);
-println!("IV: {:02x?}", iv);
-println!("Plaintext length: {}", plaintext.len());
-println!("Plaintext first 16 bytes: {:02x?}", &plaintext[0..std::cmp::min(16, plaintext.len())]);
-
+                    // Before encryption (in the encrypt method)
+                    println!("=== ENCRYPTION DEBUG ===");
+                    println!("Privacy key (first 8 bytes for DES): {:02x?}", &key[0..8]);
+                    println!("IV: {:02x?}", iv);
+                    println!("Plaintext length: {}", plaintext.len());
+                    println!(
+                        "Plaintext first 16 bytes: {:02x?}",
+                        &plaintext[0..std::cmp::min(16, plaintext.len())]
+                    );
 
                     let ciphertext = cipher
                         .encrypt_padded_mut::<cipher::block_padding::Pkcs7>(
@@ -3772,34 +3777,37 @@ println!("Plaintext first 16 bytes: {:02x?}", &plaintext[0..std::cmp::min(16, pl
                         )
                         .map_err(|e| format!("DES encryption failed: {:?}", e))?;
 
-// After encryption
-println!("Ciphertext length: {}", ciphertext.len());
-println!("Ciphertext first 16 bytes: {:02x?}", &ciphertext[0..std::cmp::min(16, ciphertext.len())]);
+                    // After encryption
+                    println!("Ciphertext length: {}", ciphertext.len());
+                    println!(
+                        "Ciphertext first 16 bytes: {:02x?}",
+                        &ciphertext[0..std::cmp::min(16, ciphertext.len())]
+                    );
 
                     Ok(ciphertext.to_vec())
                 }
-PrivAlgorithm::Aes128 => {
-    use aes::Aes128;
-    use cfb_mode::Encryptor;
-    use cipher::{AsyncStreamCipher, KeyIvInit};
+                PrivAlgorithm::Aes128 => {
+                    use aes::Aes128;
+                    use cfb_mode::Encryptor;
+                    use cipher::{AsyncStreamCipher, KeyIvInit};
 
-    type Aes128CfbEnc = Encryptor<Aes128>;
+                    type Aes128CfbEnc = Encryptor<Aes128>;
 
-    if key.len() != 16 {
-        return Err("AES-128 key must be exactly 16 bytes".to_string());
-    }
-    if iv.len() != 16 {
-        return Err("AES IV must be exactly 16 bytes".to_string());
-    }
+                    if key.len() != 16 {
+                        return Err("AES-128 key must be exactly 16 bytes".to_string());
+                    }
+                    if iv.len() != 16 {
+                        return Err("AES IV must be exactly 16 bytes".to_string());
+                    }
 
-    let mut cipher = Aes128CfbEnc::new_from_slices(key, iv)
-        .map_err(|e| format!("Failed to create AES CFB cipher: {:?}", e))?;
+                    let mut cipher = Aes128CfbEnc::new_from_slices(key, iv)
+                        .map_err(|e| format!("Failed to create AES CFB cipher: {:?}", e))?;
 
-    let mut ciphertext = plaintext.to_vec();
-    cipher.encrypt(&mut ciphertext);
+                    let mut ciphertext = plaintext.to_vec();
+                    cipher.encrypt(&mut ciphertext);
 
-    Ok(ciphertext)
-}
+                    Ok(ciphertext)
+                }
             }
         }
 
@@ -3836,28 +3844,28 @@ PrivAlgorithm::Aes128 => {
                     plaintext.truncate(decrypted_len);
                     Ok(plaintext)
                 }
-PrivAlgorithm::Aes128 => {
-    use aes::Aes128;
-    use cfb_mode::Decryptor;
-    use cipher::{AsyncStreamCipher, KeyIvInit};
+                PrivAlgorithm::Aes128 => {
+                    use aes::Aes128;
+                    use cfb_mode::Decryptor;
+                    use cipher::{AsyncStreamCipher, KeyIvInit};
 
-    type Aes128CfbDec = Decryptor<Aes128>;
+                    type Aes128CfbDec = Decryptor<Aes128>;
 
-    if key.len() != 16 {
-        return Err("AES-128 key must be exactly 16 bytes".to_string());
-    }
-    if iv.len() != 16 {
-        return Err("AES IV must be exactly 16 bytes".to_string());
-    }
+                    if key.len() != 16 {
+                        return Err("AES-128 key must be exactly 16 bytes".to_string());
+                    }
+                    if iv.len() != 16 {
+                        return Err("AES IV must be exactly 16 bytes".to_string());
+                    }
 
-    let mut cipher = Aes128CfbDec::new_from_slices(key, iv)
-        .map_err(|e| format!("Failed to create AES CFB cipher: {:?}", e))?;
+                    let mut cipher = Aes128CfbDec::new_from_slices(key, iv)
+                        .map_err(|e| format!("Failed to create AES CFB cipher: {:?}", e))?;
 
-    let mut plaintext = ciphertext.to_vec();
-    cipher.decrypt(&mut plaintext);
+                    let mut plaintext = ciphertext.to_vec();
+                    cipher.decrypt(&mut plaintext);
 
-    Ok(plaintext)
-}
+                    Ok(plaintext)
+                }
             }
         }
         /// Generate a random IV for encryption
@@ -3866,8 +3874,8 @@ PrivAlgorithm::Aes128 => {
             let mut rng = rand::thread_rng();
             let mut iv = vec![0u8; self.iv_length()];
             rng.fill(&mut iv[..]);
-println!("=== SALT/IV DEBUG (generate_iv - should not be hit) ===");
-    println!("Generated IV: {:02x?}", iv);
+            println!("=== SALT/IV DEBUG (generate_iv - should not be hit) ===");
+            println!("Generated IV: {:02x?}", iv);
 
             iv
         }
@@ -3902,12 +3910,12 @@ println!("=== SALT/IV DEBUG (generate_iv - should not be hit) ===");
             }
         }
 
-/// Increment and return the privacy counter
-    pub fn next_priv_counter(&mut self) -> u64 {
-        let current = self.priv_counter;
-        self.priv_counter = self.priv_counter.wrapping_add(1);
-        current
-    }
+        /// Increment and return the privacy counter
+        pub fn next_priv_counter(&mut self) -> u64 {
+            let current = self.priv_counter;
+            self.priv_counter = self.priv_counter.wrapping_add(1);
+            current
+        }
 
         pub fn with_auth(mut self, algorithm: AuthAlgorithm, password: &str) -> Self {
             self.auth_algorithm = algorithm;
@@ -3937,39 +3945,39 @@ println!("=== SALT/IV DEBUG (generate_iv - should not be hit) ===");
         }
 
         /// Derive privacy key
-pub fn priv_key(&self) -> Result<Vec<u8>, String> {
-    if self.priv_algorithm == PrivAlgorithm::None {
-        return Ok(vec![]);
-    }
-    
-    // ADD THIS DEBUG TO SEE WHICH PATH IS TAKEN:
-    println!("=== PRIV KEY METHOD DEBUG ===");
-    
-    // Derive directly from password for both DES and AES
-    if let Some(password) = &self.priv_password {
-        println!("Using password derivation path");
-        let priv_key = self.auth_algorithm.derive_key(password, &self.engine_id)?;
-        
-        match self.priv_algorithm {
-            PrivAlgorithm::DesCbc => {
-                println!("DES: taking first 16 bytes");
-                return Ok(priv_key[..16].to_vec());
+        pub fn priv_key(&self) -> Result<Vec<u8>, String> {
+            if self.priv_algorithm == PrivAlgorithm::None {
+                return Ok(vec![]);
             }
-            PrivAlgorithm::Aes128 => {
-                println!("AES: taking first 16 bytes");
-                return Ok(priv_key[..16].to_vec());
+
+            // ADD THIS DEBUG TO SEE WHICH PATH IS TAKEN:
+            println!("=== PRIV KEY METHOD DEBUG ===");
+
+            // Derive directly from password for both DES and AES
+            if let Some(password) = &self.priv_password {
+                println!("Using password derivation path");
+                let priv_key = self.auth_algorithm.derive_key(password, &self.engine_id)?;
+
+                match self.priv_algorithm {
+                    PrivAlgorithm::DesCbc => {
+                        println!("DES: taking first 16 bytes");
+                        return Ok(priv_key[..16].to_vec());
+                    }
+                    PrivAlgorithm::Aes128 => {
+                        println!("AES: taking first 16 bytes");
+                        return Ok(priv_key[..16].to_vec());
+                    }
+                    _ => {}
+                }
+            } else {
+                println!("No password available, using fallback");
             }
-            _ => {}
+
+            // Fallback to current method
+            println!("Using fallback method");
+            let auth_key = self.auth_key()?;
+            self.priv_algorithm.derive_key(&auth_key)
         }
-    } else {
-        println!("No password available, using fallback");
-    }
-    
-    // Fallback to current method
-    println!("Using fallback method");
-    let auth_key = self.auth_key()?;
-    self.priv_algorithm.derive_key(&auth_key)
-}
         /// Check if authentication is enabled
         pub fn has_auth(&self) -> bool {
             self.auth_algorithm != AuthAlgorithm::None && self.auth_password.is_some()
@@ -4163,98 +4171,118 @@ impl LayerStackUsmExt for LayerStack {
         Ok(encoded_message)
     }
 
-fn encode_with_privacy<E: Encoder>(
-    &self,
-    usm_context: &mut UsmEncodingContext,  // Make this mutable
-) -> Result<Vec<u8>, String> {
-    println!("Encoding with privacy (encryption)");
+    fn encode_with_privacy<E: Encoder>(
+        &self,
+        usm_context: &mut UsmEncodingContext, // Make this mutable
+    ) -> Result<Vec<u8>, String> {
+        println!("Encoding with privacy (encryption)");
 
-    // Step 1: Extract and encode the scoped PDU separately
-    let scoped_pdu = self
-        .get_layer(SnmpV3ScopedPdu::default())
-        .ok_or("No scoped PDU found in layer stack")?;
+        // Step 1: Extract and encode the scoped PDU separately
+        let scoped_pdu = self
+            .get_layer(SnmpV3ScopedPdu::default())
+            .ok_or("No scoped PDU found in layer stack")?;
 
-    // Encode the scoped PDU
-    let scoped_pdu_encoded = scoped_pdu.encode::<E>();
-    println!("=== PRIVACY DEBUG ===");
-    println!("Scoped PDU encoded length: {}", scoped_pdu_encoded.len());
-    println!("Scoped PDU first 20 bytes: {:02x?}", &scoped_pdu_encoded[0..std::cmp::min(20, scoped_pdu_encoded.len())]);
-    println!("Scoped PDU last 10 bytes: {:02x?}", &scoped_pdu_encoded[scoped_pdu_encoded.len().saturating_sub(10)..]);
+        // Encode the scoped PDU
+        let scoped_pdu_encoded = scoped_pdu.encode::<E>();
+        println!("=== PRIVACY DEBUG ===");
+        println!("Scoped PDU encoded length: {}", scoped_pdu_encoded.len());
+        println!(
+            "Scoped PDU first 20 bytes: {:02x?}",
+            &scoped_pdu_encoded[0..std::cmp::min(20, scoped_pdu_encoded.len())]
+        );
+        println!(
+            "Scoped PDU last 10 bytes: {:02x?}",
+            &scoped_pdu_encoded[scoped_pdu_encoded.len().saturating_sub(10)..]
+        );
 
-    // Step 2: Generate proper salt and calculate IV
-   let counter = usm_context.config.next_priv_counter();
-let salt = usm_context.config.priv_algorithm.generate_salt(
-    usm_context.config.engine_boots,
-    counter
-);
-
-let iv = usm_context.config.priv_algorithm.calculate_iv(
-    &salt, 
-    &usm_context.priv_key,
-    usm_context.config.engine_boots,
-    usm_context.config.engine_time
-)?;
- 
-    println!("=== SALT/IV DEBUG ===");
-    println!("Generated salt: {:02x?}", salt);
-    println!("Calculated IV: {:02x?}", iv);
-    println!("Engine boots: {}", usm_context.config.engine_boots);
-    println!("Privacy counter: {}", counter);
-
-    // Step 3: Encrypt the scoped PDU
-    let encrypted_data = usm_context
-        .config
-        .priv_algorithm
-        .encrypt(&usm_context.priv_key, &iv, &scoped_pdu_encoded)
-        .map_err(|e| format!("Encryption failed: {}", e))?;
-
-    println!("=== ENCRYPTION DEBUG ===");
-
-match usm_context.config.priv_algorithm {
-    usm_crypto::PrivAlgorithm::DesCbc => {
-        println!("DES Privacy key (first 8 bytes): {:02x?}", &usm_context.priv_key[0..8]);
-        println!("DES Pre-IV (last 8 bytes): {:02x?}", &usm_context.priv_key[8..16]);
-    }
-    usm_crypto::PrivAlgorithm::Aes128 => {
-        println!("AES key (full 16 bytes): {:02x?}", &usm_context.priv_key);
-    }
-    _ => {}
-}
-
-    println!("Privacy key (first 8 bytes for DES): {:02x?}", &usm_context.priv_key[0..8]);
-    println!("Pre-IV (last 8 bytes of priv key): {:02x?}", &usm_context.priv_key[8..16]);
-println!("Full 16-byte privacy key: {:02x?}", &usm_context.priv_key);  // ADD THIS
-println!("Full auth key: {:02x?}", &usm_context.auth_key);              // ADD THIS
-
-    println!("Salt: {:02x?}", salt);
-    println!("Calculated IV: {:02x?}", iv);
-    println!("Plaintext length: {}", scoped_pdu_encoded.len());
-    println!("Ciphertext length: {}", encrypted_data.len());
-
-    // Step 4: Create a new layer stack with encrypted data and salt in privacy params
-    let encrypted_stack = self.create_encrypted_stack(&encrypted_data, &salt, usm_context)?;
-
-    // Step 5: Encode and authenticate
-    let mut encoded_message = encrypted_stack.lencode();
-
-    if usm_context.config.has_auth() {
-        println!("Calculating HMAC for encrypted message");
-        let auth_params = usm_context
+        // Step 2: Generate proper salt and calculate IV
+        let counter = usm_context.config.next_priv_counter();
+        let salt = usm_context
             .config
-            .auth_algorithm
-            .generate_auth_params(&usm_context.auth_key, &encoded_message)
-            .map_err(|e| format!("HMAC calculation failed: {}", e))?;
+            .priv_algorithm
+            .generate_salt(usm_context.config.engine_boots, counter);
 
-        let zero_auth_params = vec![0u8; 12];
-        if let Some(pos) = find_subsequence(&encoded_message, &zero_auth_params) {
-            encoded_message[pos..pos + 12].copy_from_slice(&auth_params);
-        } else {
-            return Err("Could not find auth params placeholder in encrypted message".to_string());
+        let iv = usm_context.config.priv_algorithm.calculate_iv(
+            &salt,
+            &usm_context.priv_key,
+            usm_context.config.engine_boots,
+            usm_context.config.engine_time,
+        )?;
+
+        println!("=== SALT/IV DEBUG ===");
+        println!("Generated salt: {:02x?}", salt);
+        println!("Calculated IV: {:02x?}", iv);
+        println!("Engine boots: {}", usm_context.config.engine_boots);
+        println!("Privacy counter: {}", counter);
+
+        // Step 3: Encrypt the scoped PDU
+        let encrypted_data = usm_context
+            .config
+            .priv_algorithm
+            .encrypt(&usm_context.priv_key, &iv, &scoped_pdu_encoded)
+            .map_err(|e| format!("Encryption failed: {}", e))?;
+
+        println!("=== ENCRYPTION DEBUG ===");
+
+        match usm_context.config.priv_algorithm {
+            usm_crypto::PrivAlgorithm::DesCbc => {
+                println!(
+                    "DES Privacy key (first 8 bytes): {:02x?}",
+                    &usm_context.priv_key[0..8]
+                );
+                println!(
+                    "DES Pre-IV (last 8 bytes): {:02x?}",
+                    &usm_context.priv_key[8..16]
+                );
+            }
+            usm_crypto::PrivAlgorithm::Aes128 => {
+                println!("AES key (full 16 bytes): {:02x?}", &usm_context.priv_key);
+            }
+            _ => {}
         }
-    }
 
-    Ok(encoded_message)
-}
+        println!(
+            "Privacy key (first 8 bytes for DES): {:02x?}",
+            &usm_context.priv_key[0..8]
+        );
+        println!(
+            "Pre-IV (last 8 bytes of priv key): {:02x?}",
+            &usm_context.priv_key[8..16]
+        );
+        println!("Full 16-byte privacy key: {:02x?}", &usm_context.priv_key); // ADD THIS
+        println!("Full auth key: {:02x?}", &usm_context.auth_key); // ADD THIS
+
+        println!("Salt: {:02x?}", salt);
+        println!("Calculated IV: {:02x?}", iv);
+        println!("Plaintext length: {}", scoped_pdu_encoded.len());
+        println!("Ciphertext length: {}", encrypted_data.len());
+
+        // Step 4: Create a new layer stack with encrypted data and salt in privacy params
+        let encrypted_stack = self.create_encrypted_stack(&encrypted_data, &salt, usm_context)?;
+
+        // Step 5: Encode and authenticate
+        let mut encoded_message = encrypted_stack.lencode();
+
+        if usm_context.config.has_auth() {
+            println!("Calculating HMAC for encrypted message");
+            let auth_params = usm_context
+                .config
+                .auth_algorithm
+                .generate_auth_params(&usm_context.auth_key, &encoded_message)
+                .map_err(|e| format!("HMAC calculation failed: {}", e))?;
+
+            let zero_auth_params = vec![0u8; 12];
+            if let Some(pos) = find_subsequence(&encoded_message, &zero_auth_params) {
+                encoded_message[pos..pos + 12].copy_from_slice(&auth_params);
+            } else {
+                return Err(
+                    "Could not find auth params placeholder in encrypted message".to_string(),
+                );
+            }
+        }
+
+        Ok(encoded_message)
+    }
 
     fn create_encrypted_stack(
         &self,
@@ -4295,7 +4323,7 @@ println!("Full auth key: {:02x?}", &usm_context.auth_key);              // ADD T
 
         let snmpv3 = SnmpV3 {
             _seq_tag_len_v3: Value::Auto,
-            msg_id: Value::Set(rand::random::<u32>() &0x7fffffff),
+            msg_id: Value::Set(rand::random::<u32>() & 0x7fffffff),
             msg_max_size: Value::Set(65507),
             msg_flags: SnmpV3::flags(flags),
             msg_security_model: Value::Set(3), // USM
