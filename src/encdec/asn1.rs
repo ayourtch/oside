@@ -4,24 +4,23 @@ use crate::{Decoder, Encoder};
 pub struct Asn1Decoder;
 
 impl Asn1Decoder {
-
-/// Decode an INTEGER and return the value and bytes consumed
+    /// Decode an INTEGER and return the value and bytes consumed
     pub fn decode_integer(buf: &[u8]) -> Option<(i64, usize)> {
         let ((tag, len), tag_len_consumed) = Self::parse_tag_and_len(buf, 0)?;
         if tag != asn1::Tag::Integer {
             return None;
         }
-        
+
         let value_start = tag_len_consumed;
         let value_end = value_start + len;
-        
+
         if value_end > buf.len() {
             return None;
         }
-        
+
         let value_bytes = &buf[value_start..value_end];
         let (value, _) = Self::parse_just_integer_unsigned(value_bytes, len).ok()?;
-        
+
         Some((value as i64, value_end))
     }
 
@@ -831,6 +830,12 @@ impl Encoder for Asn1Encoder {
     fn encode_u32(v1: u32) -> Vec<u8> {
         let mut result = vec![0x02]; // Integer tag
         let value_bytes = Self::encode_integer_bytes(v1 as u64, true);
+        eprintln!(
+            "U32 0x{:08x?} length: {}, bytes: {:02x?}",
+            &v1,
+            value_bytes.len(),
+            &value_bytes
+        );
         result.extend(Self::encode_length(value_bytes.len()));
         result.extend(value_bytes);
         result

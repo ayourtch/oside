@@ -797,7 +797,6 @@ impl From<Value<ByteArray>> for ByteArray {
     }
 }
 
-
 impl FromStr for ByteArray {
     type Err = ValueParseError;
 
@@ -1142,22 +1141,22 @@ impl SnmpV3SecurityParameters {
     /// Helper function to decode USM security parameters from the inner SEQUENCE
     fn decode_usm_parameters(buf: &[u8]) -> Option<(UsmSecurityParameters, usize)> {
         let mut cursor = 0;
-        
+
         // Parse the outer SEQUENCE tag and length
         let ((tag, seq_len), tag_len_consumed) = Asn1Decoder::parse_tag_and_len(buf, cursor)?;
         if tag != asn1::Tag::Sequence {
             return None;
         }
         cursor += tag_len_consumed;
-        
+
         let sequence_start = cursor;
         let sequence_end = cursor + seq_len;
-        
+
         // Parse each field of the USM parameters in order:
         // 1. msgAuthoritativeEngineID (OCTET STRING)
         let (engine_id_bytes, consumed) = Asn1Decoder::decode_octetstring(&buf[cursor..])?;
         cursor += consumed;
-        
+
         // 2. msgAuthoritativeEngineBoots (INTEGER)
         let (engine_boots, consumed) = Asn1Decoder::decode_integer(&buf[cursor..])?;
         cursor += consumed;
@@ -1166,7 +1165,7 @@ impl SnmpV3SecurityParameters {
         } else {
             return None; // Invalid engine boots value
         };
-        
+
         // 3. msgAuthoritativeEngineTime (INTEGER)
         let (engine_time, consumed) = Asn1Decoder::decode_integer(&buf[cursor..])?;
         cursor += consumed;
@@ -1175,28 +1174,28 @@ impl SnmpV3SecurityParameters {
         } else {
             return None; // Invalid engine time value
         };
-        
+
         // 4. msgUserName (OCTET STRING)
         let (user_name_bytes, consumed) = Asn1Decoder::decode_octetstring(&buf[cursor..])?;
         cursor += consumed;
-        
+
         // 5. msgAuthenticationParameters (OCTET STRING)
         let (auth_params_bytes, consumed) = Asn1Decoder::decode_octetstring(&buf[cursor..])?;
         cursor += consumed;
-        
+
         // 6. msgPrivacyParameters (OCTET STRING)
         let (priv_params_bytes, consumed) = Asn1Decoder::decode_octetstring(&buf[cursor..])?;
         cursor += consumed;
-        
+
         // Verify we consumed exactly the sequence length
         if cursor - sequence_start != seq_len {
             return None; // Sequence length mismatch
         }
-        
+
         // Create the USM security parameters
         let usm_params = UsmSecurityParameters {
             _octet_string_tag_len: Value::Auto, // Will be calculated during encoding
-            _seq_tag_len: Value::Auto,         // Will be calculated during encoding
+            _seq_tag_len: Value::Auto,          // Will be calculated during encoding
             msg_authoritative_engine_id: Value::Set(ByteArray::from(engine_id_bytes)),
             msg_authoritative_engine_boots: Value::Set(engine_boots),
             msg_authoritative_engine_time: Value::Set(engine_time),
@@ -1204,25 +1203,26 @@ impl SnmpV3SecurityParameters {
             msg_authentication_parameters: Value::Set(ByteArray::from(auth_params_bytes)),
             msg_privacy_parameters: Value::Set(ByteArray::from(priv_params_bytes)),
         };
-        
+
         Some((usm_params, tag_len_consumed + seq_len))
     }
 }
-
 
 impl Decode for SnmpV3SecurityParameters {
     fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
         // First, decode the outer OCTET STRING that contains the security parameters
         let (security_params_bytes, outer_consumed) = D::decode_octetstring(buf)?;
-        
+
         // If the octet string is empty, this indicates no security
         if security_params_bytes.is_empty() {
             return Some((SnmpV3SecurityParameters::None, outer_consumed));
         }
-        
+
         // Try to parse the inner content as USM security parameters
         // USM parameters are encoded as a SEQUENCE inside the OCTET STRING
-        if let Some((usm_params, _inner_consumed)) = Self::decode_usm_parameters(&security_params_bytes) {
+        if let Some((usm_params, _inner_consumed)) =
+            Self::decode_usm_parameters(&security_params_bytes)
+        {
             Some((SnmpV3SecurityParameters::Usm(usm_params), outer_consumed))
         } else {
             // If we can't parse as USM, fall back to raw bytes
@@ -1552,38 +1552,38 @@ impl Encode for SnmpV3Pdu {
             SnmpV3Pdu::Get(pdu) => {
                 // Context tag [0] for Get requests
                 let inner = pdu.encode::<E>();
-                Asn1Encoder::encode_context_tag(0, &inner)
+                Asn1Encoder::encode_context_tag(0xa0, &inner)
             }
             SnmpV3Pdu::GetNext(pdu) => {
                 // Context tag [1] for GetNext requests
                 let inner = pdu.encode::<E>();
-                Asn1Encoder::encode_context_tag(1, &inner)
+                Asn1Encoder::encode_context_tag(0xa1, &inner)
             }
             SnmpV3Pdu::Response(pdu) => {
                 let inner = pdu.encode::<E>();
-                Asn1Encoder::encode_context_tag(2, &inner)
+                Asn1Encoder::encode_context_tag(0xa2, &inner)
             }
             SnmpV3Pdu::Set(pdu) => {
                 // Context tag [3] for Set requests
                 let inner = pdu.encode::<E>();
-                Asn1Encoder::encode_context_tag(3, &inner)
+                Asn1Encoder::encode_context_tag(0xa3, &inner)
             }
             SnmpV3Pdu::GetBulk(pdu) => {
                 let inner = pdu.encode::<E>();
-                Asn1Encoder::encode_context_tag(5, &inner)
+                Asn1Encoder::encode_context_tag(0xa5, &inner)
             }
             SnmpV3Pdu::Inform(pdu) => {
                 let inner = pdu.encode::<E>();
-                Asn1Encoder::encode_context_tag(6, &inner)
+                Asn1Encoder::encode_context_tag(0xa6, &inner)
             }
             SnmpV3Pdu::Report(pdu) => {
                 let inner = pdu.encode::<E>();
-                Asn1Encoder::encode_context_tag(8, &inner)
+                Asn1Encoder::encode_context_tag(0xa8, &inner)
             }
             SnmpV3Pdu::TrapV2(pdu) => {
                 // Context tag [7] for SNMPv2c Trap
                 let inner = pdu.encode::<E>();
-                Asn1Encoder::encode_context_tag(7, &inner)
+                Asn1Encoder::encode_context_tag(0xa7, &inner)
             }
         }
     }
@@ -2367,7 +2367,7 @@ impl Snmp {
             })
             .push(SnmpV3 {
                 _seq_tag_len_v3: Value::Auto,
-                msg_id: Value::Set(rand::random()),
+                msg_id: Value::Set(rand::random::<u32>() & 0x7fffffff),
                 msg_max_size: Value::Set(65507),
                 msg_flags: SnmpV3::flags(0), // Value::Set(0),          // No auth, no priv
                 msg_security_model: Value::Auto, // Value::Set(0), // Clear
@@ -2407,7 +2407,7 @@ impl Snmp {
             })
             .push(SnmpV3 {
                 _seq_tag_len_v3: Value::Auto,
-                msg_id: Value::Set(rand::random()),
+                msg_id: Value::Set(rand::random::<u32>() & 0x7fffffff),
                 msg_max_size: Value::Set(65507),
                 msg_flags: SnmpV3::flags(0), // Value::Set(0),          // No auth, no priv
                 msg_security_model: Value::Set(0),
@@ -4001,108 +4001,150 @@ pub trait LayerStackUsmExt {
         usm_context: &UsmEncodingContext,
     ) -> Result<Vec<u8>, String>;
 
-fn encode_with_privacy<E: Encoder>(&self, usm_context: &UsmEncodingContext) -> Result<Vec<u8>, String>;
-fn create_encrypted_stack(&self, encrypted_data: &[u8], iv: &[u8], usm_context: &UsmEncodingContext) -> Result<LayerStack, String>;
-   
-
+    fn encode_with_privacy<E: Encoder>(
+        &self,
+        usm_context: &UsmEncodingContext,
+    ) -> Result<Vec<u8>, String>;
+    fn create_encrypted_stack(
+        &self,
+        encrypted_data: &[u8],
+        iv: &[u8],
+        usm_context: &UsmEncodingContext,
+    ) -> Result<LayerStack, String>;
 }
 
 impl LayerStackUsmExt for LayerStack {
-    fn encode_with_usm<E: Encoder>(&self, usm_context: &UsmEncodingContext) -> Result<Vec<u8>, String> {
+    fn encode_with_usm<E: Encoder>(
+        &self,
+        usm_context: &UsmEncodingContext,
+    ) -> Result<Vec<u8>, String> {
         // Check if privacy is enabled
         if usm_context.config.has_priv() {
             println!("Privacy enabled - encrypting scoped PDU");
-            
+
             // We need to encode differently when privacy is enabled
             return self.encode_with_privacy::<E>(usm_context);
         }
-        
+
         // If no authentication required, use normal encoding
         if !usm_context.config.has_auth() {
             return Ok(self.clone().lencode());
         }
-        
+
         // Authentication only (no privacy)
         println!("Authentication only - no encryption");
-        
+
         // First pass: encode with placeholder auth params (zeros)
         let mut encoded_message = self.clone().lencode();
-        
-        println!("Message for HMAC calculation ({} bytes): {:02x?}", encoded_message.len(), encoded_message);
-        
+
+        println!(
+            "Message for HMAC calculation ({} bytes): {:02x?}",
+            encoded_message.len(),
+            encoded_message
+        );
+
         // Calculate HMAC over the entire message
-        let auth_params = usm_context.config.auth_algorithm
+        let auth_params = usm_context
+            .config
+            .auth_algorithm
             .generate_auth_params(&usm_context.auth_key, &encoded_message)
             .map_err(|e| format!("HMAC calculation failed: {}", e))?;
-        
+
         println!("Calculated auth params: {:02x?}", auth_params);
-        
+
         // Find and replace the auth params in the encoded message
         let zero_auth_params = vec![0u8; 12];
         if let Some(pos) = find_subsequence(&encoded_message, &zero_auth_params) {
             println!("Found auth params at position {}", pos);
             encoded_message[pos..pos + 12].copy_from_slice(&auth_params);
-            println!("Updated message with auth params: {:02x?}", &encoded_message[pos-5..pos+17]);
+            println!(
+                "Updated message with auth params: {:02x?}",
+                &encoded_message[pos - 5..pos + 17]
+            );
         } else {
             return Err("Could not find auth params placeholder in encoded message".to_string());
         }
-        
+
         Ok(encoded_message)
     }
 
-fn encode_with_privacy<E: Encoder>(&self, usm_context: &UsmEncodingContext) -> Result<Vec<u8>, String> {
+    fn encode_with_privacy<E: Encoder>(
+        &self,
+        usm_context: &UsmEncodingContext,
+    ) -> Result<Vec<u8>, String> {
         println!("Encoding with privacy (encryption)");
-        
+
         // Step 1: Extract and encode the scoped PDU separately
-        let scoped_pdu = self.get_layer(SnmpV3ScopedPdu::default())
+        let scoped_pdu = self
+            .get_layer(SnmpV3ScopedPdu::default())
             .ok_or("No scoped PDU found in layer stack")?;
-        
+
         // Encode the scoped PDU
         let scoped_pdu_encoded = scoped_pdu.encode::<E>();
         println!("Scoped PDU encoded length: {}", scoped_pdu_encoded.len());
-        println!("Scoped PDU first 50 bytes: {:02x?}", &scoped_pdu_encoded[0..std::cmp::min(50, scoped_pdu_encoded.len())]);
-        
+        println!(
+            "Scoped PDU first 50 bytes: {:02x?}",
+            &scoped_pdu_encoded[0..std::cmp::min(50, scoped_pdu_encoded.len())]
+        );
+
         // Step 2: Encrypt the scoped PDU
         let iv = usm_context.config.priv_algorithm.generate_iv();
         println!("Generated IV: {:02x?}", iv);
-        
-        let encrypted_data = usm_context.config.priv_algorithm
+
+        let encrypted_data = usm_context
+            .config
+            .priv_algorithm
             .encrypt(&usm_context.priv_key, &iv, &scoped_pdu_encoded)
             .map_err(|e| format!("Encryption failed: {}", e))?;
-        
+
         println!("Encrypted data length: {}", encrypted_data.len());
-        println!("Encrypted data first 50 bytes: {:02x?}", &encrypted_data[0..std::cmp::min(50, encrypted_data.len())]);
-        
+        println!(
+            "Encrypted data first 50 bytes: {:02x?}",
+            &encrypted_data[0..std::cmp::min(50, encrypted_data.len())]
+        );
+
         // Step 3: Create a new layer stack without the scoped PDU, but with encrypted data
         let encrypted_stack = self.create_encrypted_stack(&encrypted_data, &iv, usm_context)?;
-        
+
         // Step 4: Encode the new stack with authentication
         let mut encoded_message = encrypted_stack.lencode();
-        
+
         // Step 5: Calculate and insert HMAC if authentication is enabled
         if usm_context.config.has_auth() {
             println!("Calculating HMAC for encrypted message");
-            
-            let auth_params = usm_context.config.auth_algorithm
+
+            let auth_params = usm_context
+                .config
+                .auth_algorithm
                 .generate_auth_params(&usm_context.auth_key, &encoded_message)
                 .map_err(|e| format!("HMAC calculation failed: {}", e))?;
-            
-            println!("Calculated auth params for encrypted message: {:02x?}", auth_params);
-            
+
+            println!(
+                "Calculated auth params for encrypted message: {:02x?}",
+                auth_params
+            );
+
             // Find and replace the auth params
             let zero_auth_params = vec![0u8; 12];
             if let Some(pos) = find_subsequence(&encoded_message, &zero_auth_params) {
                 encoded_message[pos..pos + 12].copy_from_slice(&auth_params);
                 println!("Updated encrypted message with auth params");
             } else {
-                return Err("Could not find auth params placeholder in encrypted message".to_string());
+                return Err(
+                    "Could not find auth params placeholder in encrypted message".to_string(),
+                );
             }
         }
-        
+
         Ok(encoded_message)
     }
-    
-    fn create_encrypted_stack(&self, encrypted_data: &[u8], iv: &[u8], usm_context: &UsmEncodingContext) -> Result<LayerStack, String> {
+
+    fn create_encrypted_stack(
+        &self,
+        encrypted_data: &[u8],
+        iv: &[u8],
+        usm_context: &UsmEncodingContext,
+    ) -> Result<LayerStack, String> {
         // Create USM parameters with the IV in privacy parameters
         let mut usm_params = UsmSecurityParameters::with_user(&usm_context.config.user_name);
         usm_params.set_engine_info(
@@ -4110,23 +4152,30 @@ fn encode_with_privacy<E: Encoder>(&self, usm_context: &UsmEncodingContext) -> R
             usm_context.config.engine_boots,
             usm_context.config.engine_time,
         );
-        
+
         if usm_context.config.has_auth() {
             // Placeholder auth params - will be calculated during encoding
-            usm_params.set_auth_params(&vec![0u8; usm_context.config.auth_algorithm.auth_param_length()]);
+            usm_params.set_auth_params(&vec![
+                0u8;
+                usm_context.config.auth_algorithm.auth_param_length()
+            ]);
         }
-        
+
         if usm_context.config.has_priv() {
             // Set the actual IV in privacy parameters
             usm_params.set_priv_params(iv);
         }
-        
+
         // Create the SNMPv3 message with proper flags
         let mut flags = 0u8;
-        if usm_context.config.has_auth() { flags |= 0x01; }
-        if usm_context.config.has_priv() { flags |= 0x02; }
+        if usm_context.config.has_auth() {
+            flags |= 0x01;
+        }
+        if usm_context.config.has_priv() {
+            flags |= 0x02;
+        }
         flags |= 0x04; // reportable
-        
+
         let snmpv3 = SnmpV3 {
             _seq_tag_len_v3: Value::Auto,
             msg_id: Value::Set(rand::random()),
@@ -4135,12 +4184,12 @@ fn encode_with_privacy<E: Encoder>(&self, usm_context: &UsmEncodingContext) -> R
             msg_security_model: Value::Set(3), // USM
             msg_security_parameters: Value::Set(SnmpV3SecurityParameters::Usm(usm_params)),
         };
-        
+
         // Create encrypted scoped PDU placeholder
         let encrypted_scoped_pdu = EncryptedScopedPdu {
             encrypted_data: Value::Set(ByteArray::from(encrypted_data)),
         };
-        
+
         let stack = LayerStack::new()
             .push(Snmp {
                 _seq_tag_len: Value::Auto,
@@ -4148,15 +4197,16 @@ fn encode_with_privacy<E: Encoder>(&self, usm_context: &UsmEncodingContext) -> R
             })
             .push(snmpv3)
             .push(encrypted_scoped_pdu);
-        
+
         Ok(stack)
     }
-
 }
 
 // Helper function to find a subsequence in a byte array
 fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack.windows(needle.len()).position(|window| window == needle)
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
 }
 
 // Add example usage and testing helpers:
@@ -4217,7 +4267,6 @@ mod usm_tests {
     }
 }
 
-
 // 3. Create a new EncryptedScopedPdu layer for encrypted data
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
@@ -4246,6 +4295,3 @@ fn encode_encrypted_data<E: Encoder>(
     let data = &me.encrypted_data.value().0;
     Asn1Encoder::encode_octetstring(data)
 }
-
-
-
