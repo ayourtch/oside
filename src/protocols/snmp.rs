@@ -3626,23 +3626,21 @@ pub mod usm_crypto {
     impl PrivAlgorithm {
 
 pub fn generate_salt(&self, engine_boots: u32, counter: u64) -> Vec<u8> {
-        match self {
-            PrivAlgorithm::DesCbc => {
-                // DES uses 8-byte salt (RFC 3414)
-                let mut salt = Vec::with_capacity(8);
-                salt.extend_from_slice(&engine_boots.to_be_bytes());
-                salt.extend_from_slice(&counter.to_be_bytes());
-                salt
-            }
-            PrivAlgorithm::Aes128 => {
-                // AES uses 8-byte salt for privParameters (RFC 3826)
-                // But this is only the 64-bit integer part
-                counter.to_be_bytes().to_vec()
-            }
-            _ => vec![]
+    match self {
+        PrivAlgorithm::DesCbc => {
+            // DES uses 8-byte salt (RFC 3414)
+            let mut salt = Vec::with_capacity(8);
+            salt.extend_from_slice(&engine_boots.to_be_bytes());        // 4 bytes
+            salt.extend_from_slice(&(counter as u32).to_be_bytes());    // 4 bytes = 8 total
+            salt
         }
+        PrivAlgorithm::Aes128 => {
+            // AES uses 8-byte salt for privParameters (RFC 3826)
+            counter.to_be_bytes().to_vec()  // 8 bytes
+        }
+        _ => vec![]
     }
-
+}
 /// Calculate IV based on algorithm
     pub fn calculate_iv(&self, salt: &[u8], priv_key: &[u8], engine_boots: u32, engine_time: u32) -> Result<Vec<u8>, String> {
         match self {
