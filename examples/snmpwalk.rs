@@ -65,7 +65,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         "Starting SNMP walk on {}:{}",
         config.target_host, config.port
     );
-    println!("Version: {:?}", config.version);
     println!("Starting OID: {}", config.starting_oid);
 
     let mut walker = SnmpWalker::new(config)?;
@@ -1054,6 +1053,11 @@ impl SnmpWalker {
         if usm_config.has_priv() {
             // Generate random IV for privacy
             let iv = usm_config.priv_algorithm.generate_iv();
+println!("=== SALT/IV DEBUG (USM setup) ===");
+    println!("Generated IV for USM: {:02x?}", iv);
+    println!("Engine boots: {}", usm_config.engine_boots);
+    println!("Engine time: {}", usm_config.engine_time);
+
             usm_params.set_priv_params(&iv);
         }
 
@@ -1086,8 +1090,8 @@ impl SnmpWalker {
             .push(scoped_pdu);
 
         // Create USM context and encode
-        let usm_context = UsmEncodingContext::new(usm_config.clone())?;
-        let encoded = stack.encode_with_usm::<oside::encdec::asn1::Asn1Encoder>(&usm_context)?;
+        let mut usm_context = UsmEncodingContext::new(usm_config.clone())?;
+        let encoded = stack.encode_with_usm::<oside::encdec::asn1::Asn1Encoder>(&mut usm_context)?;
 
         Ok(encoded)
     }

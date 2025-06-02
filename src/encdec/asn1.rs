@@ -836,6 +836,9 @@ impl Encoder for Asn1Encoder {
             value_bytes.len(),
             &value_bytes
         );
+if value_bytes.len() == 5 {
+   panic!("U32 length is 5!");
+}
         result.extend(Self::encode_length(value_bytes.len()));
         result.extend(value_bytes);
         result
