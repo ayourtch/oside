@@ -3624,51 +3624,6 @@ pub mod usm_crypto {
     }
 
     impl PrivAlgorithm {
-
-/// Generate IV for encryption (DES needs engine info)
-    pub fn generate_iv_with_salt(&self, priv_key: &[u8], engine_boots: u32, engine_time: u32) -> Vec<u8> {
-let mut iv = Vec::new();
-    iv.extend_from_slice(&engine_boots.to_be_bytes());
-    iv.extend_from_slice(&engine_time.to_be_bytes());
-    return iv;
-        match self {
-            PrivAlgorithm::DesCbc => {
-                if priv_key.len() < 16 {
-                    // Fallback to random if key too short
-                    let mut rng = rand::thread_rng();
-                    let mut iv = vec![0u8; 8];
-                    rng.fill(&mut iv[..]);
-                    return iv;
-                }
-                
-                // DES IV = pre-IV XOR salt (RFC 3414)
-                let pre_iv = &priv_key[8..16]; // bytes 8-15 of privacy key
-                let mut salt = Vec::new();
-                salt.extend_from_slice(&engine_boots.to_be_bytes());
-                salt.extend_from_slice(&engine_time.to_be_bytes());
-     
-/*           
-                let mut iv = vec![0u8; 8];
-                for i in 0..8 {
-                    iv[i] = pre_iv[i] ^ salt[i];
-                }
-*/
-
-println!("DES IV generation - pre_iv: {:02x?}", pre_iv);
-println!("DES IV generation - salt: {:02x?}", salt);
-println!("DES IV generation - final IV: {:02x?}", iv);
-                iv
-            }
-            _ => {
-                // For non-DES, use random IV
-                let mut rng = rand::thread_rng();
-                let mut iv = vec![0u8; self.iv_length()];
-                rng.fill(&mut iv[..]);
-                iv
-            }
-        }
-    }
-
         /// Get the key length for this privacy algorithm
         pub fn key_length(&self) -> usize {
             match self {
@@ -3696,9 +3651,7 @@ println!("DES IV generation - final IV: {:02x?}", iv);
                         return Err("Authentication key too short for DES privacy".to_string());
                     }
                     // For DES, use the last 16 bytes of the auth key
-                    /// wrong ? - Ok(auth_key[auth_key.len() - 16..].to_vec())
-                    // For DES, use the FIRST 16 bytes of the auth key (RFC 3414)
-                    Ok(auth_key[..8].to_vec())
+                    Ok(auth_key[auth_key.len() - 16..].to_vec())
                 }
                 PrivAlgorithm::Aes128 => {
                     if auth_key.len() < 16 {
@@ -3720,10 +3673,6 @@ println!("DES IV generation - final IV: {:02x?}", iv);
                     use cipher::{BlockEncryptMut, KeyIvInit};
                     use des::Des;
 
-println!("DES encryption - key: {:02x?}", &key);
-println!("DES encryption - IV: {:02x?}", iv);
-println!("DES encryption - plaintext length: {}", plaintext.len());
-
                     type DesCbcEnc = Encryptor<Des>;
 
                     if key.len() < 8 {
@@ -3732,7 +3681,6 @@ println!("DES encryption - plaintext length: {}", plaintext.len());
                     if iv.len() != 8 {
                         return Err("DES IV must be exactly 8 bytes".to_string());
                     }
-                    
 
                     let cipher = DesCbcEnc::new_from_slices(&key[..8], iv)
                         .map_err(|e| format!("Failed to create DES cipher: {:?}", e))?;
@@ -4015,9 +3963,6 @@ impl UsmEncodingContext {
         let auth_key = config.auth_key()?;
         let priv_key = config.priv_key()?;
 
-        println!("Auth key: {:02x?}", &auth_key);
-        println!("Priv key: {:02x?}", &priv_key);
-
         Ok(Self {
             config,
             auth_key,
@@ -4143,15 +4088,8 @@ impl LayerStackUsmExt for LayerStack {
         );
 
         // Step 2: Encrypt the scoped PDU
-        // DES apparently needs engine-id ?
-        // let iv = usm_context.config.priv_algorithm.generate_iv();
-let iv = usm_context.config.priv_algorithm.generate_iv_with_salt(
-    &usm_context.priv_key,
-    usm_context.config.engine_boots,
-    usm_context.config.engine_time
-);
+        let iv = usm_context.config.priv_algorithm.generate_iv();
         println!("Generated IV: {:02x?}", iv);
-        println!("About to encrypt - plaintext: {:02x?}", &scoped_pdu_encoded); 
 
         let encrypted_data = usm_context
             .config
@@ -4164,13 +4102,6 @@ let iv = usm_context.config.priv_algorithm.generate_iv_with_salt(
             "Encrypted data first 50 bytes: {:02x?}",
             &encrypted_data[0..std::cmp::min(50, encrypted_data.len())]
         );
-
-println!("After encryption - checking decryption:");
-let test_decrypt = usm_context.config.priv_algorithm.decrypt(&usm_context.priv_key, &iv, &encrypted_data);
-println!("Test decrypt result: {:?}", test_decrypt);
-if let Ok(decrypted) = test_decrypt {
-    println!("Test decrypted data: {:02x?}", &decrypted);
-}
 
         // Step 3: Create a new layer stack without the scoped PDU, but with encrypted data
         let encrypted_stack = self.create_encrypted_stack(&encrypted_data, &iv, usm_context)?;

@@ -65,7 +65,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "Starting SNMP walk on {}:{}",
         config.target_host, config.port
     );
-    // println!("Version: {:?}", config.version);
+    println!("Version: {:?}", config.version);
     println!("Starting OID: {}", config.starting_oid);
 
     let mut walker = SnmpWalker::new(config)?;
@@ -422,9 +422,10 @@ impl SnmpWalker {
                     }
 
                     println!(
-                        "USM config after engine discovery - has_auth: {}, has_priv: {}",
+                        "USM config after engine discovery - has_auth: {}, has_priv: {}, USM: {:?}",
                         usm_config.has_auth(),
                         usm_config.has_priv(),
+                        &usm_config
                     );
                     self.increment_ids();
 
@@ -1010,8 +1011,7 @@ impl SnmpWalker {
         let scoped_pdu = if use_getbulk {
             SnmpV3ScopedPdu {
                 _scoped_pdu_seq_tag_len: Value::Auto,
-                context_engine_id: Value::Set(ByteArray::from(vec![])), // Try empty first
-                // context_engine_id: Value::Set(ByteArray::from(usm_config.engine_id.clone())), // FIXED: Use discovered engine ID
+                context_engine_id: Value::Set(ByteArray::from(usm_config.engine_id.clone())), // FIXED: Use discovered engine ID
                 context_name: Value::Set(ByteArray::from(vec![])),
                 pdu: Value::Set(SnmpV3Pdu::GetBulk(SnmpGetBulkRequest {
                     request_id: Value::Set(self.request_id),
@@ -1024,8 +1024,7 @@ impl SnmpWalker {
         } else {
             SnmpV3ScopedPdu {
                 _scoped_pdu_seq_tag_len: Value::Auto,
-                context_engine_id: Value::Set(ByteArray::from(vec![])), // Try empty first
-                // context_engine_id: Value::Set(ByteArray::from(usm_config.engine_id.clone())), // FIXED: Use discovered engine ID
+                context_engine_id: Value::Set(ByteArray::from(usm_config.engine_id.clone())), // FIXED: Use discovered engine ID
                 context_name: Value::Set(ByteArray::from(vec![])),
                 pdu: Value::Set(SnmpV3Pdu::Get(SnmpGetOrResponse {
                     // FIXED: Use GetNext instead of Get
@@ -1054,10 +1053,8 @@ impl SnmpWalker {
 
         if usm_config.has_priv() {
             // Generate random IV for privacy
-            // let iv = usm_config.priv_algorithm.generate_iv();
-            // usm_params.set_priv_params(&iv);
-            // Use placeholder - IV will be set during encoding
-            usm_params.set_priv_params(&vec![0u8; usm_config.priv_algorithm.iv_length()]);
+            let iv = usm_config.priv_algorithm.generate_iv();
+            usm_params.set_priv_params(&iv);
         }
 
         // Create the SNMPv3 message with proper flags
