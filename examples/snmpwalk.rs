@@ -277,6 +277,16 @@ impl SnmpWalker {
         }
     }
 
+    fn update_engine_info(&mut self, engine_id: Vec<u8>, boots: u32, time: u32) {
+        if let SnmpVersion::V3 {
+            engine_id: ref mut stored_engine_id,
+            ..
+        } = &mut self.config.version
+        {
+            *stored_engine_id = engine_id;
+        }
+    }
+
     fn new(config: SnmpWalkConfig) -> Result<Self, Box<dyn Error>> {
         let socket = UdpSocket::bind("0.0.0.0:0")?;
         let target_addr = format!("{}:{}", config.target_host, config.port);
@@ -764,6 +774,11 @@ impl SnmpWalker {
                         println!("Extracted engine ID: {:02x?}", engine_id);
                         x.engine_boots = usm.msg_authoritative_engine_boots.value();
                         x.engine_time = usm.msg_authoritative_engine_time.value();
+                        self.update_engine_info(
+                            engine_id.clone(),
+                            usm.msg_authoritative_engine_boots.value(),
+                            usm.msg_authoritative_engine_time.value(),
+                        );
 
                         if !engine_id.is_empty() {
                             return Ok(engine_id);
@@ -773,11 +788,7 @@ impl SnmpWalker {
                     }
                     Value::Set(SnmpV3SecurityParameters::Raw(ref raw)) => {
                         println!("Found RAW security parameters: {:02x?}", raw.as_vec());
-                        // Try to parse the raw security parameters manually
-                        if let Some(engine_id) = self.parse_raw_usm_params(raw.as_vec()) {
-                            println!("Extracted engine ID from raw params: {:02x?}", engine_id);
-                            return Ok(engine_id);
-                        }
+                        panic!("Could not operate with raw security parameters!");
                     }
                     Value::Set(SnmpV3SecurityParameters::None) => {
                         println!("No security parameters in response");
