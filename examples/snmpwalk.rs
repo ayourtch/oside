@@ -220,15 +220,21 @@ fn print_usage(program_name: &str) {
     println!("  -t, --timeout <seconds>    Timeout in seconds (default: 5)");
     println!();
     println!("Examples:");
-    println!("  {} 192.168.1.1 1.3.6.1.2.1.1", program_name);
-    println!("  {} 192.168.1.1 1.3.6.1.2.1.1 -v 2c private", program_name);
-    println!("  {} 192.168.1.1 1.3.6.1.2.1.1 -v 3 myuser", program_name);
+    println!("  {} 192.168.1.1 1.3.6.1.2.1.1.1.0", program_name);
     println!(
-        "  {} 192.168.1.1 1.3.6.1.2.1.1 -v 3 myuser -a md5 authpass",
+        "  {} 192.168.1.1 1.3.6.1.2.1.1.1.0 -v 2c private",
         program_name
     );
     println!(
-        "  {} 192.168.1.1 1.3.6.1.2.1.1 -v 3 myuser -a sha1 authpass -x aes privpass",
+        "  {} 192.168.1.1 1.3.6.1.2.1.1.1.0 -v 3 myuser",
+        program_name
+    );
+    println!(
+        "  {} 192.168.1.1 1.3.6.1.2.1.1.1.0 -v 3 myuser -a md5 authpass",
+        program_name
+    );
+    println!(
+        "  {} 192.168.1.1 1.3.6.1.2.1.1.1.0 -v 3 myuser -a sha1 authpass -x aes privpass",
         program_name
     );
 }
@@ -980,7 +986,7 @@ impl SnmpWalker {
                     }
                 }
             } else {
-                println!("No scoped PDU found in response");
+                println!("No scoped PDU found in response: {:?}", &response);
             }
         }
 
