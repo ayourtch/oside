@@ -971,9 +971,11 @@ impl SnmpWalker {
                 if let Some(usm_config) = self.create_usm_config() {
                     // Use a custom processing method that returns the bindings
                     let bindings = self.extract_bindings_from_snmpv3(response, &usm_config)?;
+                    println!("BINDINGS: {:?}", bindings);
 
                     for binding in &bindings {
-                        let oid_str = format!("{:?}", binding.name.value());
+                        let oid_str = format!("{}", binding.name.value());
+                        println!("OID STR: {:?}", &oid_str);
 
                         // Check if we've moved beyond our starting tree
                         if !oid_str.starts_with(&self.config.starting_oid) {
