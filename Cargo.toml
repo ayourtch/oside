@@ -28,6 +28,8 @@ des = "*"
 cbc = "*"
 cipher = "*"
 cfb-mode = "*"
+log = "*"
+env_logger = "*"
 
 [dev-dependencies]
 criterion = "0.3"

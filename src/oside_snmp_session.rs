@@ -1,3 +1,5 @@
+use log::{debug, error, info, warn};
+
 use std::error::Error;
 use std::net::UdpSocket;
 use std::str::FromStr;
@@ -92,8 +94,8 @@ impl OsideSnmpSession {
         let mut current_oid = self.config.starting_oid.clone();
         let mut results_count = 0;
 
-        println!("Walking from OID: {}", current_oid);
-        println!("----------------------------------------");
+        debug!("Walking from OID: {}", current_oid);
+        debug!("----------------------------------------");
 
         loop {
             let response = if self.config.use_getbulk {
@@ -110,20 +112,20 @@ impl OsideSnmpSession {
             results_count += batch_count;
 
             if !found_next {
-                println!("No more OIDs found");
+                debug!("No more OIDs found");
                 break;
             }
 
             current_oid = next_oid;
 
             if results_count > 10000 {
-                println!("Stopping after 10000 results to prevent infinite loop");
+                debug!("Stopping after 10000 results to prevent infinite loop");
                 break;
             }
         }
 
-        println!("----------------------------------------");
-        println!("Walk completed. Total results: {}", results_count);
+        debug!("----------------------------------------");
+        debug!("Walk completed. Total results: {}", results_count);
         Ok(())
     }
 
@@ -144,11 +146,11 @@ impl OsideSnmpSession {
 
     fn print_hex_dump(&self, data: &[u8]) {
         for (i, chunk) in data.chunks(16).enumerate() {
-            print!("{:04x}: ", i * 16);
+            let mut out = format!("{:04x}: ", i * 16);
             for byte in chunk {
-                print!("{:02x} ", byte);
+                out.push_str(&format!("{:02x} ", byte));
             }
-            println!();
+            debug!("hex dump: {}", out);
         }
     }
 
@@ -169,7 +171,7 @@ impl OsideSnmpSession {
     fn increment_ids(&mut self) {
         self.request_id = self.request_id.wrapping_add(1);
         self.msg_id = self.msg_id.wrapping_add(1);
-        println!(
+        debug!(
             "INCREMENT IDs: req_id: {},  msg_id: {}",
             self.request_id, self.msg_id
         );
@@ -190,14 +192,14 @@ impl OsideSnmpSession {
 
             SnmpVersion::V3 { .. } => {
                 if let Some(mut usm_config) = self.create_usm_config() {
-                    println!("Doing discovery");
+                    debug!("Doing discovery");
                     // If engine ID is empty, do discovery first
                     if usm_config.engine_id.is_empty() {
                         let engine_id = self.snmpv3_discovery(&mut usm_config)?;
                         usm_config.engine_id = engine_id;
                     }
 
-                    println!(
+                    debug!(
                         "USM config after engine discovery - has_auth: {}, has_priv: {}, USM: {:?}",
                         usm_config.has_auth(),
                         usm_config.has_priv(),
@@ -212,11 +214,11 @@ impl OsideSnmpSession {
                             true,
                             PduType::GetNext,
                         )?;
-                        println!("ENCODED: {:?}", &encoded);
+                        debug!("ENCODED: {:?}", &encoded);
 
-                        println!("Sending authenticated request, length: {}", encoded.len());
-                        println!("Encoded message length: {}", encoded.len());
-                        println!(
+                        debug!("Sending authenticated request, length: {}", encoded.len());
+                        debug!("Encoded message length: {}", encoded.len());
+                        debug!(
                             "First 50 bytes: {:02x?}",
                             &encoded[0..std::cmp::min(50, encoded.len())]
                         );
@@ -228,8 +230,8 @@ impl OsideSnmpSession {
                         let mut buf = vec![0u8; 65535];
                         let len = self.socket.recv(&mut buf)?;
 
-                        println!("Received response length: {}", len);
-                        println!(
+                        debug!("Received response length: {}", len);
+                        debug!(
                             "Response first 50 bytes: {:02x?}",
                             &buf[0..std::cmp::min(50, len)]
                         );
@@ -243,25 +245,25 @@ impl OsideSnmpSession {
                         // Check if it's an authenticated response and verify auth
                         if let Some(snmpv3) = response.get_layer(SnmpV3::new()) {
                             if snmpv3.has_authentication() {
-                                println!("Received authenticated response, verifying...");
+                                debug!("Received authenticated response, verifying...");
                             }
                         }
 
                         return Ok(response);
                     } else {
                         // For no-auth SNMPv3, still need proper structure
-                        println!("DOING v3 no auth");
+                        debug!("DOING v3 no auth");
                         let encoded = self.create_authenticated_request(
                             Some(oid),
                             &usm_config,
                             false,
                             PduType::GetNext,
                         )?;
-                        println!("ENCODED: {:?}", &encoded);
+                        debug!("ENCODED: {:?}", &encoded);
 
-                        println!("Sending authenticated request, length: {}", encoded.len());
-                        println!("Encoded message length: {}", encoded.len());
-                        println!(
+                        debug!("Sending authenticated request, length: {}", encoded.len());
+                        debug!("Encoded message length: {}", encoded.len());
+                        debug!(
                             "First 50 bytes: {:02x?}",
                             &encoded[0..std::cmp::min(50, encoded.len())]
                         );
@@ -273,8 +275,8 @@ impl OsideSnmpSession {
                         let mut buf = vec![0u8; 65535];
                         let len = self.socket.recv(&mut buf)?;
 
-                        println!("Received response length: {}", len);
-                        println!(
+                        debug!("Received response length: {}", len);
+                        debug!(
                             "Response first 50 bytes: {:02x?}",
                             &buf[0..std::cmp::min(50, len)]
                         );
@@ -293,7 +295,7 @@ impl OsideSnmpSession {
             }
         };
 
-        println!("request result: {:#02x?}", &request);
+        debug!("request result: {:#02x?}", &request);
         self.send_request(request)
     }
 
@@ -315,14 +317,14 @@ impl OsideSnmpSession {
             }
             SnmpVersion::V3 { .. } => {
                 if let Some(mut usm_config) = self.create_usm_config() {
-                    println!("Doing discovery");
+                    debug!("Doing discovery");
                     // If engine ID is empty, do discovery first
                     if usm_config.engine_id.is_empty() {
                         let engine_id = self.snmpv3_discovery(&mut usm_config)?;
                         usm_config.engine_id = engine_id;
                     }
 
-                    println!(
+                    debug!(
                         "USM config after engine discovery - has_auth: {}, has_priv: {}, USM: {:?}",
                         usm_config.has_auth(),
                         usm_config.has_priv(),
@@ -337,11 +339,11 @@ impl OsideSnmpSession {
                             true,
                             PduType::GetBulk,
                         )?;
-                        println!("ENCODED: {:?}", &encoded);
+                        debug!("ENCODED: {:?}", &encoded);
 
-                        println!("Sending authenticated request, length: {}", encoded.len());
-                        println!("Encoded message length: {}", encoded.len());
-                        println!(
+                        debug!("Sending authenticated request, length: {}", encoded.len());
+                        debug!("Encoded message length: {}", encoded.len());
+                        debug!(
                             "First 50 bytes: {:02x?}",
                             &encoded[0..std::cmp::min(50, encoded.len())]
                         );
@@ -353,8 +355,8 @@ impl OsideSnmpSession {
                         let mut buf = vec![0u8; 65535];
                         let len = self.socket.recv(&mut buf)?;
 
-                        println!("Received response length: {}", len);
-                        println!(
+                        debug!("Received response length: {}", len);
+                        debug!(
                             "Response first 50 bytes: {:02x?}",
                             &buf[0..std::cmp::min(50, len)]
                         );
@@ -368,18 +370,18 @@ impl OsideSnmpSession {
                         return Ok(response);
                     } else {
                         // For no-auth SNMPv3, still need proper structure
-                        println!("DOING v3 no auth");
+                        debug!("DOING v3 no auth");
                         let encoded = self.create_authenticated_request(
                             Some(oid),
                             &usm_config,
                             false,
                             PduType::GetBulk,
                         )?;
-                        println!("ENCODED: {:?}", &encoded);
+                        debug!("ENCODED: {:?}", &encoded);
 
-                        println!("Sending authenticated request, length: {}", encoded.len());
-                        println!("Encoded message length: {}", encoded.len());
-                        println!(
+                        debug!("Sending authenticated request, length: {}", encoded.len());
+                        debug!("Encoded message length: {}", encoded.len());
+                        debug!(
                             "First 50 bytes: {:02x?}",
                             &encoded[0..std::cmp::min(50, encoded.len())]
                         );
@@ -391,8 +393,8 @@ impl OsideSnmpSession {
                         let mut buf = vec![0u8; 65535];
                         let len = self.socket.recv(&mut buf)?;
 
-                        println!("Received response length: {}", len);
-                        println!(
+                        debug!("Received response length: {}", len);
+                        debug!(
                             "Response first 50 bytes: {:02x?}",
                             &buf[0..std::cmp::min(50, len)]
                         );
@@ -431,7 +433,7 @@ impl OsideSnmpSession {
             .0;
 
         if response.clone().lencode() != buf[0..len] {
-            println!("encode/decode sanity check fail!");
+            debug!("encode/decode sanity check fail!");
         }
 
         Ok(response)
@@ -486,7 +488,7 @@ impl OsideSnmpSession {
             SnmpValue::Unknown(obj) => format!("Unknown: {:?}", obj),
         };
 
-        println!("RESUIT: {} = {}", oid, value_str);
+        debug!("RESUIT: {} = {}", oid, value_str);
     }
 
     fn create_usm_config(&self) -> Option<UsmConfig> {
@@ -504,7 +506,7 @@ impl OsideSnmpSession {
                 let mut usm_config = UsmConfig::new(user);
 
                 if let (Some(auth_alg), Some(auth_pass)) = (auth_algorithm, auth_password) {
-                    println!(
+                    debug!(
                         "Setting up authentication: {:?} with password length {}",
                         auth_alg,
                         auth_pass.len()
@@ -521,7 +523,7 @@ impl OsideSnmpSession {
                     usm_config =
                         usm_config.with_engine_info(engine_id, *engine_boots, *engine_time);
                 }
-                println!(
+                debug!(
                     "USM config - has_auth: {}, has_priv: {}",
                     usm_config.has_auth(),
                     usm_config.has_priv()
@@ -534,7 +536,7 @@ impl OsideSnmpSession {
     }
 
     fn snmpv3_discovery(&mut self, x: &mut UsmConfig) -> Result<Vec<u8>, Box<dyn Error>> {
-        println!("Starting SNMPv3 engine discovery...");
+        debug!("Starting SNMPv3 engine discovery...");
         self.increment_ids();
 
         // Create a proper SNMPv3 discovery message (no authentication)
@@ -577,8 +579,8 @@ impl OsideSnmpSession {
         // Encode the discovery message (no USM context needed for discovery)
         let encoded = discovery_stack.lencode();
 
-        println!("Sending discovery message, length: {}", encoded.len());
-        println!(
+        debug!("Sending discovery message, length: {}", encoded.len());
+        debug!(
             "Discovery message first 50 bytes: {:02x?}",
             &encoded[0..std::cmp::min(50, encoded.len())]
         );
@@ -588,28 +590,28 @@ impl OsideSnmpSession {
         let mut buf = vec![0u8; 65535];
         let len = self.socket.recv(&mut buf)?;
 
-        println!("Received discovery response, length: {}", len);
-        println!(
+        debug!("Received discovery response, length: {}", len);
+        debug!(
             "Response first 50 bytes: {:02x?}",
             &buf[0..std::cmp::min(50, len)]
         );
 
         // Parse response to extract engine ID
         if let Some((response_stack, _)) = SNMP!().ldecode(&buf[0..len]) {
-            println!("Successfully decoded discovery response");
+            debug!("Successfully decoded discovery response");
 
             // Look for SNMPv3 layer with USM parameters
             if let Some(snmpv3) = response_stack.get_layer(SnmpV3::new()) {
-                println!("Found SNMPv3 layer in response");
-                println!("Response msg_flags: {:?}", snmpv3.msg_flags);
-                println!("Response security_model: {:?}", snmpv3.msg_security_model);
+                debug!("Found SNMPv3 layer in response");
+                debug!("Response msg_flags: {:?}", snmpv3.msg_flags);
+                debug!("Response security_model: {:?}", snmpv3.msg_security_model);
 
                 // Debug: Print the security parameters type
                 match &snmpv3.msg_security_parameters {
                     Value::Set(SnmpV3SecurityParameters::Usm(ref usm)) => {
-                        println!("Found USM parameters in response");
+                        debug!("Found USM parameters in response");
                         let engine_id = usm.msg_authoritative_engine_id.value().as_vec().clone();
-                        println!("Extracted engine ID: {:02x?}", engine_id);
+                        debug!("Extracted engine ID: {:02x?}", engine_id);
                         x.engine_boots = usm.msg_authoritative_engine_boots.value();
                         x.engine_time = usm.msg_authoritative_engine_time.value();
                         self.update_engine_info(
@@ -621,28 +623,28 @@ impl OsideSnmpSession {
                         if !engine_id.is_empty() {
                             return Ok(engine_id);
                         } else {
-                            println!("Engine ID is empty in response");
+                            debug!("Engine ID is empty in response");
                         }
                     }
                     Value::Set(SnmpV3SecurityParameters::Raw(ref raw)) => {
-                        println!("Found RAW security parameters: {:02x?}", raw.as_vec());
+                        debug!("Found RAW security parameters: {:02x?}", raw.as_vec());
                         panic!("Could not operate with raw security parameters!");
                     }
                     Value::Set(SnmpV3SecurityParameters::None) => {
-                        println!("No security parameters in response");
+                        debug!("No security parameters in response");
                     }
                     _ => {
-                        println!(
+                        debug!(
                             "Other security parameters type: {:?}",
                             snmpv3.msg_security_parameters
                         );
                     }
                 }
             } else {
-                println!("No SNMPv3 layer found in response");
+                debug!("No SNMPv3 layer found in response");
             }
         } else {
-            println!("Failed to decode discovery response");
+            debug!("Failed to decode discovery response");
         }
 
         Err("Failed to discover engine ID".into())
@@ -743,7 +745,7 @@ impl OsideSnmpSession {
             },
         };
 
-        println!("SCOPED PDU: {:?}", &scoped_pdu);
+        debug!("SCOPED PDU: {:?}", &scoped_pdu);
 
         // Create USM parameters with the discovered engine ID
         let mut usm_params = UsmSecurityParameters::with_user(&usm_config.user_name);
@@ -761,10 +763,10 @@ impl OsideSnmpSession {
         if usm_config.has_priv() {
             // Generate random IV for privacy
             let iv = usm_config.priv_algorithm.generate_iv();
-            println!("=== SALT/IV DEBUG (USM setup) ===");
-            println!("Generated IV for USM: {:02x?}", iv);
-            println!("Engine boots: {}", usm_config.engine_boots);
-            println!("Engine time: {}", usm_config.engine_time);
+            debug!("=== SALT/IV DEBUG (USM setup) ===");
+            debug!("Generated IV for USM: {:02x?}", iv);
+            debug!("Engine boots: {}", usm_config.engine_boots);
+            debug!("Engine time: {}", usm_config.engine_time);
 
             usm_params.set_priv_params(&iv);
         }
@@ -819,15 +821,15 @@ impl OsideSnmpSession {
                 if let Some(usm_config) = self.create_usm_config() {
                     // Use a custom processing method that returns the bindings
                     let bindings = self.extract_bindings_from_snmpv3(response, &usm_config)?;
-                    println!("BINDINGS: {:?}", bindings);
+                    debug!("BINDINGS: {:?}", bindings);
 
                     for binding in &bindings {
                         let oid_str = format!("{}", binding.name.value());
-                        println!("OID STR: {:?}", &oid_str);
+                        debug!("OID STR: {:?}", &oid_str);
 
                         // Check if we've moved beyond our starting tree
                         if oid_str != "" && !oid_str.starts_with(&self.config.starting_oid) {
-                            println!("Reached end of subtree");
+                            debug!("Reached end of subtree");
                             return Ok((false, next_oid, results_count));
                         }
 
@@ -836,7 +838,7 @@ impl OsideSnmpSession {
                             SnmpValue::NoSuchObject
                             | SnmpValue::NoSuchInstance
                             | SnmpValue::EndOfMibView => {
-                                println!("End of MIB view reached");
+                                debug!("End of MIB view reached");
                                 return Ok((false, next_oid, results_count));
                             }
                             _ => {}
@@ -873,7 +875,7 @@ impl OsideSnmpSession {
                             let oid_str = format!("{}", binding.name.value());
 
                             if !oid_str.starts_with(&self.config.starting_oid) {
-                                println!("Reached end of subtree");
+                                debug!("Reached end of subtree");
                                 return Ok((false, next_oid, results_count));
                             }
 
@@ -881,7 +883,7 @@ impl OsideSnmpSession {
                                 SnmpValue::NoSuchObject
                                 | SnmpValue::NoSuchInstance
                                 | SnmpValue::EndOfMibView => {
-                                    println!("End of MIB view reached");
+                                    debug!("End of MIB view reached");
                                     return Ok((false, next_oid, results_count));
                                 }
                                 _ => {}
@@ -913,7 +915,7 @@ impl OsideSnmpSession {
                 &snmpv3.msg_security_parameters
             {
                 let server_engine_time = usm.msg_authoritative_engine_time.value();
-                println!(
+                debug!(
                     "Server engine time from response: {}, discovery time: {}",
                     server_engine_time, &usm_config.engine_time
                 );
@@ -925,14 +927,14 @@ impl OsideSnmpSession {
             // Verify authentication if required (with lenient checking)
             if usm_config.has_auth() {
                 if let Err(e) = self.verify_authentication(response, usm_config) {
-                    println!("Authentication verification warning: {}", e);
-                    println!("Proceeding with response processing...");
+                    debug!("Authentication verification warning: {}", e);
+                    debug!("Proceeding with response processing...");
                 }
             }
 
             // Handle privacy (decryption) if enabled
             if usm_config.has_priv() {
-                println!("Privacy enabled - attempting decryption");
+                debug!("Privacy enabled - attempting decryption");
 
                 if let Some(encrypted_data) = self.extract_encrypted_data(response)? {
                     let privacy_params = self.extract_privacy_params(response)?;
@@ -990,44 +992,44 @@ impl OsideSnmpSession {
         response: &LayerStack,
         usm_config: &UsmConfig,
     ) -> Result<(), String> {
-        println!("=== AUTHENTICATION VERIFICATION DEBUG ===");
+        debug!("=== AUTHENTICATION VERIFICATION DEBUG ===");
 
         // First, let's see the raw response bytes
         let original_response_bytes = response.clone().lencode();
-        println!(
+        debug!(
             "Original response bytes length: {}",
             original_response_bytes.len()
         );
-        println!(
+        debug!(
             "Original response bytes: {:02x?}",
             &original_response_bytes[0..std::cmp::min(100, original_response_bytes.len())]
         );
 
         // Extract USM parameters from the response
         if let Some(snmpv3) = response.get_layer(SnmpV3::new()) {
-            println!("Found SNMPv3 layer");
-            println!("SNMPv3 msg_id: {:?}", snmpv3.msg_id);
-            println!(
+            debug!("Found SNMPv3 layer");
+            debug!("SNMPv3 msg_id: {:?}", snmpv3.msg_id);
+            debug!(
                 "SNMPv3 msg_flags: {:02x?}",
                 snmpv3.msg_flags.value().as_vec()
             );
 
             match &snmpv3.msg_security_parameters.value() {
                 SnmpV3SecurityParameters::Usm(usm_params) => {
-                    println!("Found USM parameters");
-                    println!(
+                    debug!("Found USM parameters");
+                    debug!(
                         "Engine ID: {:02x?}",
                         usm_params.msg_authoritative_engine_id.value().as_vec()
                     );
-                    println!(
+                    debug!(
                         "Engine boots: {}",
                         usm_params.msg_authoritative_engine_boots.value()
                     );
-                    println!(
+                    debug!(
                         "Engine time: {}",
                         usm_params.msg_authoritative_engine_time.value()
                     );
-                    println!(
+                    debug!(
                         "User name: {:?}",
                         String::from_utf8_lossy(usm_params.msg_user_name.value().as_vec())
                     );
@@ -1035,7 +1037,7 @@ impl OsideSnmpSession {
                     let param_val = usm_params.msg_authentication_parameters.value();
                     let received_auth_params = param_val.as_vec();
 
-                    println!("Received auth params: {:02x?}", received_auth_params);
+                    debug!("Received auth params: {:02x?}", received_auth_params);
 
                     if received_auth_params.len() != 12 {
                         return Err(format!(
@@ -1045,26 +1047,23 @@ impl OsideSnmpSession {
                     }
 
                     // Method 1: Try to manually find and replace auth params in raw bytes
-                    println!("\n=== METHOD 1: Manual byte replacement ===");
+                    debug!("\n=== METHOD 1: Manual byte replacement ===");
                     let mut message_for_verification_v1 = original_response_bytes.clone();
                     let zero_auth_params = vec![0u8; 12];
 
                     if let Some(pos) =
                         find_subsequence(&message_for_verification_v1, received_auth_params)
                     {
-                        println!("Found auth params at position: {}", pos);
+                        debug!("Found auth params at position: {}", pos);
                         message_for_verification_v1[pos..pos + 12]
                             .copy_from_slice(&zero_auth_params);
-                        println!("Replaced auth params with zeros");
+                        debug!("Replaced auth params with zeros");
                     } else {
-                        println!("Could not find auth params in message bytes!");
+                        debug!("Could not find auth params in message bytes!");
                         // Let's try to find them by looking for the pattern around them
                         for i in 0..message_for_verification_v1.len().saturating_sub(12) {
                             if &message_for_verification_v1[i..i + 12] == received_auth_params {
-                                println!(
-                                    "Found auth params at position {} (alternative search)",
-                                    i
-                                );
+                                debug!("Found auth params at position {} (alternative search)", i);
                                 message_for_verification_v1[i..i + 12]
                                     .copy_from_slice(&zero_auth_params);
                                 break;
@@ -1073,14 +1072,14 @@ impl OsideSnmpSession {
                     }
 
                     // Method 2: Re-encode with modified structure
-                    println!("\n=== METHOD 2: Re-encode with modified structure ===");
+                    debug!("\n=== METHOD 2: Re-encode with modified structure ===");
                     let mut verification_response = response.clone();
 
                     // Traverse all layers to find and modify USM params
                     for layer_idx in 0..verification_response.layers.len() {
                         if let Some(layer) = verification_response.layers.get_mut(layer_idx) {
                             // This is pseudocode - we need to find the actual way to modify layers
-                            println!(
+                            debug!(
                                 "Checking layer {}: {:?}",
                                 layer_idx,
                                 std::any::type_name_of_val(layer)
@@ -1097,63 +1096,63 @@ impl OsideSnmpSession {
                         .auth_key()
                         .map_err(|e| format!("Failed to derive auth key: {}", e))?;
 
-                    println!("\nAuth configuration:");
-                    println!("Auth algorithm: {:?}", usm_config.auth_algorithm);
-                    println!("Auth key: {:02x?}", auth_key);
-                    println!("Engine ID: {:02x?}", usm_config.engine_id);
+                    debug!("\nAuth configuration:");
+                    debug!("Auth algorithm: {:?}", usm_config.auth_algorithm);
+                    debug!("Auth key: {:02x?}", auth_key);
+                    debug!("Engine ID: {:02x?}", usm_config.engine_id);
 
                     // Test both methods
-                    println!("\n=== TESTING METHOD 1 ===");
+                    debug!("\n=== TESTING METHOD 1 ===");
                     let expected_auth_params_v1 = usm_config
                         .auth_algorithm
                         .generate_auth_params(&auth_key, &message_for_verification_v1)
                         .map_err(|e| format!("Failed to generate auth params v1: {}", e))?;
 
-                    println!(
+                    debug!(
                         "Method 1 - Message length: {}",
                         message_for_verification_v1.len()
                     );
-                    println!(
+                    debug!(
                         "Method 1 - Expected auth params: {:02x?}",
                         expected_auth_params_v1
                     );
-                    println!(
+                    debug!(
                         "Method 1 - Match: {}",
                         received_auth_params == &expected_auth_params_v1
                     );
 
-                    println!("\n=== TESTING METHOD 2 ===");
+                    debug!("\n=== TESTING METHOD 2 ===");
                     let expected_auth_params_v2 = usm_config
                         .auth_algorithm
                         .generate_auth_params(&auth_key, &message_for_verification_v2)
                         .map_err(|e| format!("Failed to generate auth params v2: {}", e))?;
 
-                    println!(
+                    debug!(
                         "Method 2 - Message length: {}",
                         message_for_verification_v2.len()
                     );
-                    println!(
+                    debug!(
                         "Method 2 - Expected auth params: {:02x?}",
                         expected_auth_params_v2
                     );
-                    println!(
+                    debug!(
                         "Method 2 - Match: {}",
                         received_auth_params == &expected_auth_params_v2
                     );
 
                     // Let's also see the hex dump comparison
-                    println!("\n=== HEX DUMP COMPARISON ===");
-                    println!("Original first 64 bytes:");
+                    debug!("\n=== HEX DUMP COMPARISON ===");
+                    debug!("Original first 64 bytes:");
                     self.print_hex_dump(
                         &original_response_bytes
                             [0..std::cmp::min(64, original_response_bytes.len())],
                     );
-                    println!("Method 1 first 64 bytes:");
+                    debug!("Method 1 first 64 bytes:");
                     self.print_hex_dump(
                         &message_for_verification_v1
                             [0..std::cmp::min(64, message_for_verification_v1.len())],
                     );
-                    println!("Method 2 first 64 bytes:");
+                    debug!("Method 2 first 64 bytes:");
                     self.print_hex_dump(
                         &message_for_verification_v2
                             [0..std::cmp::min(64, message_for_verification_v2.len())],
@@ -1163,10 +1162,10 @@ impl OsideSnmpSession {
                     if received_auth_params == &expected_auth_params_v1
                         || received_auth_params == &expected_auth_params_v2
                     {
-                        println!("Authentication verification PASSED");
+                        debug!("Authentication verification PASSED");
                         Ok(())
                     } else {
-                        println!("Authentication verification FAILED - both methods failed");
+                        debug!("Authentication verification FAILED - both methods failed");
                         Ok(()) // Still being lenient for debugging
                     }
                 }
@@ -1181,12 +1180,12 @@ impl OsideSnmpSession {
         &self,
         response: &LayerStack,
     ) -> Result<Option<Vec<u8>>, Box<dyn Error>> {
-        println!("=== ENCRYPTED DATA EXTRACTION DEBUG ===");
+        debug!("=== ENCRYPTED DATA EXTRACTION DEBUG ===");
 
         // First try to find Raw layer (which contains encrypted data)
         if let Some(raw_layer) = response.get_layer(Raw!()) {
-            println!("Found Raw layer with {} bytes", raw_layer.data.len());
-            println!(
+            debug!("Found Raw layer with {} bytes", raw_layer.data.len());
+            debug!(
                 "Raw data: {:02x?}",
                 &raw_layer.data[0..std::cmp::min(50, raw_layer.data.len())]
             );
@@ -1196,7 +1195,7 @@ impl OsideSnmpSession {
             let raw_data = &raw_layer.data;
 
             if raw_data.len() < 2 {
-                println!("Raw data too short");
+                debug!("Raw data too short");
                 return Ok(None);
             }
 
@@ -1216,7 +1215,7 @@ impl OsideSnmpSession {
                     cursor += 1;
 
                     if len_bytes == 0 || len_bytes > 4 || cursor + len_bytes > raw_data.len() {
-                        println!("Invalid length encoding");
+                        debug!("Invalid length encoding");
                         return Ok(None);
                     }
 
@@ -1228,27 +1227,27 @@ impl OsideSnmpSession {
                     len
                 };
 
-                println!(
+                debug!(
                     "OCTET STRING content length: {}, starts at offset: {}",
                     content_length, cursor
                 );
 
                 if cursor + content_length <= raw_data.len() {
                     let encrypted_content = raw_data[cursor..cursor + content_length].to_vec();
-                    println!(
+                    debug!(
                         "Extracted encrypted content: {} bytes",
                         encrypted_content.len()
                     );
-                    println!(
+                    debug!(
                         "Encrypted content: {:02x?}",
                         &encrypted_content[0..std::cmp::min(50, encrypted_content.len())]
                     );
                     return Ok(Some(encrypted_content));
                 } else {
-                    println!("Content length exceeds available data");
+                    debug!("Content length exceeds available data");
                 }
             } else {
-                println!(
+                debug!(
                     "Raw data doesn't start with OCTET STRING tag, found: 0x{:02x}",
                     raw_data[0]
                 );
@@ -1260,34 +1259,34 @@ impl OsideSnmpSession {
 
         // Fallback: try to extract manually from the response bytes
         let response_bytes = response.clone().lencode();
-        println!("Total response length: {}", response_bytes.len());
+        debug!("Total response length: {}", response_bytes.len());
 
         if let Some(encrypted_start) = self.find_encrypted_data_offset_v2(&response_bytes) {
             let encrypted_data = response_bytes[encrypted_start..].to_vec();
-            println!(
+            debug!(
                 "Extracted encrypted data from offset {}: {} bytes",
                 encrypted_start,
                 encrypted_data.len()
             );
-            println!(
+            debug!(
                 "Encrypted data: {:02x?}",
                 &encrypted_data[0..std::cmp::min(50, encrypted_data.len())]
             );
             return Ok(Some(encrypted_data));
         }
 
-        println!("No encrypted data found");
+        debug!("No encrypted data found");
         Ok(None)
     }
 
     /// Improved method to find encrypted data offset
     fn find_encrypted_data_offset_v2(&self, encoded: &[u8]) -> Option<usize> {
-        println!("=== PARSING MESSAGE STRUCTURE ===");
+        debug!("=== PARSING MESSAGE STRUCTURE ===");
         let mut cursor = 0;
 
         // Parse outer SEQUENCE
         if encoded.len() < 2 || encoded[0] != 0x30 {
-            println!("Not a valid SEQUENCE");
+            debug!("Not a valid SEQUENCE");
             return None;
         }
         cursor += 1;
@@ -1311,32 +1310,32 @@ impl OsideSnmpSession {
             len
         };
 
-        println!("Outer SEQUENCE length: {}", outer_len);
+        debug!("Outer SEQUENCE length: {}", outer_len);
 
         // Skip version (INTEGER 3)
         if cursor >= encoded.len() || encoded[cursor] != 0x02 {
-            println!("Version not found at position {}", cursor);
+            debug!("Version not found at position {}", cursor);
             return None;
         }
         cursor += 1; // tag
         cursor += 1; // length (should be 1)
         cursor += 1; // value (should be 3)
-        println!("Skipped version, now at position: {}", cursor);
+        debug!("Skipped version, now at position: {}", cursor);
 
         // Skip msgGlobalData SEQUENCE (msgID, msgMaxSize, msgFlags, msgSecurityModel)
         if cursor >= encoded.len() || encoded[cursor] != 0x30 {
-            println!("msgGlobalData SEQUENCE not found at position {}", cursor);
+            debug!("msgGlobalData SEQUENCE not found at position {}", cursor);
             return None;
         }
         cursor += 1; // tag
         let global_len = encoded[cursor] as usize;
         cursor += 1; // length
         cursor += global_len; // skip content
-        println!("Skipped msgGlobalData, now at position: {}", cursor);
+        debug!("Skipped msgGlobalData, now at position: {}", cursor);
 
         // Skip msgSecurityParameters (OCTET STRING containing USM parameters)
         if cursor >= encoded.len() || encoded[cursor] != 0x04 {
-            println!("msgSecurityParameters not found at position {}", cursor);
+            debug!("msgSecurityParameters not found at position {}", cursor);
             return None;
         }
         cursor += 1; // tag
@@ -1360,14 +1359,14 @@ impl OsideSnmpSession {
             len
         };
 
-        println!("Security parameters length: {}", sec_params_len);
+        debug!("Security parameters length: {}", sec_params_len);
         cursor += sec_params_len; // Skip security parameters content
-        println!("Skipped security parameters, now at position: {}", cursor);
+        debug!("Skipped security parameters, now at position: {}", cursor);
 
         // Now we should be at the encrypted scoped PDU (OCTET STRING)
         if cursor < encoded.len() {
             if encoded[cursor] == 0x04 {
-                println!(
+                debug!(
                     "Found OCTET STRING (encrypted data) at position: {}",
                     cursor
                 );
@@ -1392,13 +1391,13 @@ impl OsideSnmpSession {
                     len
                 };
 
-                println!(
+                debug!(
                     "Encrypted data length: {}, starts at position: {}",
                     encrypted_len, cursor
                 );
                 return Some(cursor);
             } else {
-                println!(
+                debug!(
                     "Expected OCTET STRING but found tag: 0x{:02x}",
                     encoded[cursor]
                 );
@@ -1414,7 +1413,7 @@ impl OsideSnmpSession {
             match &snmpv3.msg_security_parameters.value() {
                 SnmpV3SecurityParameters::Usm(usm_params) => {
                     let priv_params = usm_params.msg_privacy_parameters.value().as_vec().clone();
-                    println!("Extracted privacy parameters: {:02x?}", priv_params);
+                    debug!("Extracted privacy parameters: {:02x?}", priv_params);
                     Ok(priv_params)
                 }
                 _ => Err("No USM parameters found in response".into()),
@@ -1432,16 +1431,16 @@ impl OsideSnmpSession {
         usm_config: &UsmConfig,
         server_engine_time: u32,
     ) -> Result<SnmpV3ScopedPdu, Box<dyn Error>> {
-        println!("=== DECRYPTION COMPARISON DEBUG ===");
-        println!("Encrypted data length: {}", encrypted_data.len());
-        println!("Privacy params (received salt): {:02x?}", privacy_params);
+        debug!("=== DECRYPTION COMPARISON DEBUG ===");
+        debug!("Encrypted data length: {}", encrypted_data.len());
+        debug!("Privacy params (received salt): {:02x?}", privacy_params);
 
         // Derive the privacy key - use the SAME method as encryption
         let priv_key = usm_config
             .priv_key()
             .map_err(|e| format!("Failed to derive privacy key: {}", e))?;
 
-        println!("Privacy key (16 bytes): {:02x?}", priv_key);
+        debug!("Privacy key (16 bytes): {:02x?}", priv_key);
 
         // Extract salt - should be the full 8 bytes from privacy_params
         let salt = if privacy_params.len() >= 8 {
@@ -1450,7 +1449,7 @@ impl OsideSnmpSession {
             privacy_params
         };
 
-        println!("Using salt (8 bytes): {:02x?}", salt);
+        debug!("Using salt (8 bytes): {:02x?}", salt);
 
         // Calculate IV using the SAME method as encryption
         let iv = match usm_config.priv_algorithm {
@@ -1465,13 +1464,13 @@ impl OsideSnmpSession {
                 for i in 0..8 {
                     iv[i] = salt[i] ^ pre_iv[i];
                 }
-                println!("Pre-IV (last 8 bytes of priv key): {:02x?}", pre_iv);
-                println!("Calculated IV for decryption: {:02x?}", iv);
+                debug!("Pre-IV (last 8 bytes of priv key): {:02x?}", pre_iv);
+                debug!("Calculated IV for decryption: {:02x?}", iv);
                 iv
             }
             usm_crypto::PrivAlgorithm::Aes128 => {
-                println!("=== DECRYPTION WITH SERVER ENGINE TIME ===");
-                println!("Server engine time: {}", server_engine_time);
+                debug!("=== DECRYPTION WITH SERVER ENGINE TIME ===");
+                debug!("Server engine time: {}", server_engine_time);
 
                 // For AES: use the calculate_iv method
                 usm_config
@@ -1485,11 +1484,11 @@ impl OsideSnmpSession {
         // Use only the first 8 bytes of privacy key for DES
         let encryption_key = match &usm_config.priv_algorithm {
             usm_crypto::PrivAlgorithm::DesCbc => {
-                println!("Encryption key (first 8 bytes for des)");
+                debug!("Encryption key (first 8 bytes for des)");
                 &priv_key[0..8]
             }
             usm_crypto::PrivAlgorithm::Aes128 => {
-                println!("Encryption key (first 16 bytes for aes)");
+                debug!("Encryption key (first 16 bytes for aes)");
                 &priv_key[0..16]
             }
             x => {
@@ -1500,14 +1499,14 @@ impl OsideSnmpSession {
                 .into())
             }
         };
-        println!("Encryption key as per above: {:02x?}", encryption_key);
+        debug!("Encryption key as per above: {:02x?}", encryption_key);
 
         // Compare with what we used during encryption
-        println!("=== COMPARISON WITH ENCRYPTION ===");
-        println!("During decryption we're using:");
-        println!("  Salt: {:02x?}", salt);
-        println!("  IV:   {:02x?}", iv);
-        println!("  Key:  {:02x?}", encryption_key);
+        debug!("=== COMPARISON WITH ENCRYPTION ===");
+        debug!("During decryption we're using:");
+        debug!("  Salt: {:02x?}", salt);
+        debug!("  IV:   {:02x?}", iv);
+        debug!("  Key:  {:02x?}", encryption_key);
 
         // Decrypt the data
         let decrypted_data = usm_config
@@ -1515,16 +1514,16 @@ impl OsideSnmpSession {
             .decrypt(encryption_key, &iv, encrypted_data)
             .map_err(|e| format!("Decryption failed: {}", e))?;
 
-        println!("=== DECRYPTION DEBUG ===");
-        println!("Encrypted data length: {}", encrypted_data.len());
-        println!("Privacy params (salt): {:02x?}", privacy_params);
+        debug!("=== DECRYPTION DEBUG ===");
+        debug!("Encrypted data length: {}", encrypted_data.len());
+        debug!("Privacy params (salt): {:02x?}", privacy_params);
 
         // Derive the privacy key
         let priv_key = usm_config
             .priv_key()
             .map_err(|e| format!("Failed to derive privacy key: {}", e))?;
 
-        println!("Privacy key: {:02x?}", priv_key);
+        debug!("Privacy key: {:02x?}", priv_key);
 
         // For DES, we need to extract the salt from privacy parameters
         // and calculate the IV correctly
@@ -1534,7 +1533,7 @@ impl OsideSnmpSession {
             privacy_params
         };
 
-        println!("Using salt: {:02x?}", salt);
+        debug!("Using salt: {:02x?}", salt);
 
         // Calculate the IV based on the privacy algorithm
         let iv = match usm_config.priv_algorithm {
@@ -1561,7 +1560,7 @@ impl OsideSnmpSession {
             _ => return Err("Unsupported privacy algorithm".into()),
         };
 
-        println!("Calculated IV: {:02x?}", iv);
+        debug!("Calculated IV: {:02x?}", iv);
 
         // For DES, we only use the first 8 bytes of the privacy key
         let encryption_key = match usm_config.priv_algorithm {
@@ -1570,7 +1569,7 @@ impl OsideSnmpSession {
             _ => return Err("Unsupported privacy algorithm".into()),
         };
 
-        println!("Encryption key: {:02x?}", encryption_key);
+        debug!("Encryption key: {:02x?}", encryption_key);
 
         // Decrypt the data
         let decrypted_data = usm_config
@@ -1578,28 +1577,28 @@ impl OsideSnmpSession {
             .decrypt(encryption_key, &iv, encrypted_data)
             .map_err(|e| format!("Decryption failed: {}", e))?;
 
-        println!("Decrypted data length: {}", decrypted_data.len());
-        println!("Decrypted data: {:02x?}", &decrypted_data);
+        debug!("Decrypted data length: {}", decrypted_data.len());
+        debug!("Decrypted data: {:02x?}", &decrypted_data);
 
         // Parse the decrypted data as a scoped PDU
         if let Some((scoped_pdu, consumed)) =
             SnmpV3ScopedPdu::decode::<Asn1Decoder>(&decrypted_data)
         {
-            println!(
+            debug!(
                 "Successfully decoded scoped PDU from decrypted data (consumed {} bytes)",
                 consumed
             );
             Ok(scoped_pdu)
         } else {
-            println!("Failed to decode scoped PDU, trying to parse ASN.1 structure manually");
+            debug!("Failed to decode scoped PDU, trying to parse ASN.1 structure manually");
 
             // Try to understand what we got
             if decrypted_data.len() > 0 {
-                println!("First byte: 0x{:02x}", decrypted_data[0]);
+                debug!("First byte: 0x{:02x}", decrypted_data[0]);
                 if decrypted_data[0] == 0x30 {
-                    println!("Starts with SEQUENCE tag, this looks promising");
+                    debug!("Starts with SEQUENCE tag, this looks promising");
                 } else {
-                    println!("Does not start with SEQUENCE tag");
+                    debug!("Does not start with SEQUENCE tag");
                 }
             }
 
