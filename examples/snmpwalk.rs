@@ -252,6 +252,31 @@ struct SnmpWalker {
 }
 
 impl SnmpWalker {
+    fn create_verification_message(
+        &self,
+        response: &oside::LayerStack,
+        usm_config: &UsmConfig,
+    ) -> Result<Vec<u8>, String> {
+        // Try to reconstruct the message with zero auth params
+        // This is a simplified approach - we'll need to build this properly
+
+        // For now, let's try to manually construct the message structure
+        // This is complex and may need framework support
+
+        // Fallback: return the original message (this won't work for auth, but helps debugging)
+        Ok(response.clone().lencode())
+    }
+
+    fn print_hex_dump(&self, data: &[u8]) {
+        for (i, chunk) in data.chunks(16).enumerate() {
+            print!("{:04x}: ", i * 16);
+            for byte in chunk {
+                print!("{:02x} ", byte);
+            }
+            println!();
+        }
+    }
+
     fn new(config: SnmpWalkConfig) -> Result<Self, Box<dyn Error>> {
         let socket = UdpSocket::bind("0.0.0.0:0")?;
         let target_addr = format!("{}:{}", config.target_host, config.port);
@@ -559,6 +584,10 @@ impl SnmpWalker {
             .ldecode(&buf[0..len])
             .ok_or("Failed to decode SNMP response")?
             .0;
+
+        if response.clone().lencode() != buf[0..len] {
+            println!("encode/decode sanity check fail!");
+        }
 
         Ok(response)
     }
@@ -1076,7 +1105,6 @@ impl SnmpWalker {
         }
     }
 
-    /// Verify authentication of the response (lenient for responses)
     fn verify_authentication(
         &self,
         response: &oside::LayerStack,
@@ -1084,10 +1112,46 @@ impl SnmpWalker {
     ) -> Result<(), String> {
         println!("=== AUTHENTICATION VERIFICATION DEBUG ===");
 
+        // First, let's see the raw response bytes
+        let original_response_bytes = response.clone().lencode();
+        println!(
+            "Original response bytes length: {}",
+            original_response_bytes.len()
+        );
+        println!(
+            "Original response bytes: {:02x?}",
+            &original_response_bytes[0..std::cmp::min(100, original_response_bytes.len())]
+        );
+
         // Extract USM parameters from the response
         if let Some(snmpv3) = response.get_layer(SnmpV3::new()) {
+            println!("Found SNMPv3 layer");
+            println!("SNMPv3 msg_id: {:?}", snmpv3.msg_id);
+            println!(
+                "SNMPv3 msg_flags: {:02x?}",
+                snmpv3.msg_flags.value().as_vec()
+            );
+
             match &snmpv3.msg_security_parameters.value() {
                 SnmpV3SecurityParameters::Usm(usm_params) => {
+                    println!("Found USM parameters");
+                    println!(
+                        "Engine ID: {:02x?}",
+                        usm_params.msg_authoritative_engine_id.value().as_vec()
+                    );
+                    println!(
+                        "Engine boots: {}",
+                        usm_params.msg_authoritative_engine_boots.value()
+                    );
+                    println!(
+                        "Engine time: {}",
+                        usm_params.msg_authoritative_engine_time.value()
+                    );
+                    println!(
+                        "User name: {:?}",
+                        String::from_utf8_lossy(usm_params.msg_user_name.value().as_vec())
+                    );
+
                     let param_val = usm_params.msg_authentication_parameters.value();
                     let received_auth_params = param_val.as_vec();
 
@@ -1100,54 +1164,130 @@ impl SnmpWalker {
                         ));
                     }
 
-                    // Get the raw response bytes instead of re-encoding
-                    let response_bytes = response.clone().lencode();
-                    println!("Response message length: {}", response_bytes.len());
-
-                    // Create a copy for verification with auth params zeroed
-                    let mut message_for_verification = response_bytes.clone();
-
-                    // Find and zero out the auth params in the message
+                    // Method 1: Try to manually find and replace auth params in raw bytes
+                    println!("\n=== METHOD 1: Manual byte replacement ===");
+                    let mut message_for_verification_v1 = original_response_bytes.clone();
                     let zero_auth_params = vec![0u8; 12];
+
                     if let Some(pos) =
-                        find_subsequence(&message_for_verification, received_auth_params)
+                        find_subsequence(&message_for_verification_v1, received_auth_params)
                     {
                         println!("Found auth params at position: {}", pos);
-                        message_for_verification[pos..pos + 12].copy_from_slice(&zero_auth_params);
+                        message_for_verification_v1[pos..pos + 12]
+                            .copy_from_slice(&zero_auth_params);
+                        println!("Replaced auth params with zeros");
                     } else {
-                        println!(
-                            "Could not locate auth params in message, trying alternative approach"
-                        );
-                        // For responses, sometimes the structure is different, skip verification for now
-                        println!("WARNING: Skipping authentication verification for response");
-                        return Ok(());
+                        println!("Could not find auth params in message bytes!");
+                        // Let's try to find them by looking for the pattern around them
+                        for i in 0..message_for_verification_v1.len().saturating_sub(12) {
+                            if &message_for_verification_v1[i..i + 12] == received_auth_params {
+                                println!(
+                                    "Found auth params at position {} (alternative search)",
+                                    i
+                                );
+                                message_for_verification_v1[i..i + 12]
+                                    .copy_from_slice(&zero_auth_params);
+                                break;
+                            }
+                        }
                     }
 
-                    // Calculate expected auth params
+                    // Method 2: Re-encode with modified structure
+                    println!("\n=== METHOD 2: Re-encode with modified structure ===");
+                    let mut verification_response = response.clone();
+
+                    // Traverse all layers to find and modify USM params
+                    for layer_idx in 0..verification_response.layers.len() {
+                        if let Some(layer) = verification_response.layers.get_mut(layer_idx) {
+                            // This is pseudocode - we need to find the actual way to modify layers
+                            println!(
+                                "Checking layer {}: {:?}",
+                                layer_idx,
+                                std::any::type_name_of_val(layer)
+                            );
+                        }
+                    }
+
+                    // Let's manually create a new message with zero auth params
+                    let message_for_verification_v2 =
+                        self.create_verification_message(response, usm_config)?;
+
+                    // Calculate auth key
                     let auth_key = usm_config
                         .auth_key()
                         .map_err(|e| format!("Failed to derive auth key: {}", e))?;
 
-                    println!("Auth key for verification: {:02x?}", auth_key);
+                    println!("\nAuth configuration:");
+                    println!("Auth algorithm: {:?}", usm_config.auth_algorithm);
+                    println!("Auth key: {:02x?}", auth_key);
+                    println!("Engine ID: {:02x?}", usm_config.engine_id);
 
-                    let expected_auth_params = usm_config
+                    // Test both methods
+                    println!("\n=== TESTING METHOD 1 ===");
+                    let expected_auth_params_v1 = usm_config
                         .auth_algorithm
-                        .generate_auth_params(&auth_key, &message_for_verification)
-                        .map_err(|e| format!("Failed to generate auth params: {}", e))?;
+                        .generate_auth_params(&auth_key, &message_for_verification_v1)
+                        .map_err(|e| format!("Failed to generate auth params v1: {}", e))?;
 
-                    println!("Expected auth params: {:02x?}", expected_auth_params);
-                    println!("Received auth params: {:02x?}", received_auth_params);
+                    println!(
+                        "Method 1 - Message length: {}",
+                        message_for_verification_v1.len()
+                    );
+                    println!(
+                        "Method 1 - Expected auth params: {:02x?}",
+                        expected_auth_params_v1
+                    );
+                    println!(
+                        "Method 1 - Match: {}",
+                        received_auth_params == &expected_auth_params_v1
+                    );
 
-                    // Compare
-                    if received_auth_params == &expected_auth_params {
+                    println!("\n=== TESTING METHOD 2 ===");
+                    let expected_auth_params_v2 = usm_config
+                        .auth_algorithm
+                        .generate_auth_params(&auth_key, &message_for_verification_v2)
+                        .map_err(|e| format!("Failed to generate auth params v2: {}", e))?;
+
+                    println!(
+                        "Method 2 - Message length: {}",
+                        message_for_verification_v2.len()
+                    );
+                    println!(
+                        "Method 2 - Expected auth params: {:02x?}",
+                        expected_auth_params_v2
+                    );
+                    println!(
+                        "Method 2 - Match: {}",
+                        received_auth_params == &expected_auth_params_v2
+                    );
+
+                    // Let's also see the hex dump comparison
+                    println!("\n=== HEX DUMP COMPARISON ===");
+                    println!("Original first 64 bytes:");
+                    self.print_hex_dump(
+                        &original_response_bytes
+                            [0..std::cmp::min(64, original_response_bytes.len())],
+                    );
+                    println!("Method 1 first 64 bytes:");
+                    self.print_hex_dump(
+                        &message_for_verification_v1
+                            [0..std::cmp::min(64, message_for_verification_v1.len())],
+                    );
+                    println!("Method 2 first 64 bytes:");
+                    self.print_hex_dump(
+                        &message_for_verification_v2
+                            [0..std::cmp::min(64, message_for_verification_v2.len())],
+                    );
+
+                    // For now, accept either method that works
+                    if received_auth_params == &expected_auth_params_v1
+                        || received_auth_params == &expected_auth_params_v2
+                    {
                         println!("Authentication verification PASSED");
                         Ok(())
                     } else {
-                        println!("Authentication verification FAILED - parameter mismatch");
-                        // For now, let's be lenient with response verification
-                        // In production you might want to fail here
-                        println!("WARNING: Proceeding despite auth verification failure");
-                        Ok(())
+                        println!("Authentication verification FAILED - both methods failed");
+                        Ok(()) // Still being lenient for debugging
                     }
                 }
                 _ => Err("No USM parameters in response".to_string()),
@@ -1156,7 +1296,6 @@ impl SnmpWalker {
             Err("No SNMPv3 layer found".to_string())
         }
     }
-
     /// Extract encrypted data from the response using Raw layer
     fn extract_encrypted_data(
         &self,
