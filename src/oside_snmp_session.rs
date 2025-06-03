@@ -1,13 +1,13 @@
 use std::error::Error;
 use std::net::UdpSocket;
-use std::time::Duration;
 use std::str::FromStr;
+use std::time::Duration;
 
+use crate::encdec::asn1;
+use crate::encdec::asn1::Asn1Decoder;
+use crate::encdec::asn1::Asn1Encoder;
 use crate::protocols::all::raw;
 use crate::protocols::snmp::usm_crypto;
-use crate::encdec::asn1;
-use crate::encdec::asn1::Asn1Encoder;
-use crate::encdec::asn1::Asn1Decoder;
 
 use crate::Decode;
 use crate::New;
@@ -96,12 +96,12 @@ impl OsideSnmpSession {
         println!("----------------------------------------");
 
         loop {
-            let response =
-                if self.config.use_getbulk { // && matches!(self.config.version, SnmpVersion::V2c(_)) {
-                    self.send_getbulk_request(&current_oid)?
-                } else {
-                    self.send_getnext_request(&current_oid)?
-                };
+            let response = if self.config.use_getbulk {
+                // && matches!(self.config.version, SnmpVersion::V2c(_)) {
+                self.send_getbulk_request(&current_oid)?
+            } else {
+                self.send_getnext_request(&current_oid)?
+            };
 
             // Use the new extraction method
             let (found_next, next_oid, batch_count) =
@@ -414,10 +414,7 @@ impl OsideSnmpSession {
         self.send_request(request)
     }
 
-    fn send_request(
-        &mut self,
-        request: LayerStack,
-    ) -> Result<LayerStack, Box<dyn Error>> {
+    fn send_request(&mut self, request: LayerStack) -> Result<LayerStack, Box<dyn Error>> {
         let encoded = request.lencode();
 
         // Send request
@@ -802,8 +799,7 @@ impl OsideSnmpSession {
 
         // Create USM context and encode
         let mut usm_context = UsmEncodingContext::new(usm_config.clone())?;
-        let encoded =
-            stack.encode_with_usm::<Asn1Encoder>(&mut usm_context)?;
+        let encoded = stack.encode_with_usm::<Asn1Encoder>(&mut usm_context)?;
 
         Ok(encoded)
     }
@@ -1413,10 +1409,7 @@ impl OsideSnmpSession {
     }
 
     /// Extract privacy parameters (salt/IV) from USM security parameters
-    fn extract_privacy_params(
-        &self,
-        response: &LayerStack,
-    ) -> Result<Vec<u8>, Box<dyn Error>> {
+    fn extract_privacy_params(&self, response: &LayerStack) -> Result<Vec<u8>, Box<dyn Error>> {
         if let Some(snmpv3) = response.get_layer(SnmpV3::new()) {
             match &snmpv3.msg_security_parameters.value() {
                 SnmpV3SecurityParameters::Usm(usm_params) => {

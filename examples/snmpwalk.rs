@@ -324,12 +324,12 @@ impl SnmpWalker {
         println!("----------------------------------------");
 
         loop {
-            let response =
-                if self.config.use_getbulk { // && matches!(self.config.version, SnmpVersion::V2c(_)) {
-                    self.send_getbulk_request(&current_oid)?
-                } else {
-                    self.send_getnext_request(&current_oid)?
-                };
+            let response = if self.config.use_getbulk {
+                // && matches!(self.config.version, SnmpVersion::V2c(_)) {
+                self.send_getbulk_request(&current_oid)?
+            } else {
+                self.send_getnext_request(&current_oid)?
+            };
 
             // Use the new extraction method
             let (found_next, next_oid, batch_count) =

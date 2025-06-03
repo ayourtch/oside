@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use oside::protocols::snmp::usm_crypto::{AuthAlgorithm, PrivAlgorithm};
 
-use oside::oside_snmp_session::{OsideSnmpSession, SnmpWalkConfig, SnmpVersion};
+use oside::oside_snmp_session::{OsideSnmpSession, SnmpVersion, SnmpWalkConfig};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
