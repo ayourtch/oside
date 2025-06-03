@@ -3950,133 +3950,69 @@ pub mod usm_crypto {
         pub fn decrypt(&self, key: &[u8], iv: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, String> {
             match self {
                 PrivAlgorithm::None => Ok(ciphertext.to_vec()),
-                PrivAlgorithm::DesCbc => {
-                    use cbc::Decryptor;
-                    use cipher::{BlockDecryptMut, KeyIvInit};
-                    use des::Des;
+PrivAlgorithm::DesCbc => {
+            use cbc::Decryptor;
+            use cipher::{BlockDecryptMut, KeyIvInit};
+            use des::Des;
 
-                    type DesCbcDec = Decryptor<Des>;
+            type DesCbcDec = Decryptor<Des>;
 
-                    println!("=== DES DECRYPTION DEBUG ===");
-                    println!("Key (8 bytes): {:02x?}", &key[..8]);
-                    println!("IV (8 bytes): {:02x?}", iv);
-                    println!("Ciphertext length: {}", ciphertext.len());
-                    println!(
-                        "Ciphertext first 16 bytes: {:02x?}",
-                        &ciphertext[0..std::cmp::min(16, ciphertext.len())]
-                    );
+            println!("=== DES DECRYPTION DEBUG ===");
+            println!("Key (8 bytes): {:02x?}", &key[..8]);
+            println!("IV (8 bytes): {:02x?}", iv);
+            println!("Ciphertext length: {}", ciphertext.len());
 
-                    if key.len() < 8 {
-                        return Err("DES key must be at least 8 bytes".to_string());
-                    }
-                    if iv.len() != 8 {
-                        return Err("DES IV must be exactly 8 bytes".to_string());
-                    }
-                    if ciphertext.len() % 8 != 0 {
-                        return Err("DES ciphertext length must be multiple of 8".to_string());
-                    }
+            if key.len() < 8 {
+                return Err("DES key must be at least 8 bytes".to_string());
+            }
+            if iv.len() != 8 {
+                return Err("DES IV must be exactly 8 bytes".to_string());
+            }
+            if ciphertext.len() % 8 != 0 {
+                return Err("DES ciphertext length must be multiple of 8".to_string());
+            }
 
-                    let cipher = DesCbcDec::new_from_slices(&key[..8], iv)
-                        .map_err(|e| format!("Failed to create DES cipher: {:?}", e))?;
+            let cipher = DesCbcDec::new_from_slices(&key[..8], iv)
+                .map_err(|e| format!("Failed to create DES cipher: {:?}", e))?;
 
-                    let mut plaintext = ciphertext.to_vec();
-
-                    println!("Before decryption - buffer length: {}", plaintext.len());
-
-                    // First try with padding validation
-                    match cipher.decrypt_padded_mut::<cipher::block_padding::Pkcs7>(&mut plaintext)
-                    {
-                        Ok(decrypted_data) => {
-                            println!(
-                                "Decryption successful - plaintext length: {}",
-                                decrypted_data.len()
-                            );
-                            println!(
-                                "Plaintext first 16 bytes: {:02x?}",
-                                &decrypted_data[0..std::cmp::min(16, decrypted_data.len())]
-                            );
-                            return Ok(decrypted_data.to_vec());
-                        }
-                        Err(e) => {
-                            println!("DES decryption with PKCS7 padding failed: {:?}", e);
-
-                            // Now let's see what the raw decrypted data looks like
-                            let mut raw_buffer = ciphertext.to_vec();
-                            let mut cipher_raw = DesCbcDec::new_from_slices(&key[..8], iv).unwrap();
-
-                            // Decrypt each 8-byte block manually to see raw output
-                            for (i, chunk) in raw_buffer.chunks_exact_mut(8).enumerate() {
-                                let block =
-                                    cipher::generic_array::GenericArray::from_mut_slice(chunk);
-                                cipher_raw.decrypt_block_mut(block);
-
-                                if i < 4 {
-                                    // Show first few blocks
-                                    println!("Block {} decrypted: {:02x?}", i, chunk);
-                                }
-                            }
-
-                            println!("Raw decrypted data length: {}", raw_buffer.len());
-                            println!(
-                                "Raw first 32 bytes: {:02x?}",
-                                &raw_buffer[0..std::cmp::min(32, raw_buffer.len())]
-                            );
-                            println!(
-                                "Raw last 16 bytes: {:02x?}",
-                                &raw_buffer[raw_buffer.len().saturating_sub(16)..]
-                            );
-
-                            // Check what the last few bytes look like (for padding analysis)
-                            if raw_buffer.len() >= 8 {
-                                let last_8 = &raw_buffer[raw_buffer.len() - 8..];
-                                println!("Last 8 bytes: {:02x?}", last_8);
-                                if let Some(&last_byte) = last_8.last() {
-                                    println!(
-                                        "Last byte value: {} (0x{:02x})",
-                                        last_byte, last_byte
-                                    );
-                                    if last_byte > 0 && last_byte <= 8 {
-                                        println!("If this were PKCS7 padding, we'd expect {} bytes of value {}", last_byte, last_byte);
-                                        if raw_buffer.len() >= last_byte as usize {
-                                            let padding_start =
-                                                raw_buffer.len() - last_byte as usize;
-                                            let potential_padding = &raw_buffer[padding_start..];
-                                            println!(
-                                                "Potential padding bytes: {:02x?}",
-                                                potential_padding
-                                            );
-
-                                            // Check if it's valid PKCS7
-                                            let is_valid_pkcs7 =
-                                                potential_padding.iter().all(|&b| b == last_byte);
-                                            println!("Would be valid PKCS7: {}", is_valid_pkcs7);
-
-                                            if is_valid_pkcs7 {
-                                                println!("Manual PKCS7 validation PASSED");
-                                                let unpadded = raw_buffer[..padding_start].to_vec();
-                                                println!(
-                                                    "Unpadded data length: {}",
-                                                    unpadded.len()
-                                                );
-                                                println!(
-                                                    "Unpadded first 32 bytes: {:02x?}",
-                                                    &unpadded[0..std::cmp::min(32, unpadded.len())]
-                                                );
-                                                return Ok(unpadded);
-                                            } else {
-                                                println!("Manual PKCS7 validation FAILED - inconsistent padding bytes");
-                                            }
-                                        }
-                                    } else {
-                                        println!("Manual PKCS7 validation FAILED - invalid padding length: {}", last_byte);
-                                    }
-                                }
-                            }
-
-                            return Err(format!("DES decryption failed: {:?}", e));
-                        }
-                    }
+            let mut plaintext = ciphertext.to_vec();
+            
+            // First try with PKCS7 padding
+            match cipher.decrypt_padded_mut::<cipher::block_padding::Pkcs7>(&mut plaintext) {
+                Ok(decrypted_data) => {
+                    println!("PKCS7 padding decryption succeeded");
+                    return Ok(decrypted_data.to_vec());
                 }
+                Err(_) => {
+                    println!("PKCS7 padding failed, trying raw decryption...");
+                }
+            }
+
+            // Fallback: Raw decryption without padding validation
+            let mut raw_buffer = ciphertext.to_vec();
+            let mut cipher_raw = DesCbcDec::new_from_slices(&key[..8], iv).unwrap();
+            
+            // Decrypt each 8-byte block manually
+            for chunk in raw_buffer.chunks_exact_mut(8) {
+                let block = cipher::generic_array::GenericArray::from_mut_slice(chunk);
+                cipher_raw.decrypt_block_mut(block);
+            }
+            
+            println!("Raw decryption completed");
+            println!("Raw data first 32 bytes: {:02x?}", &raw_buffer[0..std::cmp::min(32, raw_buffer.len())]);
+            
+            // Check if this looks like valid ASN.1 data
+            if raw_buffer.len() >= 2 && raw_buffer[0] == 0x30 {
+                println!("Detected ASN.1 SEQUENCE start - likely valid decryption");
+                
+                // Try to find the actual end of data by looking for ASN.1 structure
+                // For now, just return the raw data and let the ASN.1 parser handle it
+                println!("Returning raw decrypted data without padding removal");
+                return Ok(raw_buffer);
+            }
+            
+            Err("Raw decryption didn't produce valid ASN.1 data".to_string())
+        }
                 PrivAlgorithm::Aes128 => {
                     use aes::Aes128;
                     use cfb_mode::Decryptor;
