@@ -90,9 +90,10 @@ impl OsideSnmpSession {
         })
     }
 
-    pub fn walk(&mut self) -> Result<(), Box<dyn Error>> {
+    pub fn walk(&mut self) -> Result<Vec<SnmpVarBind>, Box<dyn Error>> {
         let mut current_oid = self.config.starting_oid.clone();
         let mut results_count = 0;
+        let mut results = vec![];
 
         println!("Walking from OID: {}", current_oid);
         println!("----------------------------------------");
@@ -109,6 +110,7 @@ impl OsideSnmpSession {
             let (found_next, next_oid, bindings) = self.extract_and_process_bindings(&response)?;
 
             results_count += bindings.len();
+            results.extend(bindings);
 
             if !found_next {
                 debug!("No more OIDs found");
@@ -125,7 +127,7 @@ impl OsideSnmpSession {
 
         println!("----------------------------------------");
         println!("Walk completed. Total results: {}", results_count);
-        Ok(())
+        Ok(results)
     }
 
     fn create_verification_message(
