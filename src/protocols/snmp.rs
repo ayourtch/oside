@@ -1864,6 +1864,135 @@ impl SnmpV3 {
             Err("No USM parameters found".to_string())
         }
     }
+
+    /// Create a new SNMPv3 GET request with no security
+    pub fn no_auth_get(oids: &Vec<&str>) -> Self {
+        let var_bindings = oids
+            .into_iter()
+            .map(|oid| SnmpVarBind {
+                _bind_tag_len: Value::Auto,
+                name: Value::Set(BerOid::from_str(oid).unwrap_or_default()),
+                value: Value::Set(SnmpValue::Null),
+            })
+            .collect();
+
+        let scoped_pdu = SnmpV3ScopedPdu {
+            _scoped_pdu_seq_tag_len: Value::Auto,
+            context_engine_id: Value::Set(ByteArray::from(vec![])),
+            context_name: Value::Set(ByteArray::from(vec![])),
+            pdu: Value::Set(SnmpV3Pdu::Get(SnmpGetOrResponse {
+                request_id: Value::Set(rand::random()),
+                error_status: Value::Set(0),
+                error_index: Value::Set(0),
+                _bindings_tag_len: Value::Auto,
+                var_bindings,
+            })),
+        };
+
+        SnmpV3 {
+            _seq_tag_len_v3: Value::Auto,
+            msg_id: Value::Set(rand::random()),
+            msg_max_size: Value::Set(65507),
+            msg_flags: SnmpV3::flags(0), // Value::Set(0),          // No auth, no priv
+            msg_security_model: Value::Set(3), // USM
+            msg_security_parameters: SnmpV3::default_security(),
+        }
+    }
+
+    /// Create a new SNMPv3 GET request with USM authentication
+    pub fn usm_auth_get(user_name: &str, engine_id: &[u8], oids: &Vec<&str>) -> Self {
+        let mut snmp = Self::no_auth_get(oids);
+        snmp = snmp.with_usm_auth(user_name, vec![]); // Empty auth params for now
+
+        // Set the engine ID
+        if let Value::Set(SnmpV3SecurityParameters::Usm(ref mut usm)) =
+            &mut snmp.msg_security_parameters
+        {
+            usm.msg_authoritative_engine_id = Value::Set(ByteArray::from(engine_id));
+        }
+
+        snmp
+    }
+
+    /// Check if the message requires authentication
+    pub fn requires_auth(&self) -> bool {
+        (self.msg_flags.value()[0] & 0x01) != 0
+    }
+
+    /// Check if the message requires privacy (encryption)
+    pub fn requires_privacy(&self) -> bool {
+        (self.msg_flags.value()[0] & 0x02) != 0
+    }
+
+    /// Get the user name from USM security parameters
+    pub fn user_name(&self) -> Option<String> {
+        match &self.msg_security_parameters.value() {
+            SnmpV3SecurityParameters::Usm(usm) => {
+                Some(String::from_utf8_lossy(&usm.msg_user_name.value().0).to_string())
+            }
+            _ => None,
+        }
+    }
+
+    /// Create an SNMPv3 message with authentication
+    pub fn with_auth(user: &str, auth_alg: usm_crypto::AuthAlgorithm, password: &str) -> Self {
+        let mut snmp = SnmpV3::new();
+        snmp.set_authentication(true);
+
+        if let Value::Set(SnmpV3SecurityParameters::Usm(ref mut usm)) =
+            &mut snmp.msg_security_parameters
+        {
+            usm.msg_user_name = Value::Set(ByteArray::from(user.as_bytes()));
+            // Auth parameters will be filled during encoding
+            usm.msg_authentication_parameters =
+                Value::Set(ByteArray::from(vec![0u8; auth_alg.auth_param_length()]));
+        }
+
+        snmp
+    }
+
+    /// Create an SNMPv3 message with authentication and privacy
+    pub fn with_auth_priv(
+        user: &str,
+        auth_alg: usm_crypto::AuthAlgorithm,
+        auth_password: &str,
+        priv_alg: usm_crypto::PrivAlgorithm,
+        priv_password: &str,
+    ) -> Self {
+        let mut snmp = Self::with_auth(user, auth_alg, auth_password);
+        snmp.set_privacy(true);
+
+        // Privacy parameters will be filled during encoding
+        if let Value::Set(SnmpV3SecurityParameters::Usm(ref mut usm)) =
+            &mut snmp.msg_security_parameters
+        {
+            usm.msg_privacy_parameters = Value::Set(ByteArray::from(vec![0u8; 8]));
+            // DES/AES IV
+        }
+
+        snmp
+    }
+
+    /// Create SNMPv3 message from USM configuration
+    pub fn from_usm_config(config: &usm_crypto::UsmConfig) -> Self {
+        if config.has_priv() {
+            Self::with_auth_priv(
+                &config.user_name,
+                config.auth_algorithm.clone(),
+                config.auth_password.as_ref().unwrap(),
+                config.priv_algorithm.clone(),
+                config.priv_password.as_ref().unwrap(),
+            )
+        } else if config.has_auth() {
+            Self::with_auth(
+                &config.user_name,
+                config.auth_algorithm.clone(),
+                config.auth_password.as_ref().unwrap(),
+            )
+        } else {
+            SnmpV3::new()
+        }
+    }
 }
 
 // Error types for better error handling
@@ -2678,78 +2807,6 @@ impl Snmp {
         }
 
         stack.encode_with_usm::<crate::encdec::asn1::Asn1Encoder>(&mut usm_context)
-    }
-}
-
-// Add convenience methods for SNMPv3
-impl SnmpV3 {
-    /// Create a new SNMPv3 GET request with no security
-    pub fn no_auth_get(oids: &Vec<&str>) -> Self {
-        let var_bindings = oids
-            .into_iter()
-            .map(|oid| SnmpVarBind {
-                _bind_tag_len: Value::Auto,
-                name: Value::Set(BerOid::from_str(oid).unwrap_or_default()),
-                value: Value::Set(SnmpValue::Null),
-            })
-            .collect();
-
-        let scoped_pdu = SnmpV3ScopedPdu {
-            _scoped_pdu_seq_tag_len: Value::Auto,
-            context_engine_id: Value::Set(ByteArray::from(vec![])),
-            context_name: Value::Set(ByteArray::from(vec![])),
-            pdu: Value::Set(SnmpV3Pdu::Get(SnmpGetOrResponse {
-                request_id: Value::Set(rand::random()),
-                error_status: Value::Set(0),
-                error_index: Value::Set(0),
-                _bindings_tag_len: Value::Auto,
-                var_bindings,
-            })),
-        };
-
-        SnmpV3 {
-            _seq_tag_len_v3: Value::Auto,
-            msg_id: Value::Set(rand::random()),
-            msg_max_size: Value::Set(65507),
-            msg_flags: SnmpV3::flags(0), // Value::Set(0),          // No auth, no priv
-            msg_security_model: Value::Set(3), // USM
-            msg_security_parameters: SnmpV3::default_security(),
-        }
-    }
-
-    /// Create a new SNMPv3 GET request with USM authentication
-    pub fn usm_auth_get(user_name: &str, engine_id: &[u8], oids: &Vec<&str>) -> Self {
-        let mut snmp = Self::no_auth_get(oids);
-        snmp = snmp.with_usm_auth(user_name, vec![]); // Empty auth params for now
-
-        // Set the engine ID
-        if let Value::Set(SnmpV3SecurityParameters::Usm(ref mut usm)) =
-            &mut snmp.msg_security_parameters
-        {
-            usm.msg_authoritative_engine_id = Value::Set(ByteArray::from(engine_id));
-        }
-
-        snmp
-    }
-
-    /// Check if the message requires authentication
-    pub fn requires_auth(&self) -> bool {
-        (self.msg_flags.value()[0] & 0x01) != 0
-    }
-
-    /// Check if the message requires privacy (encryption)
-    pub fn requires_privacy(&self) -> bool {
-        (self.msg_flags.value()[0] & 0x02) != 0
-    }
-
-    /// Get the user name from USM security parameters
-    pub fn user_name(&self) -> Option<String> {
-        match &self.msg_security_parameters.value() {
-            SnmpV3SecurityParameters::Usm(usm) => {
-                Some(String::from_utf8_lossy(&usm.msg_user_name.value().0).to_string())
-            }
-            _ => None,
-        }
     }
 }
 
@@ -4003,69 +4060,6 @@ pub mod usm_crypto {
         /// Check if privacy is enabled
         pub fn has_priv(&self) -> bool {
             self.priv_algorithm != PrivAlgorithm::None && self.priv_password.is_some()
-        }
-    }
-}
-
-// Add these convenience methods to the SnmpV3 implementation
-impl SnmpV3 {
-    /// Create an SNMPv3 message with authentication
-    pub fn with_auth(user: &str, auth_alg: usm_crypto::AuthAlgorithm, password: &str) -> Self {
-        let mut snmp = SnmpV3::new();
-        snmp.set_authentication(true);
-
-        if let Value::Set(SnmpV3SecurityParameters::Usm(ref mut usm)) =
-            &mut snmp.msg_security_parameters
-        {
-            usm.msg_user_name = Value::Set(ByteArray::from(user.as_bytes()));
-            // Auth parameters will be filled during encoding
-            usm.msg_authentication_parameters =
-                Value::Set(ByteArray::from(vec![0u8; auth_alg.auth_param_length()]));
-        }
-
-        snmp
-    }
-
-    /// Create an SNMPv3 message with authentication and privacy
-    pub fn with_auth_priv(
-        user: &str,
-        auth_alg: usm_crypto::AuthAlgorithm,
-        auth_password: &str,
-        priv_alg: usm_crypto::PrivAlgorithm,
-        priv_password: &str,
-    ) -> Self {
-        let mut snmp = Self::with_auth(user, auth_alg, auth_password);
-        snmp.set_privacy(true);
-
-        // Privacy parameters will be filled during encoding
-        if let Value::Set(SnmpV3SecurityParameters::Usm(ref mut usm)) =
-            &mut snmp.msg_security_parameters
-        {
-            usm.msg_privacy_parameters = Value::Set(ByteArray::from(vec![0u8; 8]));
-            // DES/AES IV
-        }
-
-        snmp
-    }
-
-    /// Create SNMPv3 message from USM configuration
-    pub fn from_usm_config(config: &usm_crypto::UsmConfig) -> Self {
-        if config.has_priv() {
-            Self::with_auth_priv(
-                &config.user_name,
-                config.auth_algorithm.clone(),
-                config.auth_password.as_ref().unwrap(),
-                config.priv_algorithm.clone(),
-                config.priv_password.as_ref().unwrap(),
-            )
-        } else if config.has_auth() {
-            Self::with_auth(
-                &config.user_name,
-                config.auth_algorithm.clone(),
-                config.auth_password.as_ref().unwrap(),
-            )
-        } else {
-            SnmpV3::new()
         }
     }
 }
