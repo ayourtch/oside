@@ -1565,6 +1565,67 @@ impl SnmpWalker {
         privacy_params: &[u8],
         usm_config: &UsmConfig,
     ) -> Result<SnmpV3ScopedPdu, Box<dyn Error>> {
+        println!("=== DECRYPTION COMPARISON DEBUG ===");
+        println!("Encrypted data length: {}", encrypted_data.len());
+        println!("Privacy params (received salt): {:02x?}", privacy_params);
+
+        // Derive the privacy key - use the SAME method as encryption
+        let priv_key = usm_config
+            .priv_key()
+            .map_err(|e| format!("Failed to derive privacy key: {}", e))?;
+
+        println!("Privacy key (16 bytes): {:02x?}", priv_key);
+
+        // Extract salt - should be the full 8 bytes from privacy_params
+        let salt = if privacy_params.len() >= 8 {
+            &privacy_params[privacy_params.len() - 8..] // Last 8 bytes
+        } else {
+            privacy_params
+        };
+
+        println!("Using salt (8 bytes): {:02x?}", salt);
+
+        // Calculate IV using the SAME method as encryption
+        let iv = match usm_config.priv_algorithm {
+            usm_crypto::PrivAlgorithm::DesCbc => {
+                // Use EXACTLY the same calculation as in encryption
+                if salt.len() != 8 || priv_key.len() < 16 {
+                    return Err("Invalid salt or privacy key length for DES".into());
+                }
+
+                let pre_iv = &priv_key[8..16];
+                let mut iv = vec![0u8; 8];
+                for i in 0..8 {
+                    iv[i] = salt[i] ^ pre_iv[i];
+                }
+                println!("Pre-IV (last 8 bytes of priv key): {:02x?}", pre_iv);
+                println!("Calculated IV for decryption: {:02x?}", iv);
+                iv
+            }
+            _ => return Err("Unsupported privacy algorithm".into()),
+        };
+
+        // Use only the first 8 bytes of privacy key for DES
+        let encryption_key = &priv_key[0..8];
+        println!("Encryption key (first 8 bytes): {:02x?}", encryption_key);
+
+        // Compare with what we used during encryption
+        println!("=== COMPARISON WITH ENCRYPTION ===");
+        println!("During encryption we used:");
+        println!("  Salt: [00, 00, 00, 18, 00, 00, 00, 01]");
+        println!("  IV:   [7b, 39, 6a, d1, 23, 51, d6, 6e]");
+        println!("  Key:  [0c, 8a, 42, b4, 37, 96, f6, b6]");
+        println!("During decryption we're using:");
+        println!("  Salt: {:02x?}", salt);
+        println!("  IV:   {:02x?}", iv);
+        println!("  Key:  {:02x?}", encryption_key);
+
+        // Decrypt the data
+        let decrypted_data = usm_config
+            .priv_algorithm
+            .decrypt(encryption_key, &iv, encrypted_data)
+            .map_err(|e| format!("Decryption failed: {}", e))?;
+
         println!("=== DECRYPTION DEBUG ===");
         println!("Encrypted data length: {}", encrypted_data.len());
         println!("Privacy params (salt): {:02x?}", privacy_params);
