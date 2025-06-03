@@ -1028,7 +1028,7 @@ impl SnmpWalker {
             // Handle privacy (decryption) if enabled
             if usm_config.has_priv() {
                 println!("Privacy enabled - attempting decryption");
-                
+
                 if let Some(encrypted_data) = self.extract_encrypted_data(response)? {
                     let privacy_params = self.extract_privacy_params(response)?;
                     let decrypted_scoped_pdu =
@@ -1083,7 +1083,7 @@ impl SnmpWalker {
         usm_config: &UsmConfig,
     ) -> Result<(), String> {
         println!("=== AUTHENTICATION VERIFICATION DEBUG ===");
-        
+
         // Extract USM parameters from the response
         if let Some(snmpv3) = response.get_layer(SnmpV3::new()) {
             match &snmpv3.msg_security_parameters.value() {
@@ -1092,37 +1092,46 @@ impl SnmpWalker {
                     let received_auth_params = param_val.as_vec();
 
                     println!("Received auth params: {:02x?}", received_auth_params);
-                    
+
                     if received_auth_params.len() != 12 {
-                        return Err(format!("Invalid authentication parameter length: {}", received_auth_params.len()));
+                        return Err(format!(
+                            "Invalid authentication parameter length: {}",
+                            received_auth_params.len()
+                        ));
                     }
 
                     // Get the raw response bytes instead of re-encoding
                     let response_bytes = response.clone().lencode();
                     println!("Response message length: {}", response_bytes.len());
-                    
+
                     // Create a copy for verification with auth params zeroed
                     let mut message_for_verification = response_bytes.clone();
-                    
+
                     // Find and zero out the auth params in the message
                     let zero_auth_params = vec![0u8; 12];
-                    if let Some(pos) = find_subsequence(&message_for_verification, received_auth_params) {
+                    if let Some(pos) =
+                        find_subsequence(&message_for_verification, received_auth_params)
+                    {
                         println!("Found auth params at position: {}", pos);
                         message_for_verification[pos..pos + 12].copy_from_slice(&zero_auth_params);
                     } else {
-                        println!("Could not locate auth params in message, trying alternative approach");
+                        println!(
+                            "Could not locate auth params in message, trying alternative approach"
+                        );
                         // For responses, sometimes the structure is different, skip verification for now
                         println!("WARNING: Skipping authentication verification for response");
                         return Ok(());
                     }
 
                     // Calculate expected auth params
-                    let auth_key = usm_config.auth_key()
+                    let auth_key = usm_config
+                        .auth_key()
                         .map_err(|e| format!("Failed to derive auth key: {}", e))?;
-                    
+
                     println!("Auth key for verification: {:02x?}", auth_key);
-                    
-                    let expected_auth_params = usm_config.auth_algorithm
+
+                    let expected_auth_params = usm_config
+                        .auth_algorithm
                         .generate_auth_params(&auth_key, &message_for_verification)
                         .map_err(|e| format!("Failed to generate auth params: {}", e))?;
 
@@ -1154,22 +1163,97 @@ impl SnmpWalker {
         response: &oside::LayerStack,
     ) -> Result<Option<Vec<u8>>, Box<dyn Error>> {
         println!("=== ENCRYPTED DATA EXTRACTION DEBUG ===");
-        
+
         // First try to find Raw layer (which contains encrypted data)
         if let Some(raw_layer) = response.get_layer(Raw!()) {
             println!("Found Raw layer with {} bytes", raw_layer.data.len());
-            println!("Raw data: {:02x?}", &raw_layer.data[0..std::cmp::min(50, raw_layer.data.len())]);
+            println!(
+                "Raw data: {:02x?}",
+                &raw_layer.data[0..std::cmp::min(50, raw_layer.data.len())]
+            );
+
+            // The Raw layer contains the ASN.1 OCTET STRING with tag and length
+            // We need to parse it to extract just the encrypted content
+            let raw_data = &raw_layer.data;
+
+            if raw_data.len() < 2 {
+                println!("Raw data too short");
+                return Ok(None);
+            }
+
+            // Check for OCTET STRING tag (0x04)
+            if raw_data[0] == 0x04 {
+                let mut cursor = 1;
+
+                // Parse length
+                let content_length = if raw_data[cursor] & 0x80 == 0 {
+                    // Short form
+                    let len = raw_data[cursor] as usize;
+                    cursor += 1;
+                    len
+                } else {
+                    // Long form
+                    let len_bytes = (raw_data[cursor] & 0x7F) as usize;
+                    cursor += 1;
+
+                    if len_bytes == 0 || len_bytes > 4 || cursor + len_bytes > raw_data.len() {
+                        println!("Invalid length encoding");
+                        return Ok(None);
+                    }
+
+                    let mut len = 0usize;
+                    for _ in 0..len_bytes {
+                        len = (len << 8) | (raw_data[cursor] as usize);
+                        cursor += 1;
+                    }
+                    len
+                };
+
+                println!(
+                    "OCTET STRING content length: {}, starts at offset: {}",
+                    content_length, cursor
+                );
+
+                if cursor + content_length <= raw_data.len() {
+                    let encrypted_content = raw_data[cursor..cursor + content_length].to_vec();
+                    println!(
+                        "Extracted encrypted content: {} bytes",
+                        encrypted_content.len()
+                    );
+                    println!(
+                        "Encrypted content: {:02x?}",
+                        &encrypted_content[0..std::cmp::min(50, encrypted_content.len())]
+                    );
+                    return Ok(Some(encrypted_content));
+                } else {
+                    println!("Content length exceeds available data");
+                }
+            } else {
+                println!(
+                    "Raw data doesn't start with OCTET STRING tag, found: 0x{:02x}",
+                    raw_data[0]
+                );
+            }
+
+            // Fallback: return the raw data as-is
             return Ok(Some(raw_layer.data.clone()));
         }
 
         // Fallback: try to extract manually from the response bytes
         let response_bytes = response.clone().lencode();
         println!("Total response length: {}", response_bytes.len());
-        
+
         if let Some(encrypted_start) = self.find_encrypted_data_offset_v2(&response_bytes) {
             let encrypted_data = response_bytes[encrypted_start..].to_vec();
-            println!("Extracted encrypted data from offset {}: {} bytes", encrypted_start, encrypted_data.len());
-            println!("Encrypted data: {:02x?}", &encrypted_data[0..std::cmp::min(50, encrypted_data.len())]);
+            println!(
+                "Extracted encrypted data from offset {}: {} bytes",
+                encrypted_start,
+                encrypted_data.len()
+            );
+            println!(
+                "Encrypted data: {:02x?}",
+                &encrypted_data[0..std::cmp::min(50, encrypted_data.len())]
+            );
             return Ok(Some(encrypted_data));
         }
 
@@ -1181,14 +1265,14 @@ impl SnmpWalker {
     fn find_encrypted_data_offset_v2(&self, encoded: &[u8]) -> Option<usize> {
         println!("=== PARSING MESSAGE STRUCTURE ===");
         let mut cursor = 0;
-        
+
         // Parse outer SEQUENCE
         if encoded.len() < 2 || encoded[0] != 0x30 {
             println!("Not a valid SEQUENCE");
             return None;
         }
         cursor += 1;
-        
+
         // Parse outer length
         let outer_len = if encoded[cursor] & 0x80 == 0 {
             let len = encoded[cursor] as usize;
@@ -1199,15 +1283,17 @@ impl SnmpWalker {
             cursor += 1;
             let mut len = 0usize;
             for _ in 0..len_bytes {
-                if cursor >= encoded.len() { return None; }
+                if cursor >= encoded.len() {
+                    return None;
+                }
                 len = (len << 8) | (encoded[cursor] as usize);
                 cursor += 1;
             }
             len
         };
-        
+
         println!("Outer SEQUENCE length: {}", outer_len);
-        
+
         // Skip version (INTEGER 3)
         if cursor >= encoded.len() || encoded[cursor] != 0x02 {
             println!("Version not found at position {}", cursor);
@@ -1217,7 +1303,7 @@ impl SnmpWalker {
         cursor += 1; // length (should be 1)
         cursor += 1; // value (should be 3)
         println!("Skipped version, now at position: {}", cursor);
-        
+
         // Skip msgGlobalData SEQUENCE (msgID, msgMaxSize, msgFlags, msgSecurityModel)
         if cursor >= encoded.len() || encoded[cursor] != 0x30 {
             println!("msgGlobalData SEQUENCE not found at position {}", cursor);
@@ -1228,14 +1314,14 @@ impl SnmpWalker {
         cursor += 1; // length
         cursor += global_len; // skip content
         println!("Skipped msgGlobalData, now at position: {}", cursor);
-        
+
         // Skip msgSecurityParameters (OCTET STRING containing USM parameters)
         if cursor >= encoded.len() || encoded[cursor] != 0x04 {
             println!("msgSecurityParameters not found at position {}", cursor);
             return None;
         }
         cursor += 1; // tag
-        
+
         // Parse security parameters length
         let sec_params_len = if encoded[cursor] & 0x80 == 0 {
             let len = encoded[cursor] as usize;
@@ -1246,23 +1332,28 @@ impl SnmpWalker {
             cursor += 1;
             let mut len = 0usize;
             for _ in 0..len_bytes {
-                if cursor >= encoded.len() { return None; }
+                if cursor >= encoded.len() {
+                    return None;
+                }
                 len = (len << 8) | (encoded[cursor] as usize);
                 cursor += 1;
             }
             len
         };
-        
+
         println!("Security parameters length: {}", sec_params_len);
         cursor += sec_params_len; // Skip security parameters content
         println!("Skipped security parameters, now at position: {}", cursor);
-        
+
         // Now we should be at the encrypted scoped PDU (OCTET STRING)
         if cursor < encoded.len() {
             if encoded[cursor] == 0x04 {
-                println!("Found OCTET STRING (encrypted data) at position: {}", cursor);
+                println!(
+                    "Found OCTET STRING (encrypted data) at position: {}",
+                    cursor
+                );
                 cursor += 1; // skip tag
-                
+
                 // Parse length of encrypted data
                 let encrypted_len = if encoded[cursor] & 0x80 == 0 {
                     let len = encoded[cursor] as usize;
@@ -1273,20 +1364,28 @@ impl SnmpWalker {
                     cursor += 1;
                     let mut len = 0usize;
                     for _ in 0..len_bytes {
-                        if cursor >= encoded.len() { return None; }
+                        if cursor >= encoded.len() {
+                            return None;
+                        }
                         len = (len << 8) | (encoded[cursor] as usize);
                         cursor += 1;
                     }
                     len
                 };
-                
-                println!("Encrypted data length: {}, starts at position: {}", encrypted_len, cursor);
+
+                println!(
+                    "Encrypted data length: {}, starts at position: {}",
+                    encrypted_len, cursor
+                );
                 return Some(cursor);
             } else {
-                println!("Expected OCTET STRING but found tag: 0x{:02x}", encoded[cursor]);
+                println!(
+                    "Expected OCTET STRING but found tag: 0x{:02x}",
+                    encoded[cursor]
+                );
             }
         }
-        
+
         None
     }
 
@@ -1319,13 +1418,14 @@ impl SnmpWalker {
         println!("=== DECRYPTION DEBUG ===");
         println!("Encrypted data length: {}", encrypted_data.len());
         println!("Privacy params (salt): {:02x?}", privacy_params);
-        
+
         // Derive the privacy key
-        let priv_key = usm_config.priv_key()
+        let priv_key = usm_config
+            .priv_key()
             .map_err(|e| format!("Failed to derive privacy key: {}", e))?;
-        
+
         println!("Privacy key: {:02x?}", priv_key);
-        
+
         // For DES, we need to extract the salt from privacy parameters
         // and calculate the IV correctly
         let salt = if privacy_params.len() >= 8 {
@@ -1333,9 +1433,9 @@ impl SnmpWalker {
         } else {
             privacy_params
         };
-        
+
         println!("Using salt: {:02x?}", salt);
-        
+
         // Calculate the IV based on the privacy algorithm
         let iv = match usm_config.priv_algorithm {
             usm_crypto::PrivAlgorithm::DesCbc => {
@@ -1343,7 +1443,7 @@ impl SnmpWalker {
                 if salt.len() != 8 || priv_key.len() < 16 {
                     return Err("Invalid salt or privacy key length for DES".into());
                 }
-                
+
                 let pre_iv = &priv_key[8..16];
                 let mut iv = vec![0u8; 8];
                 for i in 0..8 {
@@ -1353,45 +1453,54 @@ impl SnmpWalker {
             }
             usm_crypto::PrivAlgorithm::Aes128 => {
                 // For AES: use the calculate_iv method
-                usm_config.priv_algorithm.calculate_iv(
-                    salt,
-                    &priv_key,
-                    usm_config.engine_boots,
-                    usm_config.engine_time,
-                ).map_err(|e| format!("Failed to calculate AES IV: {}", e))?
+                usm_config
+                    .priv_algorithm
+                    .calculate_iv(
+                        salt,
+                        &priv_key,
+                        usm_config.engine_boots,
+                        usm_config.engine_time,
+                    )
+                    .map_err(|e| format!("Failed to calculate AES IV: {}", e))?
             }
             _ => return Err("Unsupported privacy algorithm".into()),
         };
-        
+
         println!("Calculated IV: {:02x?}", iv);
-        
+
         // For DES, we only use the first 8 bytes of the privacy key
         let encryption_key = match usm_config.priv_algorithm {
             usm_crypto::PrivAlgorithm::DesCbc => &priv_key[0..8],
             usm_crypto::PrivAlgorithm::Aes128 => &priv_key[0..16],
             _ => return Err("Unsupported privacy algorithm".into()),
         };
-        
+
         println!("Encryption key: {:02x?}", encryption_key);
-        
+
         // Decrypt the data
-        let decrypted_data = usm_config.priv_algorithm.decrypt(
-            encryption_key,
-            &iv,
-            encrypted_data,
-        ).map_err(|e| format!("Decryption failed: {}", e))?;
-        
+        let decrypted_data = usm_config
+            .priv_algorithm
+            .decrypt(encryption_key, &iv, encrypted_data)
+            .map_err(|e| format!("Decryption failed: {}", e))?;
+
         println!("Decrypted data length: {}", decrypted_data.len());
-        println!("Decrypted data: {:02x?}", 
-                &decrypted_data[0..std::cmp::min(decrypted_data.len(), 50)]);
-        
+        println!(
+            "Decrypted data: {:02x?}",
+            &decrypted_data[0..std::cmp::min(decrypted_data.len(), 50)]
+        );
+
         // Parse the decrypted data as a scoped PDU
-        if let Some((scoped_pdu, consumed)) = SnmpV3ScopedPdu::decode::<Asn1Decoder>(&decrypted_data) {
-            println!("Successfully decoded scoped PDU from decrypted data (consumed {} bytes)", consumed);
+        if let Some((scoped_pdu, consumed)) =
+            SnmpV3ScopedPdu::decode::<Asn1Decoder>(&decrypted_data)
+        {
+            println!(
+                "Successfully decoded scoped PDU from decrypted data (consumed {} bytes)",
+                consumed
+            );
             Ok(scoped_pdu)
         } else {
             println!("Failed to decode scoped PDU, trying to parse ASN.1 structure manually");
-            
+
             // Try to understand what we got
             if decrypted_data.len() > 0 {
                 println!("First byte: 0x{:02x}", decrypted_data[0]);
@@ -1401,7 +1510,7 @@ impl SnmpWalker {
                     println!("Does not start with SEQUENCE tag");
                 }
             }
-            
+
             Err("Failed to decode scoped PDU from decrypted data".into())
         }
     }
