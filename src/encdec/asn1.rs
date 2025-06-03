@@ -1,5 +1,6 @@
 use crate::asn1;
 use crate::{Decoder, Encoder};
+use log::{debug, error, info, warn};
 
 pub struct Asn1Decoder;
 
@@ -831,7 +832,7 @@ impl Encoder for Asn1Encoder {
     fn encode_u32(v1: u32) -> Vec<u8> {
         let mut result = vec![0x02]; // Integer tag
         let value_bytes = Self::encode_integer_bytes(v1 as u64, true);
-        eprintln!(
+        debug!(
             "U32 0x{:08x?} length: {}, bytes: {:02x?}",
             &v1,
             value_bytes.len(),

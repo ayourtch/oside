@@ -1,3 +1,5 @@
+use log::{debug, error, info, warn};
+
 use crate::encdec::asn1::Asn1Decoder;
 use crate::encdec::asn1::Asn1Encoder;
 use crate::typ::string::FixedSizeString;
@@ -240,9 +242,9 @@ fn post_encode_seq_tag_len<E: Encoder>(
     let mut skip_point = skip_points;
     let old_len = skip_points[0];
     let mut out_len = 0;
-    println!("SNMP my index: {}", my_index);
+    debug!("SNMP my index: {}", my_index);
     for i in my_index + 1..encoded_data.len() {
-        println!(
+        debug!(
             "ADD Other layer({}) len: {} bytes: {:x?}",
             i,
             encoded_data[i].len(),
@@ -260,7 +262,7 @@ fn post_encode_seq_tag_len<E: Encoder>(
     } else {
         BerTagAndLen(asn1::Tag::Sequence, out_len)
     };
-    println!(
+    debug!(
         "idx: {} SNMP OLD LEN: {},  OUT_LEN: {}",
         my_index, old_len, out_len
     );
@@ -684,7 +686,7 @@ impl Distribution<SnmpValue> for Standard {
 impl Decode for SnmpValue {
     fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
         let (out, delta) = Asn1Decoder::parse(buf, 0).ok()?;
-        println!("DECODE SnmpValue: {:?}", &out);
+        debug!("DECODE SnmpValue: {:?}", &out);
         let snmp_out = match out.tag {
             asn1::Tag::Null => SnmpValue::Null,
             asn1::Tag::ObjectIdentifier => {
@@ -695,9 +697,9 @@ impl Decode for SnmpValue {
                 }
             }
             asn1::Tag::Integer => {
-                println!("DECODE INT SnmpValue: {:?}", &out);
+                debug!("DECODE INT SnmpValue: {:?}", &out);
                 if let asn1::Value::Integer(iv) = out.value {
-                    println!("INTEGER");
+                    debug!("INTEGER");
                     if iv < -2147483648 || iv > 2147483647 {
                         return None;
                     }
@@ -761,7 +763,7 @@ impl Decode for SnmpValue {
             }
             x => SnmpValue::Unknown(out),
         };
-        println!("OUT: {:?}", &snmp_out);
+        debug!("OUT: {:?}", &snmp_out);
         Some((snmp_out, delta))
     }
 }
@@ -1138,14 +1140,14 @@ fn post_encode_seq_tag_len_v3<E: Encoder>(
         inner levels are NOT part of this seq, so this chunk of code does not apply
 
         for i in my_index + 1..encoded_data.len() {
-            println!("already encoded data: {}", encoded_data[i].len());
+            debug!("already encoded data: {}", encoded_data[i].len());
             out_len += encoded_data[i].len();
         }
     */
     // Also account for what has been encoded on this level already
     out_len += out.len() - old_len;
 
-    println!(
+    debug!(
         "idx: {} SNMPV3 OLD LEN: {}, OUT LEN: {}",
         my_index, old_len, out_len
     );
@@ -1507,7 +1509,7 @@ fn post_encode_scoped_pdu_seq_tag_len<E: Encoder>(
         BerTagAndLen(asn1::Tag::Sequence, out_len)
     };
 
-    println!(
+    debug!(
         "idx: {} SNMP SCOPED PDU OLD_LEN: {}, OUT_LEN: {}",
         my_index, old_len, out_len
     );
@@ -1674,9 +1676,9 @@ impl Decode for SnmpV3Pdu {
 
             0xA2 => {
                 let (new_len, delta) = Asn1Decoder::parse_length(buf, 1).ok()?;
-                eprintln!("buf: {:02x?} NEW LEN: {} DELTA {}", &buf, new_len, delta);
+                debug!("buf: {:02x?} NEW LEN: {} DELTA {}", &buf, new_len, delta);
                 let res = SnmpGetOrResponse::decode::<D>(&buf[delta + 1..]);
-                eprintln!("0xA2 decode: {:?}", &res);
+                debug!("0xA2 decode: {:?}", &res);
 
                 res.map(|(pdu, consumed)| (SnmpV3Pdu::Response(pdu), consumed))
             }
@@ -3152,7 +3154,7 @@ mod tests {
     #[test]
     fn test_snmpv3_no_auth() {
         let snmp = SnmpV3::no_auth_get(&vec!["1.3.6.1.2.1.1.1.0"]);
-        println!("SNMPv3: {:#?}", &snmp);
+        debug!("SNMPv3: {:#?}", &snmp);
         // assert_eq!(1,2);
     }
 
@@ -3854,9 +3856,9 @@ pub mod usm_crypto {
                 PrivAlgorithm::None => Ok(vec![]),
                 PrivAlgorithm::DesCbc => {
                     // Add this debug block HERE:
-                    println!("=== PRIV KEY DERIVATION DEBUG ===");
-                    println!("Input auth_key length: {}", auth_key.len());
-                    println!("Input auth_key: {:02x?}", auth_key);
+                    debug!("=== PRIV KEY DERIVATION DEBUG ===");
+                    debug!("Input auth_key length: {}", auth_key.len());
+                    debug!("Input auth_key: {:02x?}", auth_key);
 
                     if auth_key.len() < 16 {
                         return Err("Authentication key too short for DES privacy".to_string());
@@ -3864,8 +3866,8 @@ pub mod usm_crypto {
                     // For DES, use the last 16 bytes of the auth key
                     let result = auth_key[auth_key.len() - 16..].to_vec();
 
-                    println!("Derived priv_key: {:02x?}", result);
-                    println!("=== END PRIV KEY DERIVATION DEBUG ===");
+                    debug!("Derived priv_key: {:02x?}", result);
+                    debug!("=== END PRIV KEY DERIVATION DEBUG ===");
 
                     Ok(result)
                 }
@@ -3909,11 +3911,11 @@ pub mod usm_crypto {
                     buffer.resize(ciphertext_len + 8, 0);
 
                     // Before encryption (in the encrypt method)
-                    println!("=== ENCRYPTION DEBUG ===");
-                    println!("Privacy key (first 8 bytes for DES): {:02x?}", &key[0..8]);
-                    println!("IV: {:02x?}", iv);
-                    println!("Plaintext length: {}", plaintext.len());
-                    println!(
+                    debug!("=== ENCRYPTION DEBUG ===");
+                    debug!("Privacy key (first 8 bytes for DES): {:02x?}", &key[0..8]);
+                    debug!("IV: {:02x?}", iv);
+                    debug!("Plaintext length: {}", plaintext.len());
+                    debug!(
                         "Plaintext first 16 bytes: {:02x?}",
                         &plaintext[0..std::cmp::min(16, plaintext.len())]
                     );
@@ -3926,8 +3928,8 @@ pub mod usm_crypto {
                         .map_err(|e| format!("DES encryption failed: {:?}", e))?;
 
                     // After encryption
-                    println!("Ciphertext length: {}", ciphertext.len());
-                    println!(
+                    debug!("Ciphertext length: {}", ciphertext.len());
+                    debug!(
                         "Ciphertext first 16 bytes: {:02x?}",
                         &ciphertext[0..std::cmp::min(16, ciphertext.len())]
                     );
@@ -3970,10 +3972,10 @@ pub mod usm_crypto {
 
                     type DesCbcDec = Decryptor<Des>;
 
-                    println!("=== DES DECRYPTION DEBUG ===");
-                    println!("Key (8 bytes): {:02x?}", &key[..8]);
-                    println!("IV (8 bytes): {:02x?}", iv);
-                    println!("Ciphertext length: {}", ciphertext.len());
+                    debug!("=== DES DECRYPTION DEBUG ===");
+                    debug!("Key (8 bytes): {:02x?}", &key[..8]);
+                    debug!("IV (8 bytes): {:02x?}", iv);
+                    debug!("Ciphertext length: {}", ciphertext.len());
 
                     if key.len() < 8 {
                         return Err("DES key must be at least 8 bytes".to_string());
@@ -3997,11 +3999,11 @@ pub mod usm_crypto {
                                         match cipher.decrypt_padded_mut::<cipher::block_padding::Pkcs7>(&mut plaintext)
                                         {
                                             Ok(decrypted_data) => {
-                                                println!("PKCS7 padding decryption succeeded, length: {}", decrypted_data.len());
+                                                debug!("PKCS7 padding decryption succeeded, length: {}", decrypted_data.len());
                                                 return Ok(decrypted_data.to_vec());
                                             }
                                             Err(_) => {
-                                                println!("PKCS7 padding failed, trying raw decryption...");
+                                                debug!("PKCS7 padding failed, trying raw decryption...");
                                             }
                                         }
                     */
@@ -4016,19 +4018,19 @@ pub mod usm_crypto {
                         cipher_raw.decrypt_block_mut(block);
                     }
 
-                    println!("Raw decryption completed");
-                    println!(
+                    debug!("Raw decryption completed");
+                    debug!(
                         "Raw data first 32 bytes: {:02x?}",
                         &raw_buffer[0..std::cmp::min(32, raw_buffer.len())]
                     );
 
                     // Check if this looks like valid ASN.1 data
                     if raw_buffer.len() >= 2 && raw_buffer[0] == 0x30 {
-                        println!("Detected ASN.1 SEQUENCE start - likely valid decryption");
+                        debug!("Detected ASN.1 SEQUENCE start - likely valid decryption");
 
                         // Try to find the actual end of data by looking for ASN.1 structure
                         // For now, just return the raw data and let the ASN.1 parser handle it
-                        println!("Returning raw decrypted data without padding removal");
+                        debug!("Returning raw decrypted data without padding removal");
                         return Ok(raw_buffer);
                     }
 
@@ -4064,8 +4066,8 @@ pub mod usm_crypto {
             let mut rng = rand::thread_rng();
             let mut iv = vec![0u8; self.iv_length()];
             rng.fill(&mut iv[..]);
-            println!("=== SALT/IV DEBUG (generate_iv - should not be hit) ===");
-            println!("Generated IV: {:02x?}", iv);
+            debug!("=== SALT/IV DEBUG (generate_iv - should not be hit) ===");
+            debug!("Generated IV: {:02x?}", iv);
 
             iv
         }
@@ -4141,30 +4143,30 @@ pub mod usm_crypto {
             }
 
             // ADD THIS DEBUG TO SEE WHICH PATH IS TAKEN:
-            println!("=== PRIV KEY METHOD DEBUG ===");
+            debug!("=== PRIV KEY METHOD DEBUG ===");
 
             // Derive directly from password for both DES and AES
             if let Some(password) = &self.priv_password {
-                println!("Using password derivation path");
+                debug!("Using password derivation path");
                 let priv_key = self.auth_algorithm.derive_key(password, &self.engine_id)?;
 
                 match self.priv_algorithm {
                     PrivAlgorithm::DesCbc => {
-                        println!("DES: taking first 16 bytes");
+                        debug!("DES: taking first 16 bytes");
                         return Ok(priv_key[..16].to_vec());
                     }
                     PrivAlgorithm::Aes128 => {
-                        println!("AES: taking first 16 bytes");
+                        debug!("AES: taking first 16 bytes");
                         return Ok(priv_key[..16].to_vec());
                     }
                     _ => {}
                 }
             } else {
-                println!("No password available, using fallback");
+                debug!("No password available, using fallback");
             }
 
             // Fallback to current method
-            println!("Using fallback method");
+            debug!("Using fallback method");
             let auth_key = self.auth_key()?;
             self.priv_algorithm.derive_key(&auth_key)
         }
@@ -4250,7 +4252,7 @@ impl LayerStackUsmExt for LayerStack {
     ) -> Result<Vec<u8>, String> {
         // Check if privacy is enabled
         if usm_context.config.has_priv() {
-            println!("Privacy enabled - encrypting scoped PDU");
+            debug!("Privacy enabled - encrypting scoped PDU");
 
             // We need to encode differently when privacy is enabled
             return self.encode_with_privacy::<E>(usm_context);
@@ -4262,12 +4264,12 @@ impl LayerStackUsmExt for LayerStack {
         }
 
         // Authentication only (no privacy)
-        println!("Authentication only - no encryption");
+        debug!("Authentication only - no encryption");
 
         // First pass: encode with placeholder auth params (zeros)
         let mut encoded_message = self.clone().lencode();
 
-        println!(
+        debug!(
             "Message for HMAC calculation ({} bytes): {:02x?}",
             encoded_message.len(),
             encoded_message
@@ -4280,14 +4282,14 @@ impl LayerStackUsmExt for LayerStack {
             .generate_auth_params(&usm_context.auth_key, &encoded_message)
             .map_err(|e| format!("HMAC calculation failed: {}", e))?;
 
-        println!("Calculated auth params: {:02x?}", auth_params);
+        debug!("Calculated auth params: {:02x?}", auth_params);
 
         // Find and replace the auth params in the encoded message
         let zero_auth_params = vec![0u8; 12];
         if let Some(pos) = find_subsequence(&encoded_message, &zero_auth_params) {
-            println!("Found auth params at position {}", pos);
+            debug!("Found auth params at position {}", pos);
             encoded_message[pos..pos + 12].copy_from_slice(&auth_params);
-            println!(
+            debug!(
                 "Updated message with auth params: {:02x?}",
                 &encoded_message[pos - 5..pos + 17]
             );
@@ -4302,7 +4304,7 @@ impl LayerStackUsmExt for LayerStack {
         &self,
         usm_context: &mut UsmEncodingContext, // Make this mutable
     ) -> Result<Vec<u8>, String> {
-        println!("Encoding with privacy (encryption)");
+        debug!("Encoding with privacy (encryption)");
 
         // Step 1: Extract and encode the scoped PDU separately
         let scoped_pdu = self
@@ -4311,13 +4313,13 @@ impl LayerStackUsmExt for LayerStack {
 
         // Encode the scoped PDU
         let scoped_pdu_encoded = scoped_pdu.encode::<E>();
-        println!("=== PRIVACY DEBUG ===");
-        println!("Scoped PDU encoded length: {}", scoped_pdu_encoded.len());
-        println!(
+        debug!("=== PRIVACY DEBUG ===");
+        debug!("Scoped PDU encoded length: {}", scoped_pdu_encoded.len());
+        debug!(
             "Scoped PDU first 20 bytes: {:02x?}",
             &scoped_pdu_encoded[0..std::cmp::min(20, scoped_pdu_encoded.len())]
         );
-        println!(
+        debug!(
             "Scoped PDU last 10 bytes: {:02x?}",
             &scoped_pdu_encoded[scoped_pdu_encoded.len().saturating_sub(10)..]
         );
@@ -4336,11 +4338,11 @@ impl LayerStackUsmExt for LayerStack {
             usm_context.config.engine_time,
         )?;
 
-        println!("=== SALT/IV DEBUG ===");
-        println!("Generated salt: {:02x?}", salt);
-        println!("Calculated IV: {:02x?}", iv);
-        println!("Engine boots: {}", usm_context.config.engine_boots);
-        println!("Privacy counter: {}", counter);
+        debug!("=== SALT/IV DEBUG ===");
+        debug!("Generated salt: {:02x?}", salt);
+        debug!("Calculated IV: {:02x?}", iv);
+        debug!("Engine boots: {}", usm_context.config.engine_boots);
+        debug!("Privacy counter: {}", counter);
 
         // Step 3: Encrypt the scoped PDU
         let encrypted_data = usm_context
@@ -4349,40 +4351,40 @@ impl LayerStackUsmExt for LayerStack {
             .encrypt(&usm_context.priv_key, &iv, &scoped_pdu_encoded)
             .map_err(|e| format!("Encryption failed: {}", e))?;
 
-        println!("=== ENCRYPTION DEBUG ===");
+        debug!("=== ENCRYPTION DEBUG ===");
 
         match usm_context.config.priv_algorithm {
             usm_crypto::PrivAlgorithm::DesCbc => {
-                println!(
+                debug!(
                     "DES Privacy key (first 8 bytes): {:02x?}",
                     &usm_context.priv_key[0..8]
                 );
-                println!(
+                debug!(
                     "DES Pre-IV (last 8 bytes): {:02x?}",
                     &usm_context.priv_key[8..16]
                 );
             }
             usm_crypto::PrivAlgorithm::Aes128 => {
-                println!("AES key (full 16 bytes): {:02x?}", &usm_context.priv_key);
+                debug!("AES key (full 16 bytes): {:02x?}", &usm_context.priv_key);
             }
             _ => {}
         }
 
-        println!(
+        debug!(
             "Privacy key (first 8 bytes for DES): {:02x?}",
             &usm_context.priv_key[0..8]
         );
-        println!(
+        debug!(
             "Pre-IV (last 8 bytes of priv key): {:02x?}",
             &usm_context.priv_key[8..16]
         );
-        println!("Full 16-byte privacy key: {:02x?}", &usm_context.priv_key); // ADD THIS
-        println!("Full auth key: {:02x?}", &usm_context.auth_key); // ADD THIS
+        debug!("Full 16-byte privacy key: {:02x?}", &usm_context.priv_key); // ADD THIS
+        debug!("Full auth key: {:02x?}", &usm_context.auth_key); // ADD THIS
 
-        println!("Salt: {:02x?}", salt);
-        println!("Calculated IV: {:02x?}", iv);
-        println!("Plaintext length: {}", scoped_pdu_encoded.len());
-        println!("Ciphertext length: {}", encrypted_data.len());
+        debug!("Salt: {:02x?}", salt);
+        debug!("Calculated IV: {:02x?}", iv);
+        debug!("Plaintext length: {}", scoped_pdu_encoded.len());
+        debug!("Ciphertext length: {}", encrypted_data.len());
 
         // Step 4: Create a new layer stack with encrypted data and salt in privacy params
         let encrypted_stack = self.create_encrypted_stack(&encrypted_data, &salt, usm_context)?;
@@ -4391,7 +4393,7 @@ impl LayerStackUsmExt for LayerStack {
         let mut encoded_message = encrypted_stack.lencode();
 
         if usm_context.config.has_auth() {
-            println!("Calculating HMAC for encrypted message");
+            debug!("Calculating HMAC for encrypted message");
             let auth_params = usm_context
                 .config
                 .auth_algorithm
