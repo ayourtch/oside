@@ -378,7 +378,7 @@ fn post_encode_bind_tag_len<E: Encoder>(
     out.splice(0..0, bytes);
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct BerOid(Vec<u64>);
 
 impl FromStr for BerOid {
@@ -400,6 +400,13 @@ impl FromStr for BerOid {
             }
             Err(_) => Err(ValueParseError::Error),
         }
+    }
+}
+
+impl std::fmt::Debug for BerOid {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // For Debug, we can show both the encoded and decoded forms
+        write!(f, "BerOid(encoded: {:?}, oid: \"{}\")", self.0, self)
     }
 }
 
@@ -425,15 +432,25 @@ impl From<&[u8; 6]> for BerOid {
 
 impl std::fmt::Display for BerOid {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            self.0
-                .iter()
-                .map(|n| n.to_string())
-                .collect::<Vec<_>>()
-                .join(".")
-        )
+        if self.0.is_empty() {
+            return write!(f, "");
+        }
+
+        // The first element is encoded as (first_part * 40 + second_part)
+        // We need to decode it back to the original two parts
+        let first_encoded = self.0[0];
+        let first_part = first_encoded / 40;
+        let second_part = first_encoded % 40;
+
+        // Start with the decoded first two parts
+        write!(f, "{}.{}", first_part, second_part)?;
+
+        // Add the remaining parts directly
+        for &part in &self.0[1..] {
+            write!(f, ".{}", part)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -1669,7 +1686,7 @@ impl SnmpV3 {
             _seq_tag_len_v3: Value::Auto,
             msg_id: Value::Set(1),
             msg_max_size: Value::Set(65507),
-            msg_flags: SnmpV3::flags(0), // Value::Set(0),          // No auth, no priv
+            msg_flags: SnmpV3::flags(4), // Reportable by default // Value::Set(0),          // No auth, no priv
             msg_security_model: Value::Set(3), // USM
             msg_security_parameters: SnmpV3::default_security(),
         }
