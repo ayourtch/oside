@@ -7,6 +7,8 @@ use serde::ser::SerializeTuple;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::marker::PhantomData;
 
+pub mod oside_snmp_session;
+
 #[macro_use]
 extern crate doc_comment;
 
