@@ -1019,7 +1019,7 @@ impl SnmpWalker {
                         println!("OID STR: {:?}", &oid_str);
 
                         // Check if we've moved beyond our starting tree
-                        if !oid_str.starts_with(&self.config.starting_oid) {
+                        if oid_str != "" && !oid_str.starts_with(&self.config.starting_oid) {
                             println!("Reached end of subtree");
                             return Ok((false, next_oid, results_count));
                         }
@@ -1040,8 +1040,10 @@ impl SnmpWalker {
                         results_count += 1;
 
                         // Update for next iteration
-                        next_oid = oid_str;
-                        found_next = true;
+                        if oid_str != "" {
+                            next_oid = oid_str;
+                            found_next = true;
+                        }
                     }
                 } else {
                     return Err("Failed to create USM configuration".into());
@@ -1645,12 +1647,40 @@ impl SnmpWalker {
                 println!("Calculated IV for decryption: {:02x?}", iv);
                 iv
             }
+            usm_crypto::PrivAlgorithm::Aes128 => {
+                // For AES: use the calculate_iv method
+                usm_config
+                    .priv_algorithm
+                    .calculate_iv(
+                        salt,
+                        &priv_key,
+                        usm_config.engine_boots,
+                        usm_config.engine_time,
+                    )
+                    .map_err(|e| format!("Failed to calculate AES IV: {}", e))?
+            }
             _ => return Err("Unsupported privacy algorithm".into()),
         };
 
         // Use only the first 8 bytes of privacy key for DES
-        let encryption_key = &priv_key[0..8];
-        println!("Encryption key (first 8 bytes): {:02x?}", encryption_key);
+        let encryption_key = match &usm_config.priv_algorithm {
+            usm_crypto::PrivAlgorithm::DesCbc => {
+                println!("Encryption key (first 8 bytes for des)");
+                &priv_key[0..8]
+            }
+            usm_crypto::PrivAlgorithm::Aes128 => {
+                println!("Encryption key (first 16 bytes for aes)");
+                &priv_key[0..16]
+            }
+            x => {
+                return Err(format!(
+                    "Unsupported privacy algorithm {:?} for getting the encryption key",
+                    &x
+                )
+                .into())
+            }
+        };
+        println!("Encryption key as per above: {:02x?}", encryption_key);
 
         // Compare with what we used during encryption
         println!("=== COMPARISON WITH ENCRYPTION ===");
