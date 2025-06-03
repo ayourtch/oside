@@ -1665,8 +1665,14 @@ impl Decode for SnmpV3Pdu {
             0xA1 => SnmpGetOrResponse::decode::<D>(buf)
                 .map(|(pdu, consumed)| (SnmpV3Pdu::GetNext(pdu), consumed)),
 
-            0xA2 => SnmpGetOrResponse::decode::<D>(buf)
-                .map(|(pdu, consumed)| (SnmpV3Pdu::Response(pdu), consumed)),
+            0xA2 => {
+                let res = SnmpGetOrResponse::decode::<D>(&buf[4..]);
+                // let res = SnmpGetResponse::decode::<D>(buf);
+                // let res = SNMPGETRESPONSE!().ldecode(&buf).unwrap().0;
+                eprintln!("0xA2 decode: {:?}", &res);
+
+                res.map(|(pdu, consumed)| (SnmpV3Pdu::Response(pdu), consumed))
+            }
 
             0xA3 => SnmpSetRequest::decode::<D>(buf)
                 .map(|(pdu, consumed)| (SnmpV3Pdu::Set(pdu), consumed)),
