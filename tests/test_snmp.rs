@@ -51,7 +51,8 @@ pub fn test_snmpv3_encoding() {
     println!("decode result: {:#02x?}", &x);
     let pcap = vec![x];
     pcap.write_pcap("test_snmp_v3.cap");
-    assert_eq!(1, 2);
+    // DEBUGGING
+    // assert_eq!(1, 2);
 }
 
 /*

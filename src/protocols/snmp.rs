@@ -271,6 +271,7 @@ fn post_encode_seq_tag_len<E: Encoder>(
 
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(SNMP_VERSIONS, Version = 1))]
+#[nproto(register(SNMP_VERSIONS, Version = 0))] // FIXME: same handling is ok ?
 #[nproto(decoder(Asn1Decoder), encoder(Asn1Encoder))]
 pub struct SnmpV2c {
     #[nproto(default = "public")]
