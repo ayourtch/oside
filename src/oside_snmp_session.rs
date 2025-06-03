@@ -106,10 +106,9 @@ impl OsideSnmpSession {
             };
 
             // Use the new extraction method
-            let (found_next, next_oid, batch_count) =
-                self.extract_and_process_bindings(&response)?;
+            let (found_next, next_oid, bindings) = self.extract_and_process_bindings(&response)?;
 
-            results_count += batch_count;
+            results_count += bindings.len();
 
             if !found_next {
                 debug!("No more OIDs found");
@@ -810,10 +809,11 @@ impl OsideSnmpSession {
     fn extract_and_process_bindings(
         &mut self,
         response: &LayerStack,
-    ) -> Result<(bool, String, usize), Box<dyn Error>> {
+    ) -> Result<(bool, String, Vec<SnmpVarBind>), Box<dyn Error>> {
         let mut found_next = false;
         let mut next_oid = String::new();
         let mut results_count = 0;
+        let mut results = vec![];
 
         // For SNMPv3, use the new decryption-aware processing
         match &self.config.version {
@@ -830,7 +830,7 @@ impl OsideSnmpSession {
                         // Check if we've moved beyond our starting tree
                         if oid_str != "" && !oid_str.starts_with(&self.config.starting_oid) {
                             debug!("Reached end of subtree");
-                            return Ok((false, next_oid, results_count));
+                            return Ok((false, next_oid, results));
                         }
 
                         // Check for special SNMP values indicating end of walk
@@ -839,7 +839,7 @@ impl OsideSnmpSession {
                             | SnmpValue::NoSuchInstance
                             | SnmpValue::EndOfMibView => {
                                 debug!("End of MIB view reached");
-                                return Ok((false, next_oid, results_count));
+                                return Ok((false, next_oid, results));
                             }
                             _ => {}
                         }
@@ -847,6 +847,7 @@ impl OsideSnmpSession {
                         // Print the result
                         self.print_result(&binding);
                         results_count += 1;
+                        results.push(binding.clone());
 
                         // Update for next iteration
                         if oid_str != "" {
@@ -876,7 +877,7 @@ impl OsideSnmpSession {
 
                             if !oid_str.starts_with(&self.config.starting_oid) {
                                 debug!("Reached end of subtree");
-                                return Ok((false, next_oid, results_count));
+                                return Ok((false, next_oid, results));
                             }
 
                             match &binding.value.value() {
@@ -884,13 +885,14 @@ impl OsideSnmpSession {
                                 | SnmpValue::NoSuchInstance
                                 | SnmpValue::EndOfMibView => {
                                     debug!("End of MIB view reached");
-                                    return Ok((false, next_oid, results_count));
+                                    return Ok((false, next_oid, results));
                                 }
                                 _ => {}
                             }
 
                             self.print_result(&binding);
                             results_count += 1;
+                            results.push(binding.clone());
                             next_oid = oid_str;
                             found_next = true;
                         }
@@ -901,7 +903,7 @@ impl OsideSnmpSession {
             }
         }
 
-        Ok((found_next, next_oid, results_count))
+        Ok((found_next, next_oid, results))
     }
 
     /// Extract bindings from SNMPv3 response with decryption support
