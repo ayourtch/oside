@@ -1,9 +1,14 @@
+use oside::Decode;
 use std::env;
 use std::error::Error;
 use std::net::UdpSocket;
 use std::time::Duration;
 
+use oside::protocols::all::raw;
+
+use oside::encdec::asn1::Asn1Decoder;
 use oside::New;
+use oside::Raw;
 use std::str::FromStr;
 
 use oside::protocols::snmp::*;
@@ -262,6 +267,45 @@ impl SnmpWalker {
     }
 
     fn walk(&mut self) -> Result<(), Box<dyn Error>> {
+        let mut current_oid = self.config.starting_oid.clone();
+        let mut results_count = 0;
+
+        println!("Walking from OID: {}", current_oid);
+        println!("----------------------------------------");
+
+        loop {
+            let response =
+                if self.config.use_getbulk && matches!(self.config.version, SnmpVersion::V2c(_)) {
+                    self.send_getbulk_request(&current_oid)?
+                } else {
+                    self.send_getnext_request(&current_oid)?
+                };
+
+            // Use the new extraction method
+            let (found_next, next_oid, batch_count) =
+                self.extract_and_process_bindings(&response)?;
+
+            results_count += batch_count;
+
+            if !found_next {
+                println!("No more OIDs found");
+                break;
+            }
+
+            current_oid = next_oid;
+
+            if results_count > 10000 {
+                println!("Stopping after 10000 results to prevent infinite loop");
+                break;
+            }
+        }
+
+        println!("----------------------------------------");
+        println!("Walk completed. Total results: {}", results_count);
+        Ok(())
+    }
+
+    fn walk_old(&mut self) -> Result<(), Box<dyn Error>> {
         let mut current_oid = self.config.starting_oid.clone();
         let mut results_count = 0;
 
@@ -937,6 +981,29 @@ impl SnmpWalker {
     }
 
     fn process_snmpv3_response(&self, response: &oside::LayerStack) -> Result<(), Box<dyn Error>> {
+        // Get the USM config for this walker
+        if let SnmpVersion::V3 { .. } = &self.config.version {
+            if let Some(usm_config) = self.create_usm_config() {
+                return self.process_snmpv3_response_with_decryption(response, &usm_config);
+            }
+        }
+
+        // Fallback to original processing
+        if let Some(snmpv3) = response.get_layer(SnmpV3::new()) {
+            println!("Processing SNMPv3 response: {:?}", &response);
+
+            if let Some(scoped_pdu) = response.get_layer(SnmpV3ScopedPdu::default()) {
+                return self.process_scoped_pdu_content(scoped_pdu);
+            }
+        }
+
+        Err("No valid SNMPv3 response structure found".into())
+    }
+
+    fn process_snmpv3_response_old(
+        &self,
+        response: &oside::LayerStack,
+    ) -> Result<(), Box<dyn Error>> {
         // Check if we have an SNMPv3 layer
         if let Some(snmpv3) = response.get_layer(SnmpV3::new()) {
             println!("Processing SNMPv3 response: {:?}", &response);
@@ -1102,4 +1169,492 @@ impl SnmpWalker {
 
         Ok(encoded)
     }
+    /// Process SNMPv3 response with decryption support
+    fn process_snmpv3_response_with_decryption(
+        &self,
+        response: &oside::LayerStack,
+        usm_config: &UsmConfig,
+    ) -> Result<(), Box<dyn Error>> {
+        // Check if we have an SNMPv3 layer
+        if let Some(snmpv3) = response.get_layer(SnmpV3::new()) {
+            println!("Processing SNMPv3 response with potential decryption");
+            println!("Response flags: {:02x?}", snmpv3.msg_flags.value());
+
+            // Verify authentication if required
+            if usm_config.has_auth() {
+                if let Err(e) = self.verify_authentication(response, usm_config) {
+                    println!("Authentication verification failed: {}", e);
+                    return Err(format!("Authentication failed: {}", e).into());
+                }
+                println!("Authentication verified successfully");
+            }
+
+            // Handle privacy (decryption) if enabled
+            if usm_config.has_priv() {
+                println!("Privacy enabled - attempting decryption");
+
+                // Extract encrypted data and privacy parameters
+                if let Some(encrypted_data) = self.extract_encrypted_data(response)? {
+                    let privacy_params = self.extract_privacy_params(response)?;
+
+                    // Decrypt the scoped PDU
+                    let decrypted_scoped_pdu =
+                        self.decrypt_scoped_pdu(&encrypted_data, &privacy_params, usm_config)?;
+
+                    // Process the decrypted scoped PDU
+                    return self.process_decrypted_scoped_pdu(&decrypted_scoped_pdu);
+                } else {
+                    return Err("Expected encrypted data but found none".into());
+                }
+            } else {
+                // No privacy - process normally
+                if let Some(scoped_pdu) = response.get_layer(SnmpV3ScopedPdu::default()) {
+                    return self.process_scoped_pdu_content(scoped_pdu);
+                }
+            }
+        }
+
+        Err("No valid SNMPv3 response structure found".into())
+    }
+
+    /// Verify authentication of the response
+    fn verify_authentication(
+        &self,
+        response: &oside::LayerStack,
+        usm_config: &UsmConfig,
+    ) -> Result<(), String> {
+        // Extract USM parameters from the response
+        if let Some(snmpv3) = response.get_layer(SnmpV3::new()) {
+            match &snmpv3.msg_security_parameters.value() {
+                SnmpV3SecurityParameters::Usm(usm_params) => {
+                    let param_val = usm_params.msg_authentication_parameters.value();
+                    let received_auth_params = param_val.as_vec();
+
+                    if received_auth_params.len() != 12 {
+                        return Err("Invalid authentication parameter length".to_string());
+                    }
+
+                    // Create a copy of the encoded message with zeroed auth params for verification
+                    let mut message_for_verification = response.clone().lencode();
+
+                    // Find and zero out the auth params in the message
+                    let zero_auth_params = vec![0u8; 12];
+                    if let Some(pos) =
+                        find_subsequence(&message_for_verification, received_auth_params)
+                    {
+                        message_for_verification[pos..pos + 12].copy_from_slice(&zero_auth_params);
+                    } else {
+                        return Err("Could not locate auth params in message".to_string());
+                    }
+
+                    // Calculate expected auth params
+                    let auth_key = usm_config
+                        .auth_key()
+                        .map_err(|e| format!("Failed to derive auth key: {}", e))?;
+
+                    let expected_auth_params = usm_config
+                        .auth_algorithm
+                        .generate_auth_params(&auth_key, &message_for_verification)
+                        .map_err(|e| format!("Failed to generate auth params: {}", e))?;
+
+                    // Compare
+                    if received_auth_params == &expected_auth_params {
+                        Ok(())
+                    } else {
+                        Err(format!(
+                            "Authentication parameter mismatch: received ({:?}) expected ({:?})",
+                            received_auth_params, &expected_auth_params
+                        ))
+                    }
+                }
+                _ => Err("No USM parameters in response".to_string()),
+            }
+        } else {
+            Err("No SNMPv3 layer found".to_string())
+        }
+    }
+
+    /// Extract encrypted data from the response
+    fn extract_encrypted_data(
+        &self,
+        response: &oside::LayerStack,
+    ) -> Result<Option<Vec<u8>>, Box<dyn Error>> {
+        // Try to get encrypted scoped PDU
+        if let Some(encrypted_pdu) = response.get_layer(EncryptedScopedPdu {
+            encrypted_data: Value::Auto,
+        }) {
+            let data = encrypted_pdu.encrypted_data.value().as_vec().clone();
+            println!("Extracted encrypted data: {} bytes", data.len());
+            return Ok(Some(data));
+        }
+
+        // Fallback: try to extract from raw data after SNMPv3 header
+        // This handles cases where the framework doesn't parse it as EncryptedScopedPdu
+        let encoded = response.clone().lencode();
+
+        // Parse through the message structure to find the encrypted portion
+        // This is a simplified approach - in practice you'd want more robust parsing
+        if let Some(raw_pdu) = response.get_layer(Raw!()) {
+            println!(
+                "Extracted encrypted data ({} bytes) from raw",
+                raw_pdu.data.len()
+            );
+            return Ok(Some(raw_pdu.data.clone()));
+        }
+
+        Ok(None)
+    }
+
+    /// Find the offset where encrypted data starts in the encoded message
+    fn find_encrypted_data_offset(&self, encoded: &[u8]) -> Option<usize> {
+        // This is a simplified approach. In a real implementation, you'd parse
+        // the ASN.1 structure properly to locate the encrypted scoped PDU
+
+        // Look for the pattern that indicates start of encrypted scoped PDU
+        // Usually it's after the USM security parameters
+        let mut cursor = 0;
+
+        // Skip outer SEQUENCE
+        if encoded.len() < 2 || encoded[0] != 0x30 {
+            return None;
+        }
+        cursor += 1;
+
+        // Skip length
+        if encoded[cursor] & 0x80 == 0 {
+            cursor += 1;
+        } else {
+            let len_bytes = (encoded[cursor] & 0x7F) as usize;
+            cursor += 1 + len_bytes;
+        }
+
+        // Skip version (INTEGER)
+        if cursor >= encoded.len() || encoded[cursor] != 0x02 {
+            return None;
+        }
+        cursor += 1;
+        cursor += 1; // length
+        cursor += 1; // value (version 3)
+
+        // Skip msgID, msgMaxSize, msgFlags, msgSecurityModel
+        for _ in 0..4 {
+            if cursor >= encoded.len() || encoded[cursor] != 0x02 {
+                return None;
+            }
+            cursor += 1; // tag
+            let len = encoded[cursor] as usize;
+            cursor += 1 + len;
+        }
+
+        // Skip msgSecurityParameters (OCTET STRING)
+        if cursor >= encoded.len() || encoded[cursor] != 0x04 {
+            return None;
+        }
+        cursor += 1; // tag
+
+        // Parse length of security parameters
+        let sec_params_len = if encoded[cursor] & 0x80 == 0 {
+            let len = encoded[cursor] as usize;
+            cursor += 1;
+            len
+        } else {
+            let len_bytes = (encoded[cursor] & 0x7F) as usize;
+            cursor += 1;
+            let mut len = 0usize;
+            for _ in 0..len_bytes {
+                len = (len << 8) | (encoded[cursor] as usize);
+                cursor += 1;
+            }
+            len
+        };
+
+        cursor += sec_params_len; // Skip security parameters
+
+        // Now we should be at the encrypted scoped PDU
+        if cursor < encoded.len() {
+            Some(cursor)
+        } else {
+            None
+        }
+    }
+
+    /// Extract privacy parameters (salt/IV) from USM security parameters
+    fn extract_privacy_params(
+        &self,
+        response: &oside::LayerStack,
+    ) -> Result<Vec<u8>, Box<dyn Error>> {
+        if let Some(snmpv3) = response.get_layer(SnmpV3::new()) {
+            match &snmpv3.msg_security_parameters.value() {
+                SnmpV3SecurityParameters::Usm(usm_params) => {
+                    let priv_params = usm_params.msg_privacy_parameters.value().as_vec().clone();
+                    println!("Extracted privacy parameters: {:02x?}", priv_params);
+                    Ok(priv_params)
+                }
+                _ => Err("No USM parameters found in response".into()),
+            }
+        } else {
+            Err("No SNMPv3 layer found in response".into())
+        }
+    }
+
+    /// Decrypt the scoped PDU
+    fn decrypt_scoped_pdu(
+        &self,
+        encrypted_data: &[u8],
+        privacy_params: &[u8],
+        usm_config: &UsmConfig,
+    ) -> Result<SnmpV3ScopedPdu, Box<dyn Error>> {
+        println!("=== DECRYPTION DEBUG ===");
+        println!("Encrypted data length: {}", encrypted_data.len());
+        println!("Privacy params (salt): {:02x?}", privacy_params);
+
+        // Derive the privacy key
+        let priv_key = usm_config
+            .priv_key()
+            .map_err(|e| format!("Failed to derive privacy key: {}", e))?;
+
+        println!("Privacy key: {:02x?}", priv_key);
+
+        // Calculate the IV based on the privacy algorithm
+        let iv = usm_config
+            .priv_algorithm
+            .calculate_iv(
+                privacy_params,
+                &priv_key,
+                usm_config.engine_boots,
+                usm_config.engine_time,
+            )
+            .map_err(|e| format!("Failed to calculate IV: {}", e))?;
+
+        println!("Calculated IV: {:02x?}", iv);
+
+        // Decrypt the data
+        let decrypted_data = usm_config
+            .priv_algorithm
+            .decrypt(&priv_key, &iv, encrypted_data)
+            .map_err(|e| format!("Decryption failed: {}", e))?;
+
+        println!("Decrypted data length: {}", decrypted_data.len());
+        println!(
+            "Decrypted data first 20 bytes: {:02x?}",
+            &decrypted_data[0..std::cmp::min(20, decrypted_data.len())]
+        );
+
+        // Parse the decrypted data as a scoped PDU
+        if let Some((scoped_pdu, _)) = SnmpV3ScopedPdu::decode::<Asn1Decoder>(&decrypted_data) {
+            println!("Successfully decoded scoped PDU from decrypted data");
+            Ok(scoped_pdu)
+        } else {
+            Err("Failed to decode scoped PDU from decrypted data".into())
+        }
+    }
+
+    /// Process a decrypted scoped PDU
+    fn process_decrypted_scoped_pdu(
+        &self,
+        scoped_pdu: &SnmpV3ScopedPdu,
+    ) -> Result<(), Box<dyn Error>> {
+        println!("Processing decrypted scoped PDU");
+        self.process_scoped_pdu_content(scoped_pdu)
+    }
+
+    /// Process the content of a scoped PDU (encrypted or not)
+    fn process_scoped_pdu_content(
+        &self,
+        scoped_pdu: &SnmpV3ScopedPdu,
+    ) -> Result<(), Box<dyn Error>> {
+        match &scoped_pdu.pdu.value() {
+            SnmpV3Pdu::Response(resp) => {
+                println!(
+                    "Found response PDU with {} bindings",
+                    resp.var_bindings.len()
+                );
+
+                if resp.error_status.value() != 0 {
+                    println!(
+                        "SNMP Error: {} (index: {})",
+                        resp.error_status.value(),
+                        resp.error_index.value()
+                    );
+                    return Err(format!("SNMP Error: {}", resp.error_status.value()).into());
+                }
+
+                // Process the variable bindings
+                for binding in &resp.var_bindings {
+                    self.print_result(binding);
+                }
+
+                Ok(())
+            }
+            SnmpV3Pdu::Report(report) => {
+                println!("Received report PDU - this might indicate an error");
+                println!("Error status: {}", report.error_status.value());
+                println!("Error index: {}", report.error_index.value());
+                Err("Received SNMP report instead of response".into())
+            }
+            other => {
+                println!("Unexpected PDU type in scoped PDU: {:?}", other);
+                Err("Unexpected PDU type in response".into())
+            }
+        }
+    }
+
+    /// Extract variable bindings and process walk results
+    fn extract_and_process_bindings(
+        &mut self,
+        response: &oside::LayerStack,
+    ) -> Result<(bool, String, usize), Box<dyn Error>> {
+        let mut found_next = false;
+        let mut next_oid = String::new();
+        let mut results_count = 0;
+
+        // For SNMPv3, use the new decryption-aware processing
+        match &self.config.version {
+            SnmpVersion::V3 { .. } => {
+                if let Some(usm_config) = self.create_usm_config() {
+                    // Use a custom processing method that returns the bindings
+                    let bindings = self.extract_bindings_from_snmpv3(response, &usm_config)?;
+
+                    for binding in &bindings {
+                        let oid_str = format!("{:?}", binding.name.value());
+
+                        // Check if we've moved beyond our starting tree
+                        if !oid_str.starts_with(&self.config.starting_oid) {
+                            println!("Reached end of subtree");
+                            return Ok((false, next_oid, results_count));
+                        }
+
+                        // Check for special SNMP values indicating end of walk
+                        match &binding.value.value() {
+                            SnmpValue::NoSuchObject
+                            | SnmpValue::NoSuchInstance
+                            | SnmpValue::EndOfMibView => {
+                                println!("End of MIB view reached");
+                                return Ok((false, next_oid, results_count));
+                            }
+                            _ => {}
+                        }
+
+                        // Print the result
+                        self.print_result(&binding);
+                        results_count += 1;
+
+                        // Update for next iteration
+                        next_oid = oid_str;
+                        found_next = true;
+                    }
+                } else {
+                    return Err("Failed to create USM configuration".into());
+                }
+            }
+            _ => {
+                // Original SNMPv1/v2c processing
+                if let Some(snmp_response) = response.get_layer(SNMPGETRESPONSE!()) {
+                    if let SnmpGetResponse(resp) = snmp_response {
+                        if resp.error_status.value() != 0 {
+                            return Err(format!(
+                                "SNMP Error: {} (index: {})",
+                                resp.error_status.value(),
+                                resp.error_index.value()
+                            )
+                            .into());
+                        }
+
+                        for binding in &resp.var_bindings {
+                            let oid_str = format!("{:?}", binding.name.value());
+
+                            if !oid_str.starts_with(&self.config.starting_oid) {
+                                println!("Reached end of subtree");
+                                return Ok((false, next_oid, results_count));
+                            }
+
+                            match &binding.value.value() {
+                                SnmpValue::NoSuchObject
+                                | SnmpValue::NoSuchInstance
+                                | SnmpValue::EndOfMibView => {
+                                    println!("End of MIB view reached");
+                                    return Ok((false, next_oid, results_count));
+                                }
+                                _ => {}
+                            }
+
+                            self.print_result(&binding);
+                            results_count += 1;
+                            next_oid = oid_str;
+                            found_next = true;
+                        }
+                    }
+                } else {
+                    return Err("No valid SNMP response received".into());
+                }
+            }
+        }
+
+        Ok((found_next, next_oid, results_count))
+    }
+
+    /// Extract bindings from SNMPv3 response with decryption support
+    fn extract_bindings_from_snmpv3(
+        &self,
+        response: &oside::LayerStack,
+        usm_config: &UsmConfig,
+    ) -> Result<Vec<SnmpVarBind>, Box<dyn Error>> {
+        if let Some(snmpv3) = response.get_layer(SnmpV3::new()) {
+            // Verify authentication if required
+            if usm_config.has_auth() {
+                self.verify_authentication(response, usm_config)?;
+            }
+
+            // Handle privacy (decryption) if enabled
+            if usm_config.has_priv() {
+                if let Some(encrypted_data) = self.extract_encrypted_data(response)? {
+                    let privacy_params = self.extract_privacy_params(response)?;
+                    let decrypted_scoped_pdu =
+                        self.decrypt_scoped_pdu(&encrypted_data, &privacy_params, usm_config)?;
+
+                    return self.extract_bindings_from_scoped_pdu(&decrypted_scoped_pdu);
+                }
+            } else {
+                // No privacy - process normally
+                if let Some(scoped_pdu) = response.get_layer(SnmpV3ScopedPdu::default()) {
+                    return self.extract_bindings_from_scoped_pdu(scoped_pdu);
+                }
+            }
+        }
+
+        Err("Failed to extract bindings from SNMPv3 response".into())
+    }
+
+    /// Extract bindings from a scoped PDU
+    fn extract_bindings_from_scoped_pdu(
+        &self,
+        scoped_pdu: &SnmpV3ScopedPdu,
+    ) -> Result<Vec<SnmpVarBind>, Box<dyn Error>> {
+        match &scoped_pdu.pdu.value() {
+            SnmpV3Pdu::Response(resp) => {
+                if resp.error_status.value() != 0 {
+                    return Err(format!(
+                        "SNMP Error: {} (index: {})",
+                        resp.error_status.value(),
+                        resp.error_index.value()
+                    )
+                    .into());
+                }
+                Ok(resp.var_bindings.clone())
+            }
+            SnmpV3Pdu::Report(report) => Err(format!(
+                "Received SNMP report: error {} at index {}",
+                report.error_status.value(),
+                report.error_index.value()
+            )
+            .into()),
+            other => Err(format!("Unexpected PDU type: {:?}", other).into()),
+        }
+    }
+}
+
+fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
 }

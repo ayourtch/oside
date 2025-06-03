@@ -836,6 +836,12 @@ impl Encode for SnmpValue {
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ByteArray(Vec<u8>);
 
+impl ByteArray {
+    pub fn as_vec(&self) -> &Vec<u8> {
+        &self.0
+    }
+}
+
 impl From<Value<ByteArray>> for ByteArray {
     fn from(value: Value<ByteArray>) -> Self {
         match value {
