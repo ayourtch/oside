@@ -26,6 +26,13 @@ use oside::SNMPVARBIND;
 use oside::protocols::snmp::usm_crypto::{AuthAlgorithm, PrivAlgorithm, UsmConfig};
 
 #[derive(Debug, Clone)]
+enum PduType {
+    Get,
+    GetNext,
+    GetBulk,
+}
+
+#[derive(Debug, Clone)]
 enum SnmpVersion {
     V2c(String), // community string
     V3 {
@@ -388,8 +395,12 @@ impl SnmpWalker {
                     self.increment_ids();
 
                     if usm_config.has_auth() {
-                        let encoded =
-                            self.create_authenticated_request(Some(oid), &usm_config, true, false)?;
+                        let encoded = self.create_authenticated_request(
+                            Some(oid),
+                            &usm_config,
+                            true,
+                            PduType::GetNext,
+                        )?;
                         println!("ENCODED: {:?}", &encoded);
 
                         println!("Sending authenticated request, length: {}", encoded.len());
@@ -433,7 +444,7 @@ impl SnmpWalker {
                             Some(oid),
                             &usm_config,
                             false,
-                            false,
+                            PduType::GetNext,
                         )?;
                         println!("ENCODED: {:?}", &encoded);
 
@@ -509,8 +520,12 @@ impl SnmpWalker {
                     self.increment_ids();
 
                     if usm_config.has_auth() {
-                        let encoded =
-                            self.create_authenticated_request(Some(oid), &usm_config, true, true)?;
+                        let encoded = self.create_authenticated_request(
+                            Some(oid),
+                            &usm_config,
+                            true,
+                            PduType::GetBulk,
+                        )?;
                         println!("ENCODED: {:?}", &encoded);
 
                         println!("Sending authenticated request, length: {}", encoded.len());
@@ -543,8 +558,12 @@ impl SnmpWalker {
                     } else {
                         // For no-auth SNMPv3, still need proper structure
                         println!("DOING v3 no auth");
-                        let encoded =
-                            self.create_authenticated_request(Some(oid), &usm_config, false, true)?;
+                        let encoded = self.create_authenticated_request(
+                            Some(oid),
+                            &usm_config,
+                            false,
+                            PduType::GetBulk,
+                        )?;
                         println!("ENCODED: {:?}", &encoded);
 
                         println!("Sending authenticated request, length: {}", encoded.len());
@@ -864,7 +883,7 @@ impl SnmpWalker {
         oid: Option<&str>,
         usm_config: &UsmConfig,
         do_crypt: bool,
-        use_getbulk: bool,
+        pdu_type: PduType,
     ) -> Result<Vec<u8>, Box<dyn Error>> {
         // Create the var bindings
         let var_bindings = if let Some(oid) = oid {
@@ -877,22 +896,8 @@ impl SnmpWalker {
             vec![]
         };
 
-        // Create the scoped PDU
-        let scoped_pdu = if use_getbulk {
-            SnmpV3ScopedPdu {
-                _scoped_pdu_seq_tag_len: Value::Auto,
-                context_engine_id: Value::Set(ByteArray::from(usm_config.engine_id.clone())),
-                context_name: Value::Set(ByteArray::from(vec![])),
-                pdu: Value::Set(SnmpV3Pdu::GetBulk(SnmpGetBulkRequest {
-                    request_id: Value::Set(self.request_id),
-                    non_repeaters: Value::Set(0),
-                    max_repetitions: Value::Set(self.config.max_repetitions),
-                    _bindings_tag_len: Value::Auto,
-                    var_bindings,
-                })),
-            }
-        } else {
-            SnmpV3ScopedPdu {
+        let scoped_pdu = match pdu_type {
+            PduType::Get => SnmpV3ScopedPdu {
                 _scoped_pdu_seq_tag_len: Value::Auto,
                 context_engine_id: Value::Set(ByteArray::from(usm_config.engine_id.clone())),
                 context_name: Value::Set(ByteArray::from(vec![])),
@@ -903,8 +908,33 @@ impl SnmpWalker {
                     _bindings_tag_len: Value::Auto,
                     var_bindings,
                 })),
-            }
+            },
+            PduType::GetNext => SnmpV3ScopedPdu {
+                _scoped_pdu_seq_tag_len: Value::Auto,
+                context_engine_id: Value::Set(ByteArray::from(usm_config.engine_id.clone())),
+                context_name: Value::Set(ByteArray::from(vec![])),
+                pdu: Value::Set(SnmpV3Pdu::GetNext(SnmpGetOrResponse {
+                    request_id: Value::Set(self.request_id),
+                    error_status: Value::Set(0),
+                    error_index: Value::Set(0),
+                    _bindings_tag_len: Value::Auto,
+                    var_bindings,
+                })),
+            },
+            PduType::GetBulk => SnmpV3ScopedPdu {
+                _scoped_pdu_seq_tag_len: Value::Auto,
+                context_engine_id: Value::Set(ByteArray::from(usm_config.engine_id.clone())),
+                context_name: Value::Set(ByteArray::from(vec![])),
+                pdu: Value::Set(SnmpV3Pdu::GetBulk(SnmpGetBulkRequest {
+                    request_id: Value::Set(self.request_id),
+                    non_repeaters: Value::Set(0),
+                    max_repetitions: Value::Set(self.config.max_repetitions),
+                    _bindings_tag_len: Value::Auto,
+                    var_bindings,
+                })),
+            },
         };
+
         println!("SCOPED PDU: {:?}", &scoped_pdu);
 
         // Create USM parameters with the discovered engine ID
