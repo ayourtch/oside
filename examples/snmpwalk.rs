@@ -1102,6 +1102,19 @@ impl SnmpWalker {
         usm_config: &UsmConfig,
     ) -> Result<Vec<SnmpVarBind>, Box<dyn Error>> {
         if let Some(snmpv3) = response.get_layer(SnmpV3::new()) {
+            let server_engine_time = if let Value::Set(SnmpV3SecurityParameters::Usm(ref usm)) =
+                &snmpv3.msg_security_parameters
+            {
+                let server_engine_time = usm.msg_authoritative_engine_time.value();
+                println!(
+                    "Server engine time from response: {}, discovery time: {}",
+                    server_engine_time, &usm_config.engine_time
+                );
+                server_engine_time
+            } else {
+                usm_config.engine_time // fallback
+            };
+
             // Verify authentication if required (with lenient checking)
             if usm_config.has_auth() {
                 if let Err(e) = self.verify_authentication(response, usm_config) {
@@ -1116,8 +1129,12 @@ impl SnmpWalker {
 
                 if let Some(encrypted_data) = self.extract_encrypted_data(response)? {
                     let privacy_params = self.extract_privacy_params(response)?;
-                    let decrypted_scoped_pdu =
-                        self.decrypt_scoped_pdu(&encrypted_data, &privacy_params, usm_config)?;
+                    let decrypted_scoped_pdu = self.decrypt_scoped_pdu(
+                        &encrypted_data,
+                        &privacy_params,
+                        usm_config,
+                        server_engine_time,
+                    )?;
 
                     return self.extract_bindings_from_scoped_pdu(&decrypted_scoped_pdu);
                 } else {
@@ -1609,6 +1626,7 @@ impl SnmpWalker {
         encrypted_data: &[u8],
         privacy_params: &[u8],
         usm_config: &UsmConfig,
+        server_engine_time: u32,
     ) -> Result<SnmpV3ScopedPdu, Box<dyn Error>> {
         println!("=== DECRYPTION COMPARISON DEBUG ===");
         println!("Encrypted data length: {}", encrypted_data.len());
@@ -1648,15 +1666,13 @@ impl SnmpWalker {
                 iv
             }
             usm_crypto::PrivAlgorithm::Aes128 => {
+                println!("=== DECRYPTION WITH SERVER ENGINE TIME ===");
+                println!("Server engine time: {}", server_engine_time);
+
                 // For AES: use the calculate_iv method
                 usm_config
                     .priv_algorithm
-                    .calculate_iv(
-                        salt,
-                        &priv_key,
-                        usm_config.engine_boots,
-                        usm_config.engine_time,
-                    )
+                    .calculate_iv(salt, &priv_key, usm_config.engine_boots, server_engine_time)
                     .map_err(|e| format!("Failed to calculate AES IV: {}", e))?
             }
             _ => return Err("Unsupported privacy algorithm".into()),
@@ -1739,12 +1755,7 @@ impl SnmpWalker {
                 // For AES: use the calculate_iv method
                 usm_config
                     .priv_algorithm
-                    .calculate_iv(
-                        salt,
-                        &priv_key,
-                        usm_config.engine_boots,
-                        usm_config.engine_time,
-                    )
+                    .calculate_iv(salt, &priv_key, usm_config.engine_boots, server_engine_time)
                     .map_err(|e| format!("Failed to calculate AES IV: {}", e))?
             }
             _ => return Err("Unsupported privacy algorithm".into()),
