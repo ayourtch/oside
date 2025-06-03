@@ -94,8 +94,8 @@ impl OsideSnmpSession {
         let mut current_oid = self.config.starting_oid.clone();
         let mut results_count = 0;
 
-        debug!("Walking from OID: {}", current_oid);
-        debug!("----------------------------------------");
+        println!("Walking from OID: {}", current_oid);
+        println!("----------------------------------------");
 
         loop {
             let response = if self.config.use_getbulk {
@@ -124,8 +124,8 @@ impl OsideSnmpSession {
             }
         }
 
-        debug!("----------------------------------------");
-        debug!("Walk completed. Total results: {}", results_count);
+        println!("----------------------------------------");
+        println!("Walk completed. Total results: {}", results_count);
         Ok(())
     }
 
@@ -488,7 +488,7 @@ impl OsideSnmpSession {
             SnmpValue::Unknown(obj) => format!("Unknown: {:?}", obj),
         };
 
-        debug!("RESUIT: {} = {}", oid, value_str);
+        println!("RESULT: {} = {}", oid, value_str);
     }
 
     fn create_usm_config(&self) -> Option<UsmConfig> {
