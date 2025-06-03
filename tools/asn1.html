@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASN.1 Decoder</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .hex-input {
+            width: 100%;
+            height: 100px;
+            font-family: 'Courier New', monospace;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .decode-btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 10px 0;
+        }
+        .decode-btn:hover {
+            background: #0056b3;
+        }
+        .output {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            padding: 15px;
+            white-space: pre-wrap;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+        .tag {
+            color: #d73027;
+            font-weight: bold;
+        }
+        .length {
+            color: #1a9641;
+            font-weight: bold;
+        }
+        .value {
+            color: #313695;
+        }
+        .indent {
+            margin-left: 20px;
+        }
+        .error {
+            color: #dc3545;
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            padding: 10px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ASN.1 Decoder for SNMP Data</h1>
+        
+        <textarea class="hex-input" placeholder="Enter hex bytes (comma-separated or space-separated)">30, 37, 04, 0c, 80, 00, 00, 09, 03, 00, cc, 6a, 33, 84, b1, 80, 04, 00, a2, 25, 02, 04, 09, 89, 4d, c9, 02, 01, 00, 02, 01, 00, 30, 17, 30, 15, 06, 08, 2b, 06, 01, 02, 01, 01, 02, 00, 06, 09, 2b, 06, 01, 04, 01, 09, 01, 98, 07, 00, 00, 00, 00, 00, 00, 00</textarea>
+        
+        <button class="decode-btn" onclick="decodeASN1()">Decode ASN.1</button>
+        
+        <div id="output" class="output"></div>
+    </div>
+
+    <script>
+        function parseHexInput(input) {
+            // Remove brackets, whitespace, and split by comma or space
+            const cleaned = input.replace(/[\[\]]/g, '').trim();
+            const parts = cleaned.split(/[,\s]+/).filter(part => part.length > 0);
+            
+            return parts.map(part => {
+                const hex = part.trim().replace(/^0x/i, '');
+                const num = parseInt(hex, 16);
+                if (isNaN(num) || num < 0 || num > 255) {
+                    throw new Error(`Invalid hex byte: ${part}`);
+                }
+                return num;
+            });
+        }
+
+        function parseLength(data, offset) {
+            if (offset >= data.length) {
+                throw new Error("Unexpected end of data while parsing length");
+            }
+            
+            const firstByte = data[offset];
+            
+            if ((firstByte & 0x80) === 0) {
+                // Short form
+                return { length: firstByte, consumed: 1 };
+            } else {
+                // Long form
+                const lengthOfLength = firstByte & 0x7F;
+                if (lengthOfLength === 0) {
+                    throw new Error("Indefinite length not supported");
+                }
+                if (offset + lengthOfLength >= data.length) {
+                    throw new Error("Unexpected end of data in long form length");
+                }
+                
+                let length = 0;
+                for (let i = 1; i <= lengthOfLength; i++) {
+                    length = (length << 8) | data[offset + i];
+                }
+                return { length, consumed: 1 + lengthOfLength };
+            }
+        }
+
+        function formatOID(bytes) {
+            if (bytes.length === 0) return "";
+            
+            let result = [];
+            let pos = 0;
+            
+            // First byte encodes first two sub-identifiers
+            const firstByte = bytes[pos++];
+            const first = Math.floor(firstByte / 40);
+            const second = firstByte % 40;
+            result.push(first, second);
+            
+            // Decode remaining sub-identifiers
+            while (pos < bytes.length) {
+                let value = 0;
+                let byte;
+                do {
+                    if (pos >= bytes.length) break;
+                    byte = bytes[pos++];
+                    value = (value << 7) | (byte & 0x7F);
+                } while ((byte & 0x80) !== 0);
+                result.push(value);
+            }
+            
+            return result.join('.');
+        }
+
+        function formatBytes(bytes) {
+            // Try to format as ASCII if printable
+            if (bytes.every(b => b >= 32 && b <= 126)) {
+                return `"${String.fromCharCode(...bytes)}"`;
+            }
+            return `[${bytes.map(b => b.toString(16).padStart(2, '0')).join(' ')}]`;
+        }
+
+        function parseASN1(data, offset = 0, indent = 0) {
+            let result = [];
+            const indentStr = '  '.repeat(indent);
+            
+            while (offset < data.length) {
+                if (offset >= data.length) break;
+                
+                const tag = data[offset];
+                let tagName = '';
+                let isConstructed = (tag & 0x20) !== 0;
+                let tagClass = (tag & 0xC0) >> 6;
+                let tagNumber = tag & 0x1F;
+                
+                // Determine tag name
+                if (tagClass === 0) { // Universal
+                    switch (tagNumber) {
+                        case 0x01: tagName = 'BOOLEAN'; break;
+                        case 0x02: tagName = 'INTEGER'; break;
+                        case 0x03: tagName = 'BIT STRING'; break;
+                        case 0x04: tagName = 'OCTET STRING'; break;
+                        case 0x05: tagName = 'NULL'; break;
+                        case 0x06: tagName = 'OBJECT IDENTIFIER'; break;
+                        case 0x10: tagName = 'SEQUENCE'; break;
+                        case 0x11: tagName = 'SET'; break;
+                        default: tagName = `Universal-${tagNumber}`;
+                    }
+                } else if (tagClass === 2) { // Context-specific
+                    switch (tagNumber) {
+                        case 0: tagName = 'GetRequest'; break;
+                        case 1: tagName = 'GetNextRequest'; break;
+                        case 2: tagName = 'GetResponse'; break;
+                        case 3: tagName = 'SetRequest'; break;
+                        case 4: tagName = 'Trap'; break;
+                        case 5: tagName = 'GetBulkRequest'; break;
+                        default: tagName = `Context-${tagNumber}`;
+                    }
+                } else {
+                    tagName = `Class-${tagClass}-${tagNumber}`;
+                }
+                
+                const lengthResult = parseLength(data, offset + 1);
+                const length = lengthResult.length;
+                const totalHeaderLength = 1 + lengthResult.consumed;
+                
+                result.push(`${indentStr}<span class="tag">${tagName}</span> <span class="length">(${length} bytes)</span> [tag=0x${tag.toString(16).padStart(2, '0')}]`);
+                
+                if (offset + totalHeaderLength + length > data.length) {
+                    result.push(`${indentStr}  <span class="error">ERROR: Not enough data (need ${length} bytes, have ${data.length - offset - totalHeaderLength})</span>`);
+                    break;
+                }
+                
+                const contentStart = offset + totalHeaderLength;
+                const content = data.slice(contentStart, contentStart + length);
+                
+                if (isConstructed || tagName === 'SEQUENCE' || tagName === 'SET') {
+                    // Parse constructed content recursively
+                    const subResult = parseASN1(content, 0, indent + 1);
+                    result.push(...subResult);
+                } else {
+                    // Handle primitive content
+                    let valueStr = '';
+                    switch (tagName) {
+                        case 'INTEGER':
+                            if (length <= 4) {
+                                let value = 0;
+                                let isNegative = (content[0] & 0x80) !== 0;
+                                for (let i = 0; i < content.length; i++) {
+                                    value = (value << 8) | content[i];
+                                }
+                                if (isNegative && length <= 4) {
+                                    value -= Math.pow(256, length);
+                                }
+                                valueStr = `${value}`;
+                            } else {
+                                valueStr = `[${content.map(b => b.toString(16).padStart(2, '0')).join(' ')}]`;
+                            }
+                            break;
+                        case 'OBJECT IDENTIFIER':
+                            valueStr = formatOID(content);
+                            break;
+                        case 'OCTET STRING':
+                            valueStr = formatBytes(content);
+                            break;
+                        case 'NULL':
+                            valueStr = 'NULL';
+                            break;
+                        default:
+                            valueStr = formatBytes(content);
+                    }
+                    result.push(`${indentStr}  <span class="value">${valueStr}</span>`);
+                }
+                
+                offset = contentStart + length;
+            }
+            
+            return result;
+        }
+
+        function decodeASN1() {
+            const input = document.querySelector('.hex-input').value;
+            const output = document.getElementById('output');
+            
+            try {
+                const bytes = parseHexInput(input);
+                const decoded = parseASN1(bytes);
+                
+                let result = `Decoded ASN.1 Structure (${bytes.length} bytes total):\n\n`;
+                result += decoded.join('\n');
+                
+                output.innerHTML = result;
+            } catch (error) {
+                output.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+            }
+        }
+
+        // Auto-decode on page load
+        window.onload = function() {
+            decodeASN1();
+        };
+    </script>
+</body>
+</html>
