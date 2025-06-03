@@ -630,7 +630,7 @@ impl SnmpWalker {
     }
 
     fn print_result(&self, binding: &SnmpVarBind) {
-        let oid = format!("{:?}", binding.name.value());
+        let oid = format!("{}", binding.name.value());
         let value = &binding.value.value();
 
         let value_str = match value {
@@ -654,8 +654,8 @@ impl SnmpWalker {
                     )
                 }
             }
-            SnmpValue::ObjectIdentifier(oid) => format!("OID: {:?}", oid),
-            SnmpValue::IpAddress(ip) => format!("IpAddress: {:?}", ip),
+            SnmpValue::ObjectIdentifier(oid) => format!("OID: {}", oid),
+            SnmpValue::IpAddress(ip) => format!("IpAddress: {}", ip),
             SnmpValue::Counter32(c) => format!("Counter32: {}", c),
             SnmpValue::Gauge32(g) => format!("Gauge32: {}", g),
             SnmpValue::TimeTicks(t) => {
@@ -678,7 +678,7 @@ impl SnmpWalker {
             SnmpValue::Unknown(obj) => format!("Unknown: {:?}", obj),
         };
 
-        println!("{} = {}", oid, value_str);
+        println!("RESUIT: {} = {}", oid, value_str);
     }
 
     fn create_usm_config(&self) -> Option<UsmConfig> {
@@ -1061,7 +1061,7 @@ impl SnmpWalker {
                         }
 
                         for binding in &resp.var_bindings {
-                            let oid_str = format!("{:?}", binding.name.value());
+                            let oid_str = format!("{}", binding.name.value());
 
                             if !oid_str.starts_with(&self.config.starting_oid) {
                                 println!("Reached end of subtree");

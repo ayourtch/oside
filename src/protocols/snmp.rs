@@ -687,6 +687,13 @@ impl Decode for SnmpValue {
         println!("DECODE SnmpValue: {:?}", &out);
         let snmp_out = match out.tag {
             asn1::Tag::Null => SnmpValue::Null,
+            asn1::Tag::ObjectIdentifier => {
+                if let asn1::Value::ObjectIdentifier(oid) = out.value {
+                    SnmpValue::ObjectIdentifier(protocols::snmp::BerOid(oid))
+                } else {
+                    SnmpValue::Unknown(out)
+                }
+            }
             asn1::Tag::Integer => {
                 println!("DECODE INT SnmpValue: {:?}", &out);
                 if let asn1::Value::Integer(iv) = out.value {
