@@ -3989,22 +3989,22 @@ pub mod usm_crypto {
                         .map_err(|e| format!("Failed to create DES cipher: {:?}", e))?;
 
                     let mut plaintext = ciphertext.to_vec();
-/*
+                    /*
 
-THIS GIVES INCORRECT LENGTH PLAINTEXT, DO NOT USE
+                    THIS GIVES INCORRECT LENGTH PLAINTEXT, DO NOT USE
 
-                    // First try with PKCS7 padding
-                    match cipher.decrypt_padded_mut::<cipher::block_padding::Pkcs7>(&mut plaintext)
-                    {
-                        Ok(decrypted_data) => {
-                            println!("PKCS7 padding decryption succeeded, length: {}", decrypted_data.len());
-                            return Ok(decrypted_data.to_vec());
-                        }
-                        Err(_) => {
-                            println!("PKCS7 padding failed, trying raw decryption...");
-                        }
-                    }
-*/
+                                        // First try with PKCS7 padding
+                                        match cipher.decrypt_padded_mut::<cipher::block_padding::Pkcs7>(&mut plaintext)
+                                        {
+                                            Ok(decrypted_data) => {
+                                                println!("PKCS7 padding decryption succeeded, length: {}", decrypted_data.len());
+                                                return Ok(decrypted_data.to_vec());
+                                            }
+                                            Err(_) => {
+                                                println!("PKCS7 padding failed, trying raw decryption...");
+                                            }
+                                        }
+                    */
 
                     // Fallback: Raw decryption without padding validation
                     let mut raw_buffer = ciphertext.to_vec();

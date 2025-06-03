@@ -1700,10 +1700,6 @@ impl SnmpWalker {
 
         // Compare with what we used during encryption
         println!("=== COMPARISON WITH ENCRYPTION ===");
-        println!("During encryption we used:");
-        println!("  Salt: [00, 00, 00, 18, 00, 00, 00, 01]");
-        println!("  IV:   [7b, 39, 6a, d1, 23, 51, d6, 6e]");
-        println!("  Key:  [0c, 8a, 42, b4, 37, 96, f6, b6]");
         println!("During decryption we're using:");
         println!("  Salt: {:02x?}", salt);
         println!("  IV:   {:02x?}", iv);
