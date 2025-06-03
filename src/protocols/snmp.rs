@@ -1598,7 +1598,6 @@ pub enum SnmpV3Pdu {
     Inform(SnmpGetOrResponse),
     Report(SnmpGetOrResponse),
     TrapV2(SnmpTrapV2Pdu),
-    Raw(Vec<u8>),
 }
 
 impl Default for SnmpV3Pdu {
@@ -1646,7 +1645,6 @@ impl Encode for SnmpV3Pdu {
                 let inner = pdu.encode::<E>();
                 Asn1Encoder::encode_context_tag(0xa7, &inner)
             }
-            SnmpV3Pdu::Raw(pdu) => pdu.to_vec(),
         }
     }
 }
@@ -1659,7 +1657,6 @@ impl Decode for SnmpV3Pdu {
 
         // Read the tag byte to determine PDU type
         let tag_byte = buf[0];
-        println!("Decode for SnmpV3Pdu TAG: 0x{:02x}", tag_byte);
 
         match tag_byte {
             0xA0 => SnmpGetOrResponse::decode::<D>(buf)
@@ -1694,10 +1691,7 @@ impl Decode for SnmpV3Pdu {
 
             // If tag doesn't match any known PDU, fail the decode
             // Framework will automatically fall back to Raw layer
-            x => {
-                eprintln!("WARNING: tag {:02x} unknown, decoding as raw", x);
-                Some((SnmpV3Pdu::Raw(buf.to_vec()), buf.len()))
-            }
+            _ => None,
         }
     }
 }
