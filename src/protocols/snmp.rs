@@ -1760,6 +1760,23 @@ impl SnmpV3 {
         self.set_msg_flags_byte(new_flags);
     }
 
+    pub fn add_usm_auth(mut self) -> Self {
+        self.set_authentication(true);
+        self.msg_security_model = Value::Set(3);
+        self.msg_security_parameters =
+            Value::Set(SnmpV3SecurityParameters::Usm(UsmSecurityParameters {
+                _octet_string_tag_len: Value::Auto,
+                _seq_tag_len: Value::Auto,
+                msg_authoritative_engine_id: Value::Set(ByteArray::from(vec![])),
+                msg_authoritative_engine_boots: Value::Set(0),
+                msg_authoritative_engine_time: Value::Set(0),
+                msg_user_name: Value::Set(ByteArray::from(vec![])),
+                msg_authentication_parameters: Value::Set(ByteArray::from(vec![])),
+                msg_privacy_parameters: Value::Set(ByteArray::from(vec![])),
+            }));
+        self
+    }
+
     pub fn with_usm_auth(mut self, user_name: &str, auth_params: Vec<u8>) -> Self {
         self.msg_flags = SnmpV3::flags(1); // Value::Set(1); // Auth, no priv
         self.msg_security_model = Value::Set(3);
@@ -1936,7 +1953,7 @@ impl SnmpV3 {
 
     /// Create an SNMPv3 message with authentication
     pub fn with_auth(user: &str, auth_alg: usm_crypto::AuthAlgorithm, password: &str) -> Self {
-        let mut snmp = SnmpV3::new();
+        let mut snmp = SnmpV3::new().add_usm_auth();
         snmp.set_authentication(true);
 
         if let Value::Set(SnmpV3SecurityParameters::Usm(ref mut usm)) =
