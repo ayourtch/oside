@@ -1738,10 +1738,7 @@ impl SnmpWalker {
             .map_err(|e| format!("Decryption failed: {}", e))?;
 
         println!("Decrypted data length: {}", decrypted_data.len());
-        println!(
-            "Decrypted data: {:02x?}",
-            &decrypted_data[0..std::cmp::min(decrypted_data.len(), 50)]
-        );
+        println!("Decrypted data: {:02x?}", &decrypted_data);
 
         // Parse the decrypted data as a scoped PDU
         if let Some((scoped_pdu, consumed)) =

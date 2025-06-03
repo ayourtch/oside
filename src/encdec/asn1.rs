@@ -72,6 +72,7 @@ impl Asn1Decoder {
 
     pub fn parse_tag_and_len(buf: &[u8], ci: usize) -> Option<((asn1::Tag, usize), usize)> {
         if ci + 2 > buf.len() {
+            eprintln!("parse_tag_and_len: not enough bytes - buf: {:02x?}", buf);
             return None;
         }
         let start = ci;

@@ -1666,9 +1666,9 @@ impl Decode for SnmpV3Pdu {
                 .map(|(pdu, consumed)| (SnmpV3Pdu::GetNext(pdu), consumed)),
 
             0xA2 => {
-                let res = SnmpGetOrResponse::decode::<D>(&buf[4..]);
-                // let res = SnmpGetResponse::decode::<D>(buf);
-                // let res = SNMPGETRESPONSE!().ldecode(&buf).unwrap().0;
+                let (new_len, delta) = Asn1Decoder::parse_length(buf, 1).ok()?;
+                eprintln!("buf: {:02x?} NEW LEN: {} DELTA {}", &buf, new_len, delta);
+                let res = SnmpGetOrResponse::decode::<D>(&buf[delta + 1..]);
                 eprintln!("0xA2 decode: {:?}", &res);
 
                 res.map(|(pdu, consumed)| (SnmpV3Pdu::Response(pdu), consumed))
