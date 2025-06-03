@@ -35,6 +35,8 @@ enum SnmpVersion {
         priv_algorithm: Option<PrivAlgorithm>,
         priv_password: Option<String>,
         engine_id: Vec<u8>,
+        engine_boots: u32, // Add this
+        engine_time: u32,  // Add this
     },
 }
 
@@ -169,6 +171,8 @@ fn parse_args(args: &[String]) -> Result<SnmpWalkConfig, Box<dyn Error>> {
                             priv_algorithm,
                             priv_password,
                             engine_id: vec![], // Will be discovered
+                            engine_boots: 1,
+                            engine_time: 0,
                         };
                     }
                     _ => return Err("Unsupported SNMP version. Use '2c' or '3'".into()),
@@ -280,10 +284,14 @@ impl SnmpWalker {
     fn update_engine_info(&mut self, engine_id: Vec<u8>, boots: u32, time: u32) {
         if let SnmpVersion::V3 {
             engine_id: ref mut stored_engine_id,
+            engine_boots: ref mut stored_boots,
+            engine_time: ref mut stored_time,
             ..
         } = &mut self.config.version
         {
             *stored_engine_id = engine_id;
+            *stored_boots = boots;
+            *stored_time = time;
         }
     }
 
@@ -663,6 +671,8 @@ impl SnmpWalker {
                 priv_algorithm,
                 priv_password,
                 engine_id,
+                engine_boots,
+                engine_time,
             } => {
                 let mut usm_config = UsmConfig::new(user);
 
@@ -681,7 +691,8 @@ impl SnmpWalker {
                 }
 
                 if !engine_id.is_empty() {
-                    usm_config = usm_config.with_engine_info(engine_id, 1, 0);
+                    usm_config =
+                        usm_config.with_engine_info(engine_id, *engine_boots, *engine_time);
                 }
                 println!(
                     "USM config - has_auth: {}, has_priv: {}",
