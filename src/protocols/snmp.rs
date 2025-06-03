@@ -3950,35 +3950,55 @@ pub mod usm_crypto {
         pub fn decrypt(&self, key: &[u8], iv: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, String> {
             match self {
                 PrivAlgorithm::None => Ok(ciphertext.to_vec()),
-                PrivAlgorithm::DesCbc => {
-                    use cbc::Decryptor;
-                    use cipher::{BlockDecryptMut, KeyIvInit};
-                    use des::Des;
+       PrivAlgorithm::DesCbc => {
+            use cbc::Decryptor;
+            use cipher::{BlockDecryptMut, KeyIvInit};
+            use des::Des;
 
-                    type DesCbcDec = Decryptor<Des>;
+            type DesCbcDec = Decryptor<Des>;
 
-                    if key.len() < 8 {
-                        return Err("DES key must be at least 8 bytes".to_string());
-                    }
-                    if iv.len() != 8 {
-                        return Err("DES IV must be exactly 8 bytes".to_string());
-                    }
-                    if ciphertext.len() % 8 != 0 {
-                        return Err("DES ciphertext length must be multiple of 8".to_string());
-                    }
+            println!("=== DES DECRYPTION DEBUG ===");
+            println!("Key (8 bytes): {:02x?}", &key[..8]);
+            println!("IV (8 bytes): {:02x?}", iv);
+            println!("Ciphertext length: {}", ciphertext.len());
+            println!("Ciphertext first 16 bytes: {:02x?}", &ciphertext[0..std::cmp::min(16, ciphertext.len())]);
 
-                    let cipher = DesCbcDec::new_from_slices(&key[..8], iv)
-                        .map_err(|e| format!("Failed to create DES cipher: {:?}", e))?;
+            if key.len() < 8 {
+                return Err("DES key must be at least 8 bytes".to_string());
+            }
+            if iv.len() != 8 {
+                return Err("DES IV must be exactly 8 bytes".to_string());
+            }
+            if ciphertext.len() % 8 != 0 {
+                return Err("DES ciphertext length must be multiple of 8".to_string());
+            }
 
-                    let mut plaintext = ciphertext.to_vec();
-                    let decrypted_len = cipher
-                        .decrypt_padded_mut::<cipher::block_padding::Pkcs7>(&mut plaintext)
-                        .map_err(|e| format!("DES decryption failed: {:?}", e))?
-                        .len();
+            let cipher = DesCbcDec::new_from_slices(&key[..8], iv)
+                .map_err(|e| format!("Failed to create DES cipher: {:?}", e))?;
 
-                    plaintext.truncate(decrypted_len);
-                    Ok(plaintext)
-                }
+            let mut plaintext = ciphertext.to_vec();
+            
+            println!("Before decryption - buffer length: {}", plaintext.len());
+            
+            let decrypted_data = cipher
+                .decrypt_padded_mut::<cipher::block_padding::Pkcs7>(&mut plaintext)
+                .map_err(|e| {
+                    println!("DES decryption error: {:?}", e);
+                    println!("First 32 bytes of ciphertext: {:02x?}", &ciphertext[0..std::cmp::min(32, ciphertext.len())]);
+                    println!("Last 16 bytes of ciphertext: {:02x?}", &ciphertext[ciphertext.len().saturating_sub(16)..]);
+                    
+                    // Simpler approach - just show what we can without complex raw decryption
+                    println!("Decryption failed, likely a padding issue");
+                    println!("This suggests the ciphertext, key, or IV might be incorrect");
+                    
+                    format!("DES decryption failed: {:?}", e)
+                })?;
+
+            println!("Decryption successful - plaintext length: {}", decrypted_data.len());
+            println!("Plaintext first 16 bytes: {:02x?}", &decrypted_data[0..std::cmp::min(16, decrypted_data.len())]);
+            
+            Ok(decrypted_data.to_vec())
+        }
                 PrivAlgorithm::Aes128 => {
                     use aes::Aes128;
                     use cfb_mode::Decryptor;
