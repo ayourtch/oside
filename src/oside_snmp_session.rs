@@ -90,8 +90,12 @@ impl OsideSnmpSession {
         })
     }
 
-    pub fn walk(&mut self) -> Result<Vec<SnmpVarBind>, Box<dyn Error>> {
-        let mut current_oid = self.config.starting_oid.clone();
+    pub fn get_target_host(&self) -> String {
+        self.config.target_host.clone()
+    }
+
+    pub fn walk(&mut self, oid: &str) -> Result<Vec<SnmpVarBind>, Box<dyn Error>> {
+        let mut current_oid = oid.to_string(); // self.config.starting_oid.clone();
         let mut results_count = 0;
         let mut results = vec![];
 

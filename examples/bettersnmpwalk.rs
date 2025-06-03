@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Starting OID: {}", config.starting_oid);
 
     let mut walker = OsideSnmpSession::new(config)?;
-    walker.walk()?;
+    walker.walk(&config.starting_oid)?;
 
     Ok(())
 }
