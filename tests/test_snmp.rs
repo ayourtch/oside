@@ -549,7 +549,7 @@ fn test_interface_walk() {
 #[test]
 fn test_snmp_value_utilities() {
     // Test integer conversion
-    let int_val = SnmpValue::integer(42);
+    let int_val = SnmpValue::simpleint32(42);
     assert_eq!(int_val.as_integer(), Some(42));
     assert_eq!(int_val.as_string(), None);
 
@@ -939,7 +939,7 @@ fn test_ber_oid_parsing() {
 fn test_snmp_value_encoding() {
     let test_values = vec![
         (SnmpValue::Null, "NULL"),
-        (SnmpValue::integer(42), "INTEGER"),
+        (SnmpValue::simpleint32(42), "SimpleInt32"),
         (SnmpValue::string("test"), "OCTET STRING"),
         (SnmpValue::counter32(12345), "Counter32"),
         (SnmpValue::gauge32(98765), "Gauge32"),

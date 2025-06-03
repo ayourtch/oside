@@ -684,14 +684,41 @@ impl Distribution<SnmpValue> for Standard {
 impl Decode for SnmpValue {
     fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
         let (out, delta) = Asn1Decoder::parse(buf, 0).ok()?;
+        println!("DECODE SnmpValue: {:?}", &out);
         let snmp_out = match out.tag {
             asn1::Tag::Null => SnmpValue::Null,
             asn1::Tag::Integer => {
+                println!("DECODE INT SnmpValue: {:?}", &out);
                 if let asn1::Value::Integer(iv) = out.value {
+                    println!("INTEGER");
                     if iv < -2147483648 || iv > 2147483647 {
                         return None;
                     }
                     SnmpValue::SimpleInt32(iv as i32)
+                } else {
+                    return None;
+                }
+            }
+            asn1::Tag::UnknownTag(0x41) => {
+                if let asn1::Value::UnknownPrimitive(_, data) = out.value {
+                    let (value, _) =
+                        Asn1Decoder::parse_just_integer_unsigned(&data, data.len()).ok()?;
+                    if value > 4294967295 {
+                        return None;
+                    }
+                    SnmpValue::Counter32(value as u32)
+                } else {
+                    return None;
+                }
+            }
+            asn1::Tag::UnknownTag(0x42) => {
+                if let asn1::Value::UnknownPrimitive(_, data) = out.value {
+                    let (value, _) =
+                        Asn1Decoder::parse_just_integer_unsigned(&data, data.len()).ok()?;
+                    if value > 4294967295 {
+                        return None;
+                    }
+                    SnmpValue::Gauge32(value as u32)
                 } else {
                     return None;
                 }
@@ -717,8 +744,17 @@ impl Decode for SnmpValue {
                     return None;
                 }
             }
+            //ASN1Object { tag: OctetString, value: OctetString([116, 101, 115, 116]) }
+            asn1::Tag::OctetString => {
+                if let asn1::Value::OctetString(v) = out.value {
+                    SnmpValue::OctetString(v)
+                } else {
+                    SnmpValue::Unknown(out)
+                }
+            }
             x => SnmpValue::Unknown(out),
         };
+        println!("OUT: {:?}", &snmp_out);
         Some((snmp_out, delta))
     }
 }
@@ -754,11 +790,11 @@ impl Encode for SnmpValue {
             },
             SnmpValue::Counter32(x) => &asn1::ASN1Object {
                 tag: asn1::Tag::UnknownTag(0x41), // Counter32 tag
-                value: asn1::Value::UnknownPrimitive(0x41, (*x as u64).to_be_bytes().to_vec()),
+                value: asn1::Value::UnknownPrimitive(0x41, (*x as u32).to_be_bytes().to_vec()),
             },
             SnmpValue::Gauge32(x) => &asn1::ASN1Object {
                 tag: asn1::Tag::UnknownTag(0x42), // Gauge32 tag
-                value: asn1::Value::UnknownPrimitive(0x42, (*x as u64).to_be_bytes().to_vec()),
+                value: asn1::Value::UnknownPrimitive(0x42, (*x as u32).to_be_bytes().to_vec()),
             },
             SnmpValue::Opaque(bytes) => &asn1::ASN1Object {
                 tag: asn1::Tag::UnknownTag(0x44), // Opaque tag
@@ -2830,9 +2866,8 @@ impl Snmp {
 
 // Add utility functions for working with SNMP values
 impl SnmpValue {
-    /// Create an integer value
-    pub fn integer(value: i64) -> Self {
-        SnmpValue::Integer(value)
+    pub fn simpleint32(value: i32) -> Self {
+        SnmpValue::SimpleInt32(value)
     }
 
     /// Create a string value
@@ -2878,6 +2913,7 @@ impl SnmpValue {
     pub fn type_name(&self) -> &'static str {
         match self {
             SnmpValue::Integer(_) => "INTEGER",
+            SnmpValue::SimpleInt32(_) => "SimpleInt32",
             SnmpValue::OctetString(_) => "OCTET STRING",
             SnmpValue::Null => "NULL",
             SnmpValue::ObjectIdentifier(_) => "OBJECT IDENTIFIER",
@@ -2890,7 +2926,7 @@ impl SnmpValue {
             SnmpValue::NoSuchObject => "noSuchObject",
             SnmpValue::NoSuchInstance => "noSuchInstance",
             SnmpValue::EndOfMibView => "endOfMibView",
-            x => panic!("Inknown type name: {:?}", x),
+            SnmpValue::Unknown(x) => panic!("Inknown type name: {:?}", x),
         }
     }
 
@@ -2902,6 +2938,7 @@ impl SnmpValue {
             SnmpValue::Gauge32(g) => Some(*g as i64),
             SnmpValue::TimeTicks(t) => Some(*t as i64),
             SnmpValue::Counter64(c) => Some(*c as i64),
+            SnmpValue::SimpleInt32(c) => Some(*c as i64),
             _ => None,
         }
     }
@@ -3102,9 +3139,9 @@ mod tests {
 
     #[test]
     fn test_snmp_value_creation() {
-        let int_val = SnmpValue::integer(42);
+        let int_val = SnmpValue::simpleint32(42);
         assert_eq!(int_val.as_integer(), Some(42));
-        assert_eq!(int_val.type_name(), "INTEGER");
+        assert_eq!(int_val.type_name(), "SimpleInt32");
 
         let str_val = SnmpValue::string("test");
         assert_eq!(str_val.as_string(), Some("test".to_string()));
