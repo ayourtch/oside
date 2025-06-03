@@ -3950,69 +3950,73 @@ pub mod usm_crypto {
         pub fn decrypt(&self, key: &[u8], iv: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, String> {
             match self {
                 PrivAlgorithm::None => Ok(ciphertext.to_vec()),
-PrivAlgorithm::DesCbc => {
-            use cbc::Decryptor;
-            use cipher::{BlockDecryptMut, KeyIvInit};
-            use des::Des;
+                PrivAlgorithm::DesCbc => {
+                    use cbc::Decryptor;
+                    use cipher::{BlockDecryptMut, KeyIvInit};
+                    use des::Des;
 
-            type DesCbcDec = Decryptor<Des>;
+                    type DesCbcDec = Decryptor<Des>;
 
-            println!("=== DES DECRYPTION DEBUG ===");
-            println!("Key (8 bytes): {:02x?}", &key[..8]);
-            println!("IV (8 bytes): {:02x?}", iv);
-            println!("Ciphertext length: {}", ciphertext.len());
+                    println!("=== DES DECRYPTION DEBUG ===");
+                    println!("Key (8 bytes): {:02x?}", &key[..8]);
+                    println!("IV (8 bytes): {:02x?}", iv);
+                    println!("Ciphertext length: {}", ciphertext.len());
 
-            if key.len() < 8 {
-                return Err("DES key must be at least 8 bytes".to_string());
-            }
-            if iv.len() != 8 {
-                return Err("DES IV must be exactly 8 bytes".to_string());
-            }
-            if ciphertext.len() % 8 != 0 {
-                return Err("DES ciphertext length must be multiple of 8".to_string());
-            }
+                    if key.len() < 8 {
+                        return Err("DES key must be at least 8 bytes".to_string());
+                    }
+                    if iv.len() != 8 {
+                        return Err("DES IV must be exactly 8 bytes".to_string());
+                    }
+                    if ciphertext.len() % 8 != 0 {
+                        return Err("DES ciphertext length must be multiple of 8".to_string());
+                    }
 
-            let cipher = DesCbcDec::new_from_slices(&key[..8], iv)
-                .map_err(|e| format!("Failed to create DES cipher: {:?}", e))?;
+                    let cipher = DesCbcDec::new_from_slices(&key[..8], iv)
+                        .map_err(|e| format!("Failed to create DES cipher: {:?}", e))?;
 
-            let mut plaintext = ciphertext.to_vec();
-            
-            // First try with PKCS7 padding
-            match cipher.decrypt_padded_mut::<cipher::block_padding::Pkcs7>(&mut plaintext) {
-                Ok(decrypted_data) => {
-                    println!("PKCS7 padding decryption succeeded");
-                    return Ok(decrypted_data.to_vec());
+                    let mut plaintext = ciphertext.to_vec();
+
+                    // First try with PKCS7 padding
+                    match cipher.decrypt_padded_mut::<cipher::block_padding::Pkcs7>(&mut plaintext)
+                    {
+                        Ok(decrypted_data) => {
+                            println!("PKCS7 padding decryption succeeded");
+                            return Ok(decrypted_data.to_vec());
+                        }
+                        Err(_) => {
+                            println!("PKCS7 padding failed, trying raw decryption...");
+                        }
+                    }
+
+                    // Fallback: Raw decryption without padding validation
+                    let mut raw_buffer = ciphertext.to_vec();
+                    let mut cipher_raw = DesCbcDec::new_from_slices(&key[..8], iv).unwrap();
+
+                    // Decrypt each 8-byte block manually
+                    for chunk in raw_buffer.chunks_exact_mut(8) {
+                        let block = cipher::generic_array::GenericArray::from_mut_slice(chunk);
+                        cipher_raw.decrypt_block_mut(block);
+                    }
+
+                    println!("Raw decryption completed");
+                    println!(
+                        "Raw data first 32 bytes: {:02x?}",
+                        &raw_buffer[0..std::cmp::min(32, raw_buffer.len())]
+                    );
+
+                    // Check if this looks like valid ASN.1 data
+                    if raw_buffer.len() >= 2 && raw_buffer[0] == 0x30 {
+                        println!("Detected ASN.1 SEQUENCE start - likely valid decryption");
+
+                        // Try to find the actual end of data by looking for ASN.1 structure
+                        // For now, just return the raw data and let the ASN.1 parser handle it
+                        println!("Returning raw decrypted data without padding removal");
+                        return Ok(raw_buffer);
+                    }
+
+                    Err("Raw decryption didn't produce valid ASN.1 data".to_string())
                 }
-                Err(_) => {
-                    println!("PKCS7 padding failed, trying raw decryption...");
-                }
-            }
-
-            // Fallback: Raw decryption without padding validation
-            let mut raw_buffer = ciphertext.to_vec();
-            let mut cipher_raw = DesCbcDec::new_from_slices(&key[..8], iv).unwrap();
-            
-            // Decrypt each 8-byte block manually
-            for chunk in raw_buffer.chunks_exact_mut(8) {
-                let block = cipher::generic_array::GenericArray::from_mut_slice(chunk);
-                cipher_raw.decrypt_block_mut(block);
-            }
-            
-            println!("Raw decryption completed");
-            println!("Raw data first 32 bytes: {:02x?}", &raw_buffer[0..std::cmp::min(32, raw_buffer.len())]);
-            
-            // Check if this looks like valid ASN.1 data
-            if raw_buffer.len() >= 2 && raw_buffer[0] == 0x30 {
-                println!("Detected ASN.1 SEQUENCE start - likely valid decryption");
-                
-                // Try to find the actual end of data by looking for ASN.1 structure
-                // For now, just return the raw data and let the ASN.1 parser handle it
-                println!("Returning raw decrypted data without padding removal");
-                return Ok(raw_buffer);
-            }
-            
-            Err("Raw decryption didn't produce valid ASN.1 data".to_string())
-        }
                 PrivAlgorithm::Aes128 => {
                     use aes::Aes128;
                     use cfb_mode::Decryptor;
