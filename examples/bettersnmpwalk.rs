@@ -7,6 +7,7 @@ use oside::protocols::snmp::usm_crypto::{AuthAlgorithm, PrivAlgorithm};
 use oside::oside_snmp_session::{OsideSnmpSession, SnmpVersion, SnmpWalkConfig};
 
 fn main() -> Result<(), Box<dyn Error>> {
+    env_logger::init();
     let args: Vec<String> = env::args().collect();
 
     let config = parse_args(&args)?;
@@ -16,7 +17,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
     println!("Starting OID: {}", config.starting_oid);
 
-    let mut walker = OsideSnmpSession::new(config)?;
+    let mut walker = OsideSnmpSession::new(config.clone())?;
     walker.walk(&config.starting_oid)?;
 
     Ok(())
