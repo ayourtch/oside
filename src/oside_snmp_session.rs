@@ -96,6 +96,11 @@ impl OsideSnmpSession {
     }
 
     pub fn walk(&mut self, oid: &str) -> Result<Vec<SnmpVarBind>, Box<dyn Error>> {
+        let oid = if oid.starts_with(".") {
+            oid.to_owned()
+        } else {
+            format!(".{}", oid)
+        };
         let mut current_oid = oid.to_string();
         self.config.starting_oid = oid.to_string();
 
