@@ -389,6 +389,11 @@ impl FromStr for BerOid {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // Parse dotted decimal notation like "1.3.6.1.2.1.1.1.0"
+        let s = if s.starts_with(".") {
+            s[1..].to_owned()
+        } else {
+            s.to_owned()
+        };
         let parts: Result<Vec<u64>, _> = s.split('.').map(|part| part.parse::<u64>()).collect();
         match parts {
             Ok(mut oid_parts) => {
@@ -446,7 +451,7 @@ impl std::fmt::Display for BerOid {
         let second_part = first_encoded % 40;
 
         // Start with the decoded first two parts
-        write!(f, "{}.{}", first_part, second_part)?;
+        write!(f, ".{}.{}", first_part, second_part)?;
 
         // Add the remaining parts directly
         for &part in &self.0[1..] {

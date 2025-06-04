@@ -44,6 +44,7 @@ pub enum SnmpVersion {
     },
 }
 
+#[derive(Clone)]
 pub struct SnmpWalkConfig {
     pub target_host: String,
     pub port: u16,
@@ -95,7 +96,7 @@ impl OsideSnmpSession {
     }
 
     pub fn walk(&mut self, oid: &str) -> Result<Vec<SnmpVarBind>, Box<dyn Error>> {
-        let mut current_oid = oid.to_string(); 
+        let mut current_oid = oid.to_string();
         self.config.starting_oid = oid.to_string();
 
         let mut results_count = 0;
