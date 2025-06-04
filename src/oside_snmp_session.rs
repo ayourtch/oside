@@ -858,6 +858,11 @@ impl OsideSnmpSession {
                             _ => {}
                         }
 
+                        if let SnmpValue::Unknown(obj) = &binding.value.value() {
+                            error!("Got a bogus binding: {:?}, ignore", &binding);
+                            continue;
+                        }
+
                         // Print the result
                         self.print_result(&binding);
                         results_count += 1;
