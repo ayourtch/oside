@@ -343,6 +343,16 @@ impl Asn1Decoder {
         let mut value: u64 = 0;
 
         let mut pos = ci;
+        if buf.len() < ci + length {
+            eprintln!(
+                "ERROR: parse_oid: buf len {} insufficient for ci {} + len {} bytes; buf: {:02x?}",
+                buf.len(),
+                ci,
+                length,
+                &buf
+            );
+            return None;
+        }
 
         while pos < ci + length {
             let byte = buf[pos];
