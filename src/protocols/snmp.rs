@@ -690,7 +690,10 @@ impl Distribution<SnmpValue> for Standard {
 
 impl Decode for SnmpValue {
     fn decode<D: Decoder>(buf: &[u8]) -> Option<(Self, usize)> {
-        let (out, delta) = Asn1Decoder::parse(buf, 0).ok()?;
+        debug!("DECODE SnmpValue before: {:02x?}", &buf);
+        let res = Asn1Decoder::parse(buf, 0).ok();
+        debug!("DECODE SnmpValue result: {:?}", &res);
+        let (out, delta) = res?;
         debug!("DECODE SnmpValue: {:?}", &out);
         let snmp_out = match out.tag {
             asn1::Tag::Null => SnmpValue::Null,
@@ -1682,10 +1685,13 @@ impl Decode for SnmpV3Pdu {
             0xA2 => {
                 let (new_len, delta) = Asn1Decoder::parse_length(buf, 1).ok()?;
                 debug!("buf: {:02x?} NEW LEN: {} DELTA {}", &buf, new_len, delta);
-                let res = SnmpGetOrResponse::decode::<D>(&buf[delta + 1..delta+new_len]);
+                let decode_buf = &buf[(delta + 1)..(delta+new_len+1)];
+                debug!("decode_buf: {:02x?}", decode_buf);
+
+                let res = SnmpGetOrResponse::decode::<D>(decode_buf);
                 debug!("0xA2 decode: {:?}", &res);
 
-                res.map(|(pdu, consumed)| (SnmpV3Pdu::Response(pdu), consumed))
+                res.map(|(pdu, consumed)| (SnmpV3Pdu::Response(pdu), 1 + delta + consumed))
             }
 
             0xA3 => SnmpSetRequest::decode::<D>(buf)
