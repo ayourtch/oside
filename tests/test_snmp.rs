@@ -1185,17 +1185,17 @@ fn test_snmp_bulk_decode() {
     println!("Decoded value: {:#?}", val);
 
     if let SnmpV3Pdu::Response(resp) = val {
-       println!("Response: {:#?}", &resp);
-       assert_eq!(resp.var_bindings.len(), 5);
-       for v in &resp.var_bindings {
-           let val =  &v.value.value();
-           let out = if let SnmpValue::OctetString(os) = val {
-              format!("{}", String::from_utf8_lossy(&os))
-           } else {
-              format!("{:?}", &val)
-           };
-           println!("binding value: {}", &out);
-       }
+        println!("Response: {:#?}", &resp);
+        assert_eq!(resp.var_bindings.len(), 5);
+        for v in &resp.var_bindings {
+            let val = &v.value.value();
+            let out = if let SnmpValue::OctetString(os) = val {
+                format!("{}", String::from_utf8_lossy(&os))
+            } else {
+                format!("{:?}", &val)
+            };
+            println!("binding value: {}", &out);
+        }
     } else {
         panic!("Response not found in decode!");
     }
