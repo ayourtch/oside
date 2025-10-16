@@ -305,8 +305,8 @@ fn run_server(config: WgServerConfig) -> Result<(), Box<dyn Error>> {
     let mut buf = vec![0u8; 2048];
     let mut packet_count = 0;
 
-    // Session storage: receiver_index -> TransportKeys
-    let mut sessions: HashMap<u32, TransportKeys> = HashMap::new();
+    // Session storage: receiver_index -> (TransportKeys, send_counter)
+    let mut sessions: HashMap<u32, (TransportKeys, u64)> = HashMap::new();
 
     loop {
         // Receive UDP packet
@@ -415,8 +415,8 @@ fn run_server(config: WgServerConfig) -> Result<(), Box<dyn Error>> {
                         let local_index = resp.sender_index.value();
                         let transport_keys = TransportKeys::from_handshake_responder(&hs, local_index);
 
-                        // Store the session
-                        sessions.insert(local_index, transport_keys);
+                        // Store the session with send counter initialized to 0
+                        sessions.insert(local_index, (transport_keys, 0));
                         println!("  ✓ Transport keys derived and session stored");
                         println!("    Local index: {}", local_index);
                         println!("    Peer index: {}", hs.sender_index);
@@ -486,13 +486,44 @@ fn run_server(config: WgServerConfig) -> Result<(), Box<dyn Error>> {
                 println!("  Encrypted Payload Size: {} bytes", data.encrypted_encapsulated_packet.len());
 
                 // Try to decrypt if we have a session for this receiver_index
-                if let Some(transport_keys) = sessions.get(&receiver_index) {
+                if let Some((transport_keys, send_counter)) = sessions.get_mut(&receiver_index) {
                     match transport_keys.decrypt_transport_data(counter, &data.encrypted_encapsulated_packet) {
                         Ok(plaintext) => {
                             println!("  ✓ Successfully decrypted payload");
                             println!("    Plaintext length: {} bytes", plaintext.len());
                             if plaintext.is_empty() {
                                 println!("    (Empty payload - this is a keepalive packet)");
+
+                                // Send a keepalive response
+                                println!("\n  Sending keepalive response...");
+
+                                // Encrypt empty payload (keepalive)
+                                match transport_keys.encrypt_transport_data(*send_counter, &[]) {
+                                    Ok(encrypted) => {
+                                        // Create transport data message
+                                        let keepalive_msg = WgMessage {
+                                            message_type: Value::Set(4),
+                                            reserved_zero: Value::Set(0),
+                                        };
+                                        let keepalive_data = WgTransportData {
+                                            receiver_index: Value::Set(transport_keys.peer_index),
+                                            counter: Value::Set(*send_counter),
+                                            encrypted_encapsulated_packet: encrypted,
+                                        };
+
+                                        let keepalive_stack = LayerStack::new() / keepalive_msg / keepalive_data;
+                                        let keepalive_bytes = keepalive_stack.lencode();
+
+                                        socket.send_to(&keepalive_bytes, src)?;
+                                        println!("    ✓ Sent keepalive response ({} bytes, counter: {})", keepalive_bytes.len(), *send_counter);
+
+                                        // Increment send counter
+                                        *send_counter += 1;
+                                    }
+                                    Err(e) => {
+                                        println!("    ✗ Failed to encrypt keepalive: {}", e);
+                                    }
+                                }
                             } else {
                                 println!("    Plaintext (hex): {}", hex::encode(&plaintext));
                                 // Try to interpret as IPv4/IPv6 packet
