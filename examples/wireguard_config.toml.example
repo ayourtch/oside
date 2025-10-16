@@ -1,0 +1,33 @@
+# WireGuard Server Configuration Example
+#
+# To generate keys:
+#   Private key: wg genkey
+#   Public key:  wg genkey | tee privatekey | wg pubkey
+#
+# This config format matches WireGuard's standard base64 key format
+
+# Server's private key (base64-encoded)
+# Generate with: wg genkey
+private_key = "YourPrivateKeyInBase64Format="
+
+# Server's public key (base64-encoded)
+# Generate with: echo "YourPrivateKeyInBase64Format=" | wg pubkey
+public_key = "YourPublicKeyInBase64Format="
+
+# Listen configuration
+listen_addr = "0.0.0.0"
+listen_port = 51820
+
+# Peer configurations
+# Add one [[peers]] section for each peer
+
+[[peers]]
+# Peer's public key (base64-encoded)
+public_key = "PeerPublicKeyInBase64Format="
+# Allowed IPs for this peer
+allowed_ips = ["10.0.0.2/32", "fd00::2/128"]
+
+# Example second peer
+# [[peers]]
+# public_key = "AnotherPeerPublicKey="
+# allowed_ips = ["10.0.0.3/32"]
