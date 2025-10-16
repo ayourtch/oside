@@ -14,6 +14,9 @@ pub mod tcp;
 pub mod udp;
 pub mod vxlan;
 pub mod wireguard;
+pub mod wireguard_crypto;
+pub mod wireguard_noise;
+pub mod wireguard_handshake;
 // misc
 pub mod dhcpv6;
 pub mod dns;

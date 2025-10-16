@@ -1,5 +1,6 @@
 use oside::*;
 use oside::protocols::all::*;
+use oside::protocols::wireguard_handshake::{process_handshake_initiation, create_handshake_response};
 use std::net::UdpSocket;
 use std::error::Error;
 use std::env;
@@ -351,38 +352,71 @@ fn run_server(config: WgServerConfig) -> Result<(), Box<dyn Error>> {
                     }
                 }
 
-                // Try to identify the peer by their ephemeral key (in real WG, we'd need to decrypt)
-                // For now, we'll just use the first configured peer if available
-                let peer_pubkey = if !config.peers.is_empty() {
-                    WgServerConfig::parse_key(&config.peers[0].public_key).ok()
-                } else {
-                    None
+                // Get server keys
+                let server_private = match config.get_private_key() {
+                    Some(sk) => sk,
+                    None => {
+                        println!("  ERROR: No server private key configured");
+                        continue;
+                    }
+                };
+                let server_public = match config.get_public_key() {
+                    Some(pk) => pk,
+                    None => {
+                        println!("  ERROR: No server public key configured");
+                        continue;
+                    }
                 };
 
-                if let Some(pk) = peer_pubkey {
-                    println!("  Using peer public key: {}", config.peers[0].public_key);
-                    println!("  Peer public key (hex): {}", hex::encode(pk));
-                }
+                println!("\n  Processing handshake with Noise protocol...");
 
-                // Generate an ephemeral key pair for this response
-                let (ephemeral_private, ephemeral_public) = generate_ephemeral_keypair();
+                // Process the handshake initiation using the Noise protocol
+                let mut hs = match process_handshake_initiation(&init, &server_private, &server_public, None) {
+                    Ok(hs) => {
+                        println!("  ✓ Handshake initiation processed successfully");
+                        println!("    Initiator static key: {}", hex::encode(&hs.initiator_static));
+                        println!("    Timestamp: {}", hex::encode(&hs.timestamp));
+                        hs
+                    }
+                    Err(e) => {
+                        println!("  ✗ Failed to process handshake initiation: {}", e);
+                        continue;
+                    }
+                };
 
-                println!("  Generated ephemeral key pair:");
-                println!("    Private (hex): {}", hex::encode(ephemeral_private));
-                println!("    Public (hex): {}", hex::encode(ephemeral_public));
+                // Try to identify the peer by their static public key (which we decrypted)
+                let peer_pubkey = if !config.peers.is_empty() {
+                    // Check if the decrypted initiator static key matches any configured peer
+                    let peer_pk_b64 = general_purpose::STANDARD.encode(&hs.initiator_static);
+                    if config.peers.iter().any(|p| p.public_key == peer_pk_b64) {
+                        println!("  ✓ Peer recognized: {}", peer_pk_b64);
+                        Some(hs.initiator_static)
+                    } else {
+                        println!("  ⚠ Peer not in configured list: {}", peer_pk_b64);
+                        Some(hs.initiator_static)
+                    }
+                } else {
+                    println!("  ⚠ No peers configured, accepting any peer");
+                    Some(hs.initiator_static)
+                };
 
-                // Respond with a Handshake Response
+                // Create handshake response using the Noise protocol
+                let response = match create_handshake_response(&mut hs, &server_private, None) {
+                    Ok(resp) => {
+                        println!("  ✓ Handshake response created with proper encryption");
+                        println!("    Encrypted nothing length: {} bytes", resp.encrypted_nothing.len());
+                        resp
+                    }
+                    Err(e) => {
+                        println!("  ✗ Failed to create handshake response: {}", e);
+                        continue;
+                    }
+                };
+
+                // Wrap in WireGuard message
                 let response_msg = WgMessage {
                     message_type: Value::Set(2),
                     reserved_zero: Value::Set(0),
-                };
-                let response = WgHandshakeResponse {
-                    sender_index: Value::Set(88888),  // Our index
-                    receiver_index: init.sender_index.clone(),  // Their index
-                    unencrypted_ephemeral: ephemeral_public.to_vec(),
-                    encrypted_nothing: vec![0xf1; 16],  // TODO: This should be encrypted
-                    mac1: vec![0; 16],  // Will be calculated
-                    mac2: vec![0; 16],  // No cookie, so zeros
                 };
 
                 let response_stack = LayerStack::new() / response_msg / response;
