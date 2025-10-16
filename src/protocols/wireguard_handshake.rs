@@ -260,6 +260,11 @@ pub fn create_handshake_response(
     // msg.encrypted_nothing = AEAD(key, 0, [empty], responder.hash)
     let encrypted_nothing = aead_encrypt(&key, 0, &[], &hash)?;
 
+    // Update the handshake state with the final chaining_key and hash
+    // This is CRITICAL for deriving the correct transport keys later!
+    hs.noise.chaining_key = chaining_key;
+    hs.noise.hash = hash;
+
     // Note: At this point, we would call split() to derive transport keys
     // temp1 = HMAC(responder.chaining_key, [empty])
     // temp2 = HMAC(temp1, 0x1)
