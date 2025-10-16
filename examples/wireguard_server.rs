@@ -3,6 +3,7 @@ use oside::protocols::all::*;
 use std::net::UdpSocket;
 use std::error::Error;
 use std::env;
+use base64::{Engine as _, engine::general_purpose};
 
 /// Simple WireGuard server example
 /// This demonstrates:
@@ -19,21 +20,31 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Parse command line arguments
     let args: Vec<String> = env::args().collect();
     let initiator_pubkey = if args.len() > 1 {
-        match hex::decode(&args[1]) {
+        // Try base64 first (WireGuard standard format), then hex
+        let key_result = general_purpose::STANDARD.decode(&args[1])
+            .or_else(|_| hex::decode(&args[1]));
+
+        match key_result {
             Ok(key) if key.len() == 32 => {
                 let mut arr = [0u8; 32];
                 arr.copy_from_slice(&key);
                 println!("Using initiator public key: {}", args[1]);
                 Some(arr)
             }
-            _ => {
-                eprintln!("Warning: Invalid public key provided (must be 32 bytes hex)");
+            Ok(key) => {
+                eprintln!("Warning: Invalid public key provided (decoded to {} bytes, need 32)", key.len());
+                None
+            }
+            Err(e) => {
+                eprintln!("Warning: Failed to decode public key (tried base64 and hex): {}", e);
                 None
             }
         }
     } else {
         println!("No initiator public key provided - MAC1 will be zeros");
-        println!("Usage: {} <initiator_public_key_hex>", args[0]);
+        println!("Usage: {} <initiator_public_key_base64_or_hex>", args[0]);
+        println!("  Example (base64): {} QGJhc2U2NGtleWV4YW1wbGUxMjM0NTY3ODkwMTI=", args[0]);
+        println!("  Example (hex):    {} 406261736536346b6579657861...", args[0]);
         None
     };
     println!();
