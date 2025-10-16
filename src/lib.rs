@@ -58,6 +58,7 @@ use crate::encdec::binary_big_endian::BinaryBigEndian;
 #[nproto(registry(SNMP_VERSIONS, Version: u8))]
 #[nproto(registry(SNMP_PDUS, Tag: BerTag))]
 #[nproto(registry(SNMP_SECURITY_MODELS, ModelNumber: u32))]
+#[nproto(registry(WIREGUARD_MESSAGE_TYPES, MessageType: u8))]
 
 /* Only here as a target of derive + attribute macros to make registries */
 struct protocolRegistriesSentinel;

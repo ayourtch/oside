@@ -42,18 +42,23 @@ impl Decode for WgMessageType {
     }
 }
 
-/// WireGuard Handshake Initiation Message (Type 1)
-/// Total size: 148 bytes
+/// WireGuard Message Container (dispatches to specific message types)
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[nproto(register(UDP_DST_PORT_APPS, DstPort = 51820))]
 #[nproto(register(UDP_SRC_PORT_APPS, SrcPort = 51820))]
-pub struct WgHandshakeInit {
-    #[nproto(default = 1)]
+pub struct WgMessage {
+    #[nproto(next: WIREGUARD_MESSAGE_TYPES => MessageType)]
     pub message_type: Value<u8>,
 
-    #[nproto(default = 0, encode = encode_reserved_3bytes)]
+    #[nproto(default = 0, encode = encode_reserved_3bytes, decode = decode_reserved_3bytes)]
     pub reserved_zero: Value<u32>, // 3 bytes, but using u32 for convenience
+}
 
+/// WireGuard Handshake Initiation Message (Type 1)
+/// Total size: 148 bytes (including 4-byte header in WgMessage)
+#[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(register(WIREGUARD_MESSAGE_TYPES, MessageType = 1))]
+pub struct WgHandshakeInit {
     pub sender_index: Value<u32>,
 
     #[nproto(encode = encode_wg_32bytes, decode = decode_wg_32bytes)]
@@ -73,15 +78,10 @@ pub struct WgHandshakeInit {
 }
 
 /// WireGuard Handshake Response Message (Type 2)
-/// Total size: 92 bytes
+/// Total size: 92 bytes (including 4-byte header in WgMessage)
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(register(WIREGUARD_MESSAGE_TYPES, MessageType = 2))]
 pub struct WgHandshakeResponse {
-    #[nproto(default = 2)]
-    pub message_type: Value<u8>,
-
-    #[nproto(default = 0, encode = encode_reserved_3bytes)]
-    pub reserved_zero: Value<u32>, // 3 bytes
-
     pub sender_index: Value<u32>,
     pub receiver_index: Value<u32>,
 
@@ -99,15 +99,10 @@ pub struct WgHandshakeResponse {
 }
 
 /// WireGuard Cookie Reply Message (Type 3)
-/// Total size: 64 bytes
+/// Total size: 64 bytes (including 4-byte header in WgMessage)
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(register(WIREGUARD_MESSAGE_TYPES, MessageType = 3))]
 pub struct WgCookieReply {
-    #[nproto(default = 3)]
-    pub message_type: Value<u8>,
-
-    #[nproto(default = 0, encode = encode_reserved_3bytes)]
-    pub reserved_zero: Value<u32>, // 3 bytes
-
     pub receiver_index: Value<u32>,
 
     #[nproto(encode = encode_wg_24bytes, decode = decode_wg_24bytes)]
@@ -118,15 +113,10 @@ pub struct WgCookieReply {
 }
 
 /// WireGuard Transport Data Message (Type 4)
-/// Variable size, minimum 32 bytes (type + counter + encrypted_data + auth_tag)
+/// Variable size, minimum 32 bytes (including 4-byte header in WgMessage)
 #[derive(NetworkProtocol, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[nproto(register(WIREGUARD_MESSAGE_TYPES, MessageType = 4))]
 pub struct WgTransportData {
-    #[nproto(default = 4)]
-    pub message_type: Value<u8>,
-
-    #[nproto(default = 0, encode = encode_reserved_3bytes)]
-    pub reserved_zero: Value<u32>, // 3 bytes
-
     pub receiver_index: Value<u32>,
 
     pub counter: Value<u64>, // 8 bytes nonce/counter
@@ -145,6 +135,20 @@ fn encode_reserved_3bytes<E: Encoder>(
     _encoded_data: &EncodingVecVec,
 ) -> Vec<u8> {
     vec![0, 0, 0]
+}
+
+fn decode_reserved_3bytes<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    _me: &mut dyn std::any::Any,
+) -> Option<(u32, usize)> {
+    if ci + 3 <= buf.len() {
+        // Read 3 bytes and interpret as u32 (big-endian, padded with leading zero)
+        let value = ((buf[ci] as u32) << 16) | ((buf[ci + 1] as u32) << 8) | (buf[ci + 2] as u32);
+        Some((value, 3))
+    } else {
+        None
+    }
 }
 
 fn encode_wg_16bytes<E: Encoder>(
