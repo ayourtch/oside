@@ -123,7 +123,7 @@ pub struct WgCookieReply {
 pub struct WgTransportData {
     pub receiver_index: Value<u32>,
 
-    #[nproto(encoder(BinaryLittleEndian))]
+    #[nproto(encode = encode_counter_le, decode = decode_counter_le)]
     pub counter: Value<u64>, // 8 bytes nonce/counter (little-endian per WireGuard spec)
 
     // Encrypted encapsulated packet (variable length)
@@ -296,6 +296,32 @@ fn decode_wg_48bytes<D: Decoder>(
 ) -> Option<(Vec<u8>, usize)> {
     if ci + 48 <= buf.len() {
         Some((buf[ci..ci + 48].to_vec(), 48))
+    } else {
+        None
+    }
+}
+
+// Encode counter as little-endian (WireGuard spec)
+fn encode_counter_le<E: Encoder>(
+    _me: &WgTransportData,
+    _stack: &LayerStack,
+    _my_index: usize,
+    _encoded_data: &EncodingVecVec,
+) -> Vec<u8> {
+    let counter = _me.counter.value();
+    counter.to_le_bytes().to_vec()
+}
+
+// Decode counter as little-endian (WireGuard spec)
+fn decode_counter_le<D: Decoder>(
+    buf: &[u8],
+    ci: usize,
+    _me: &mut WgTransportData,
+) -> Option<(u64, usize)> {
+    if ci + 8 <= buf.len() {
+        let mut bytes = [0u8; 8];
+        bytes.copy_from_slice(&buf[ci..ci + 8]);
+        Some((u64::from_le_bytes(bytes), 8))
     } else {
         None
     }
