@@ -84,8 +84,14 @@ impl WgServerConfig {
     fn get_public_key(&self) -> Option<[u8; 32]> {
         if let Some(ref pk) = self.public_key {
             Self::parse_key(pk).ok()
+        } else if let Some(ref sk) = self.private_key {
+            // Derive public key from private key
+            if let Ok(private_bytes) = Self::parse_key(sk) {
+                Some(derive_public_key(&private_bytes))
+            } else {
+                None
+            }
         } else {
-            // In a real implementation, we'd derive from private key using Curve25519
             None
         }
     }
@@ -326,6 +332,24 @@ fn run_server(config: WgServerConfig) -> Result<(), Box<dyn Error>> {
                 println!("  Sender Index: {}", init.sender_index.value());
                 println!("  Unencrypted Ephemeral (first 16 bytes): {:02x?}",
                          &init.unencrypted_ephemeral[0..16]);
+                println!("  Received MAC1: {}", hex::encode(&init.mac1));
+                println!("  Received MAC2: {}", hex::encode(&init.mac2));
+
+                // Verify the incoming MAC1 if we have server's public key
+                if let Some(server_pubkey) = config.get_public_key() {
+                    println!("\n  Verifying incoming MAC1:");
+                    println!("    Server public key: {}", config.public_key.as_ref().unwrap());
+                    // The MAC1 should be calculated over bytes 0..116 (everything before mac1)
+                    let incoming_mac1_offset = 116;
+                    let expected_mac1 = calculate_mac1_for_message(&server_pubkey, &buf[..len], incoming_mac1_offset);
+                    println!("    Expected MAC1: {}", hex::encode(expected_mac1));
+                    println!("    Received MAC1: {}", hex::encode(&init.mac1));
+                    if &expected_mac1[..] == &init.mac1[..] {
+                        println!("    ✓ MAC1 is VALID");
+                    } else {
+                        println!("    ✗ MAC1 is INVALID");
+                    }
+                }
 
                 // Try to identify the peer by their ephemeral key (in real WG, we'd need to decrypt)
                 // For now, we'll just use the first configured peer if available
@@ -337,9 +361,17 @@ fn run_server(config: WgServerConfig) -> Result<(), Box<dyn Error>> {
 
                 if let Some(pk) = peer_pubkey {
                     println!("  Using peer public key: {}", config.peers[0].public_key);
+                    println!("  Peer public key (hex): {}", hex::encode(pk));
                 }
 
-                // Respond with a sample Handshake Response
+                // Generate an ephemeral key pair for this response
+                let (ephemeral_private, ephemeral_public) = generate_ephemeral_keypair();
+
+                println!("  Generated ephemeral key pair:");
+                println!("    Private (hex): {}", hex::encode(ephemeral_private));
+                println!("    Public (hex): {}", hex::encode(ephemeral_public));
+
+                // Respond with a Handshake Response
                 let response_msg = WgMessage {
                     message_type: Value::Set(2),
                     reserved_zero: Value::Set(0),
@@ -347,8 +379,8 @@ fn run_server(config: WgServerConfig) -> Result<(), Box<dyn Error>> {
                 let response = WgHandshakeResponse {
                     sender_index: Value::Set(88888),  // Our index
                     receiver_index: init.sender_index.clone(),  // Their index
-                    unencrypted_ephemeral: vec![0xf0; 32],
-                    encrypted_nothing: vec![0xf1; 16],
+                    unencrypted_ephemeral: ephemeral_public.to_vec(),
+                    encrypted_nothing: vec![0xf1; 16],  // TODO: This should be encrypted
                     mac1: vec![0; 16],  // Will be calculated
                     mac2: vec![0; 16],  // No cookie, so zeros
                 };
@@ -356,21 +388,38 @@ fn run_server(config: WgServerConfig) -> Result<(), Box<dyn Error>> {
                 let response_stack = LayerStack::new() / response_msg / response;
                 let mut response_bytes = response_stack.lencode();
 
+                println!("\n  DEBUG: Response message breakdown:");
+                println!("    Total length: {} bytes", response_bytes.len());
+                println!("    Bytes 0-3 (header): {:02x?}", &response_bytes[0..4]);
+                println!("    Bytes 4-7 (sender_index): {:02x?}", &response_bytes[4..8]);
+                println!("    Bytes 8-11 (receiver_index): {:02x?}", &response_bytes[8..12]);
+                println!("    Bytes 12-43 (ephemeral, first 32): {:02x?}", &response_bytes[12..44]);
+                println!("    Bytes 44-59 (encrypted_nothing): {:02x?}", &response_bytes[44..60]);
+                println!("    Bytes 60-75 (mac1): {:02x?}", &response_bytes[60..76]);
+                println!("    Bytes 76-91 (mac2): {:02x?}", &response_bytes[76..92]);
+
                 // Calculate MAC1 if we have the peer's public key
                 if let Some(pubkey) = peer_pubkey {
                     // MAC1 offset for Handshake Response:
                     // 4 bytes (WgMessage header) + 4 (sender_index) + 4 (receiver_index) + 32 (ephemeral) + 16 (encrypted_nothing)
                     // = 60 bytes
                     let mac1_offset = 60;
+                    println!("\n  Calculating MAC1:");
+                    println!("    Using bytes 0..{} for MAC calculation", mac1_offset);
+                    println!("    Message bytes (hex): {}", hex::encode(&response_bytes[..mac1_offset]));
+
                     let mac1 = calculate_mac1_for_message(&pubkey, &response_bytes, mac1_offset);
                     response_bytes[mac1_offset..mac1_offset+16].copy_from_slice(&mac1);
-                    println!("  Calculated MAC1: {:02x?}", &mac1[..8]);
+                    println!("    Calculated MAC1 (full): {:02x?}", mac1);
+                    println!("    Calculated MAC1 (hex): {}", hex::encode(mac1));
                 } else {
                     println!("  MAC1: [zeros - no peer public key configured]");
                 }
 
+                println!("\n  Final message (first 92 bytes): {}", hex::encode(&response_bytes[..92.min(response_bytes.len())]));
+
                 socket.send_to(&response_bytes, src)?;
-                println!("  Sent Handshake Response ({} bytes)", response_bytes.len());
+                println!("\n  Sent Handshake Response ({} bytes)", response_bytes.len());
             } else if let Some(resp) = decoded_stack.get_layer(WGHANDSHAKERESPONSE!()) {
                 println!("Type: Handshake Response");
                 println!("  Sender Index: {}", resp.sender_index.value());

@@ -35,6 +35,8 @@ cbc = "*"
 cipher = "*"
 cfb-mode = "*"
 blake2 = "*"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+curve25519-dalek = "4"
 log = "*"
 env_logger = "*"
 

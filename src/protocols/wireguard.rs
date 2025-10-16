@@ -2,6 +2,7 @@ use crate::*;
 use serde::{Deserialize, Serialize};
 use blake2::{Blake2s256, Blake2sMac, Digest};
 use blake2::digest::{Update, Mac, KeyInit, consts::U16};
+use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret as X25519StaticSecret};
 
 // WireGuard uses UDP port 51820 by default
 // WireGuard protocol specification: https://www.wireguard.com/papers/wireguard.pdf
@@ -91,16 +92,12 @@ pub struct WgHandshakeResponse {
     pub sender_index: Value<u32>,
     pub receiver_index: Value<u32>,
 
-    #[nproto(encode = encode_wg_32bytes, decode = decode_wg_32bytes)]
     pub unencrypted_ephemeral: Vec<u8>, // 32 bytes
 
-    #[nproto(encode = encode_wg_16bytes, decode = decode_wg_16bytes)]
     pub encrypted_nothing: Vec<u8>, // 16 bytes (0 + 16 AEAD)
 
-    #[nproto(encode = encode_wg_16bytes, decode = decode_wg_16bytes)]
     pub mac1: Vec<u8>, // 16 bytes
 
-    #[nproto(encode = encode_wg_16bytes, decode = decode_wg_16bytes)]
     pub mac2: Vec<u8>, // 16 bytes
 }
 
@@ -370,4 +367,39 @@ pub fn calculate_mac1_for_message(responder_public_key: &[u8; 32], message: &[u8
 /// Assumes the message buffer has the mac2 field at the correct offset
 pub fn calculate_mac2_for_message(cookie: &[u8; 16], message: &[u8], mac2_offset: usize) -> [u8; 16] {
     calculate_mac2(cookie, &message[..mac2_offset])
+}
+
+// ============================================================================
+// WireGuard Cryptographic Key Management
+// ============================================================================
+
+/// Generate a new Curve25519 ephemeral keypair
+/// Returns (private_key, public_key)
+pub fn generate_ephemeral_keypair() -> ([u8; 32], [u8; 32]) {
+    use rand::rngs::OsRng;
+    // Generate a proper secret key
+    let secret = X25519StaticSecret::random_from_rng(OsRng);
+    let public = X25519PublicKey::from(&secret);
+    (secret.to_bytes(), public.to_bytes())
+}
+
+/// Generate just a private key (convenience function)
+pub fn generate_private_key() -> [u8; 32] {
+    generate_ephemeral_keypair().0
+}
+
+/// Derive the public key from a private key
+pub fn derive_public_key(private_key: &[u8; 32]) -> [u8; 32] {
+    let secret = X25519StaticSecret::from(*private_key);
+    let public = X25519PublicKey::from(&secret);
+    public.to_bytes()
+}
+
+/// Perform Diffie-Hellman key exchange
+/// Returns the shared secret
+pub fn dh(private_key: &[u8; 32], public_key: &[u8; 32]) -> [u8; 32] {
+    let their_public = X25519PublicKey::from(*public_key);
+    let my_secret = X25519StaticSecret::from(*private_key);
+    let shared = my_secret.diffie_hellman(&their_public);
+    shared.to_bytes()
 }
