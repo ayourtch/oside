@@ -43,6 +43,7 @@ criterion = "0.3"
 pcap-parser = "0.14.*"
 hex = "*"
 base64 = "*"
+toml = "*"
 serde_json = { version = "1.0" }
 
 

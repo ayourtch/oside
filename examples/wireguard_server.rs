@@ -3,7 +3,108 @@ use oside::protocols::all::*;
 use std::net::UdpSocket;
 use std::error::Error;
 use std::env;
+use std::fs;
 use base64::{Engine as _, engine::general_purpose};
+use serde::{Deserialize, Serialize};
+
+/// WireGuard server configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct WgServerConfig {
+    /// Server's private key (base64-encoded, as in wg.conf)
+    #[serde(default)]
+    private_key: Option<String>,
+
+    /// Server's public key (base64-encoded, optional - can be derived from private key)
+    #[serde(default)]
+    public_key: Option<String>,
+
+    /// Peer configurations
+    #[serde(default)]
+    peers: Vec<WgPeerConfig>,
+
+    /// Listen address
+    #[serde(default = "default_listen_addr")]
+    listen_addr: String,
+
+    /// Listen port
+    #[serde(default = "default_listen_port")]
+    listen_port: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct WgPeerConfig {
+    /// Peer's public key (base64-encoded)
+    public_key: String,
+
+    /// Allowed IPs for this peer
+    #[serde(default)]
+    allowed_ips: Vec<String>,
+}
+
+fn default_listen_addr() -> String {
+    "0.0.0.0".to_string()
+}
+
+fn default_listen_port() -> u16 {
+    51820
+}
+
+impl Default for WgServerConfig {
+    fn default() -> Self {
+        WgServerConfig {
+            private_key: None,
+            public_key: None,
+            peers: vec![],
+            listen_addr: default_listen_addr(),
+            listen_port: default_listen_port(),
+        }
+    }
+}
+
+impl WgServerConfig {
+    /// Load configuration from a TOML file
+    fn from_file(path: &str) -> Result<Self, Box<dyn Error>> {
+        let contents = fs::read_to_string(path)?;
+        let config: WgServerConfig = toml::from_str(&contents)?;
+        Ok(config)
+    }
+
+    /// Parse a base64-encoded key (WireGuard format) to bytes
+    fn parse_key(key_str: &str) -> Result<[u8; 32], Box<dyn Error>> {
+        let decoded = general_purpose::STANDARD.decode(key_str)?;
+        if decoded.len() != 32 {
+            return Err(format!("Key must be 32 bytes, got {}", decoded.len()).into());
+        }
+        let mut arr = [0u8; 32];
+        arr.copy_from_slice(&decoded);
+        Ok(arr)
+    }
+
+    /// Get server's public key as bytes (from config or derive from private key)
+    fn get_public_key(&self) -> Option<[u8; 32]> {
+        if let Some(ref pk) = self.public_key {
+            Self::parse_key(pk).ok()
+        } else {
+            // In a real implementation, we'd derive from private key using Curve25519
+            None
+        }
+    }
+
+    /// Get server's private key as bytes
+    fn get_private_key(&self) -> Option<[u8; 32]> {
+        if let Some(ref sk) = self.private_key {
+            Self::parse_key(sk).ok()
+        } else {
+            None
+        }
+    }
+
+    /// Find peer configuration by public key
+    fn find_peer(&self, public_key: &[u8; 32]) -> Option<&WgPeerConfig> {
+        let pk_b64 = general_purpose::STANDARD.encode(public_key);
+        self.peers.iter().find(|p| p.public_key == pk_b64)
+    }
+}
 
 /// Simple WireGuard server example
 /// This demonstrates:
@@ -11,56 +112,66 @@ use base64::{Engine as _, engine::general_purpose};
 /// 2. Parsing incoming WireGuard messages
 /// 3. Responding to handshake attempts with proper MAC1
 ///
-/// Usage: wireguard_server [initiator_public_key_hex]
-/// If initiator_public_key is provided, MAC1 will be calculated correctly for responses
+/// Usage: wireguard_server [config.toml]
+/// If config file is provided, it will load keys and peer information
+/// Otherwise, runs in demo mode with hardcoded values
 fn main() -> Result<(), Box<dyn Error>> {
     println!("WireGuard Protocol Implementation Demo");
     println!("=======================================\n");
 
     // Parse command line arguments
     let args: Vec<String> = env::args().collect();
-    let initiator_pubkey = if args.len() > 1 {
-        // Try base64 first (WireGuard standard format), then hex
-        let key_result = general_purpose::STANDARD.decode(&args[1])
-            .or_else(|_| hex::decode(&args[1]));
-
-        match key_result {
-            Ok(key) if key.len() == 32 => {
-                let mut arr = [0u8; 32];
-                arr.copy_from_slice(&key);
-                println!("Using initiator public key: {}", args[1]);
-                Some(arr)
-            }
-            Ok(key) => {
-                eprintln!("Warning: Invalid public key provided (decoded to {} bytes, need 32)", key.len());
-                None
+    let config = if args.len() > 1 {
+        match WgServerConfig::from_file(&args[1]) {
+            Ok(cfg) => {
+                println!("Loaded configuration from: {}", args[1]);
+                if let Some(ref pk) = cfg.public_key {
+                    println!("  Server public key: {}", pk);
+                }
+                println!("  Configured peers: {}", cfg.peers.len());
+                for (i, peer) in cfg.peers.iter().enumerate() {
+                    println!("    Peer #{}: {}", i + 1, peer.public_key);
+                }
+                cfg
             }
             Err(e) => {
-                eprintln!("Warning: Failed to decode public key (tried base64 and hex): {}", e);
-                None
+                eprintln!("Failed to load config from {}: {}", args[1], e);
+                eprintln!("Using default configuration");
+                WgServerConfig::default()
             }
         }
     } else {
-        println!("No initiator public key provided - MAC1 will be zeros");
-        println!("Usage: {} <initiator_public_key_base64_or_hex>", args[0]);
-        println!("  Example (base64): {} QGJhc2U2NGtleWV4YW1wbGUxMjM0NTY3ODkwMTI=", args[0]);
-        println!("  Example (hex):    {} 406261736536346b6579657861...", args[0]);
-        None
+        println!("No configuration file provided");
+        println!("Usage: {} [config.toml]", args[0]);
+        println!("\nExample config.toml:");
+        println!("---");
+        println!("# Server's private key (generate with: wg genkey)");
+        println!("private_key = \"YourBase64PrivateKeyHere=\"");
+        println!();
+        println!("# Server's public key (generate with: wg pubkey < privatekey)");
+        println!("public_key = \"YourBase64PublicKeyHere=\"");
+        println!();
+        println!("[[peers]]");
+        println!("public_key = \"PeerBase64PublicKeyHere=\"");
+        println!("allowed_ips = [\"10.0.0.2/32\"]");
+        println!("---\n");
+        WgServerConfig::default()
     };
     println!();
 
     // Create example WireGuard packets
     demonstrate_packet_construction();
 
-    // Start a simple UDP server on WireGuard's default port
-    println!("\nStarting simple WireGuard server on port 51820...");
-    if initiator_pubkey.is_some() {
-        println!("(Server will calculate proper MAC1 values)\n");
+    // Start a simple UDP server
+    let listen_addr = format!("{}:{}", config.listen_addr, config.listen_port);
+    println!("\nStarting WireGuard server on {}...", listen_addr);
+    if !config.peers.is_empty() {
+        println!("(Server will calculate proper MAC1 values for configured peers)\n");
     } else {
-        println!("(Note: This is a demonstration server that parses messages but doesn't perform full cryptography)\n");
+        println!("(Note: No peers configured - MAC1 will be zeros)\n");
     }
 
-    run_server(initiator_pubkey)?;
+    run_server(config)?;
 
     Ok(())
 }
@@ -176,9 +287,10 @@ fn demonstrate_packet_construction() {
 }
 
 /// Run a simple UDP server that listens for WireGuard messages
-fn run_server(initiator_pubkey: Option<[u8; 32]>) -> Result<(), Box<dyn Error>> {
-    let socket = UdpSocket::bind("0.0.0.0:51820")?;
-    println!("Server listening on 0.0.0.0:51820");
+fn run_server(config: WgServerConfig) -> Result<(), Box<dyn Error>> {
+    let listen_addr = format!("{}:{}", config.listen_addr, config.listen_port);
+    let socket = UdpSocket::bind(&listen_addr)?;
+    println!("Server listening on {}", listen_addr);
     println!("Waiting for WireGuard messages...\n");
 
     let mut buf = vec![0u8; 2048];
@@ -215,6 +327,18 @@ fn run_server(initiator_pubkey: Option<[u8; 32]>) -> Result<(), Box<dyn Error>> 
                 println!("  Unencrypted Ephemeral (first 16 bytes): {:02x?}",
                          &init.unencrypted_ephemeral[0..16]);
 
+                // Try to identify the peer by their ephemeral key (in real WG, we'd need to decrypt)
+                // For now, we'll just use the first configured peer if available
+                let peer_pubkey = if !config.peers.is_empty() {
+                    WgServerConfig::parse_key(&config.peers[0].public_key).ok()
+                } else {
+                    None
+                };
+
+                if let Some(pk) = peer_pubkey {
+                    println!("  Using peer public key: {}", config.peers[0].public_key);
+                }
+
                 // Respond with a sample Handshake Response
                 let response_msg = WgMessage {
                     message_type: Value::Set(2),
@@ -232,8 +356,8 @@ fn run_server(initiator_pubkey: Option<[u8; 32]>) -> Result<(), Box<dyn Error>> 
                 let response_stack = LayerStack::new() / response_msg / response;
                 let mut response_bytes = response_stack.lencode();
 
-                // Calculate MAC1 if we have the initiator's public key
-                if let Some(pubkey) = initiator_pubkey {
+                // Calculate MAC1 if we have the peer's public key
+                if let Some(pubkey) = peer_pubkey {
                     // MAC1 offset for Handshake Response:
                     // 4 bytes (WgMessage header) + 4 (sender_index) + 4 (receiver_index) + 32 (ephemeral) + 16 (encrypted_nothing)
                     // = 60 bytes
@@ -242,7 +366,7 @@ fn run_server(initiator_pubkey: Option<[u8; 32]>) -> Result<(), Box<dyn Error>> 
                     response_bytes[mac1_offset..mac1_offset+16].copy_from_slice(&mac1);
                     println!("  Calculated MAC1: {:02x?}", &mac1[..8]);
                 } else {
-                    println!("  MAC1: [zeros - no initiator public key provided]");
+                    println!("  MAC1: [zeros - no peer public key configured]");
                 }
 
                 socket.send_to(&response_bytes, src)?;
