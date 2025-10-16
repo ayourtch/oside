@@ -1,4 +1,5 @@
 use crate::*;
+use crate::encdec::binary_little_endian::BinaryLittleEndian;
 use serde::{Deserialize, Serialize};
 use blake2::{Blake2s256, Blake2sMac, Digest};
 use blake2::digest::{Update, Mac, KeyInit, consts::U16};
@@ -122,7 +123,8 @@ pub struct WgCookieReply {
 pub struct WgTransportData {
     pub receiver_index: Value<u32>,
 
-    pub counter: Value<u64>, // 8 bytes nonce/counter
+    #[nproto(encoder(BinaryLittleEndian))]
+    pub counter: Value<u64>, // 8 bytes nonce/counter (little-endian per WireGuard spec)
 
     // Encrypted encapsulated packet (variable length)
     // Includes 16-byte AEAD authentication tag at the end
