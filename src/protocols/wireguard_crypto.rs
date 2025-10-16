@@ -1,5 +1,6 @@
-use blake2::{Blake2sMac, Digest};
-use blake2::digest::{Update, Mac, KeyInit, consts::U16, consts::U32};
+use blake2::{Blake2sMac, Blake2s256, Digest};
+use blake2::digest::{Update, Mac, KeyInit, consts::U16, consts::U32, FixedOutput};
+use hmac::Hmac;
 use chacha20poly1305::{
     aead::{Aead, KeyInit as AeadKeyInit, Payload},
     ChaCha20Poly1305, Nonce,
@@ -11,17 +12,15 @@ pub const IDENTIFIER: &[u8] = b"WireGuard v1 zx2c4 Jason@zx2c4.com";
 pub const LABEL_MAC1: &[u8] = b"mac1----";
 pub const LABEL_COOKIE: &[u8] = b"cookie--";
 
-/// HMAC using BLAKE2s (32-byte output)
+/// RFC 2104 HMAC using BLAKE2s as the hash function (32-byte output)
+/// This is different from keyed Blake2s!
 pub fn hmac_blake2s(key: &[u8], data: &[u8]) -> [u8; 32] {
-    type Blake2sMac256 = Blake2sMac<U32>;
-    let mut mac = <Blake2sMac256 as KeyInit>::new_from_slice(key)
-        .expect("Blake2sMac should accept any key size");
-    <Blake2sMac256 as Update>::update(&mut mac, data);
-    let result = <Blake2sMac256 as Mac>::finalize(mac);
-    let code_bytes = result.into_bytes();
-    let mut output = [0u8; 32];
-    output.copy_from_slice(&code_bytes);
-    output
+    type HmacBlake2s = hmac::SimpleHmac<Blake2s256>;
+    let mut mac = <HmacBlake2s as KeyInit>::new_from_slice(key)
+        .expect("HMAC should accept any key size");
+    <HmacBlake2s as Update>::update(&mut mac, data);
+    let result = <HmacBlake2s as Mac>::finalize(mac);
+    result.into_bytes().into()
 }
 
 /// WireGuard KDF with 1 output

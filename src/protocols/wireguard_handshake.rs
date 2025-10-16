@@ -184,33 +184,90 @@ pub fn process_handshake_initiation(
 }
 
 /// Create a handshake response (responder side)
-/// This implements the Noise IKpsk2 pattern: -> e, ee, se
+/// This implements WireGuard's handshake response (based on Noise IKpsk2 with custom KDF)
 pub fn create_handshake_response(
     hs: &mut HandshakeState,
-    responder_private: &[u8; 32],
-    _psk: Option<&[u8; 32]>,  // PSK support can be added later
+    _responder_private: &[u8; 32],
+    psk: Option<&[u8; 32]>,
 ) -> Result<WgHandshakeResponse, String> {
+    use blake2::{Blake2s256, Digest};
+    use blake2::digest::Update;
+
+    let mut chaining_key = hs.noise.chaining_key;
+    let mut hash = hs.noise.hash;
+
     // 1. Generate ephemeral key pair
     let (eph_private, eph_public) = generate_ephemeral_keypair();
 
-    // 2. MixHash(responder.ephemeral_public) - the 'e' token
-    hs.noise.mix_hash(&eph_public);
+    // responder.hash = HASH(responder.hash || msg.unencrypted_ephemeral)
+    hash = {
+        let mut hasher = <Blake2s256 as Digest>::new();
+        <Blake2s256 as Update>::update(&mut hasher, &hash);
+        <Blake2s256 as Update>::update(&mut hasher, &eph_public);
+        let result = hasher.finalize();
+        let mut h = [0u8; 32];
+        h.copy_from_slice(&result);
+        h
+    };
 
-    // 3. MixKey(DH(responder.ephemeral_private, initiator.ephemeral_public)) - the 'ee' token
+    // temp = HMAC(responder.chaining_key, msg.unencrypted_ephemeral)
+    let temp = hmac_blake2s(&chaining_key, &eph_public);
+    // responder.chaining_key = HMAC(temp, 0x1)
+    chaining_key = hmac_blake2s(&temp, &[0x01]);
+
+    // temp = HMAC(responder.chaining_key, DH(responder.ephemeral_private, initiator.ephemeral_public))
     let ee = dh(&eph_private, &hs.initiator_ephemeral);
-    hs.noise.mix_key(&ee);
+    let temp = hmac_blake2s(&chaining_key, &ee);
+    // responder.chaining_key = HMAC(temp, 0x1)
+    chaining_key = hmac_blake2s(&temp, &[0x01]);
 
-    // 4. MixKey(DH(responder.ephemeral_private, initiator.static_public)) - the 'se' token
+    // temp = HMAC(responder.chaining_key, DH(responder.ephemeral_private, initiator.static_public))
     let se = dh(&eph_private, &hs.initiator_static);
-    hs.noise.mix_key(&se);
+    let temp = hmac_blake2s(&chaining_key, &se);
+    // responder.chaining_key = HMAC(temp, 0x1)
+    chaining_key = hmac_blake2s(&temp, &[0x01]);
 
-    // 5. EncryptAndHash(empty) - this is the encrypted_nothing field
-    let encrypted_nothing = hs.noise.encrypt_and_hash(&[])?;
+    // temp = HMAC(responder.chaining_key, preshared_key)
+    let psk_bytes = psk.unwrap_or(&[0u8; 32]);
+    let temp = hmac_blake2s(&chaining_key, psk_bytes);
+    // responder.chaining_key = HMAC(temp, 0x1)
+    chaining_key = hmac_blake2s(&temp, &[0x01]);
+    // temp2 = HMAC(temp, responder.chaining_key || 0x2)
+    let temp2 = {
+        let mut data = Vec::new();
+        data.extend_from_slice(&chaining_key);
+        data.push(0x02);
+        hmac_blake2s(&temp, &data)
+    };
+    // key = HMAC(temp, temp2 || 0x3)
+    let key = {
+        let mut data = Vec::new();
+        data.extend_from_slice(&temp2);
+        data.push(0x03);
+        hmac_blake2s(&temp, &data)
+    };
+    // responder.hash = HASH(responder.hash || temp2)
+    hash = {
+        let mut hasher = <Blake2s256 as Digest>::new();
+        <Blake2s256 as Update>::update(&mut hasher, &hash);
+        <Blake2s256 as Update>::update(&mut hasher, &temp2);
+        let result = hasher.finalize();
+        let mut h = [0u8; 32];
+        h.copy_from_slice(&result);
+        h
+    };
 
-    // Note: At this point, we would call noise.split() to derive transport keys
-    // and store them for the session
+    // msg.encrypted_nothing = AEAD(key, 0, [empty], responder.hash)
+    let encrypted_nothing = aead_encrypt(&key, 0, &[], &hash)?;
 
-    // 6. Create response message
+    // Note: At this point, we would call split() to derive transport keys
+    // temp1 = HMAC(responder.chaining_key, [empty])
+    // temp2 = HMAC(temp1, 0x1)
+    // temp3 = HMAC(temp1, temp2 || 0x2)
+    // responder.sending_key = temp2
+    // responder.receiving_key = temp3
+
+    // Create response message
     Ok(WgHandshakeResponse {
         sender_index: Value::Set(generate_sender_index()),
         receiver_index: Value::Set(hs.sender_index),
