@@ -13,6 +13,7 @@ pub mod raw;
 pub mod tcp;
 pub mod udp;
 pub mod vxlan;
+pub mod wireguard;
 // misc
 pub mod dhcpv6;
 pub mod dns;
@@ -38,4 +39,5 @@ pub mod all {
     pub use crate::protocols::raw::*;
     pub use crate::protocols::tcp::*;
     pub use crate::protocols::udp::*;
+    pub use crate::protocols::wireguard::*;
 }
