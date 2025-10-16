@@ -1,10 +1,12 @@
 use oside::*;
 use oside::protocols::all::*;
 use oside::protocols::wireguard_handshake::{process_handshake_initiation, create_handshake_response};
+use oside::protocols::wireguard_transport::TransportKeys;
 use std::net::UdpSocket;
 use std::error::Error;
 use std::env;
 use std::fs;
+use std::collections::HashMap;
 use base64::{Engine as _, engine::general_purpose};
 use serde::{Deserialize, Serialize};
 
@@ -303,6 +305,9 @@ fn run_server(config: WgServerConfig) -> Result<(), Box<dyn Error>> {
     let mut buf = vec![0u8; 2048];
     let mut packet_count = 0;
 
+    // Session storage: receiver_index -> TransportKeys
+    let mut sessions: HashMap<u32, TransportKeys> = HashMap::new();
+
     loop {
         // Receive UDP packet
         let (len, src) = socket.recv_from(&mut buf)?;
@@ -405,6 +410,17 @@ fn run_server(config: WgServerConfig) -> Result<(), Box<dyn Error>> {
                     Ok(resp) => {
                         println!("  ✓ Handshake response created with proper encryption");
                         println!("    Encrypted nothing length: {} bytes", resp.encrypted_nothing.len());
+
+                        // Derive transport keys from the completed handshake
+                        let local_index = resp.sender_index.value();
+                        let transport_keys = TransportKeys::from_handshake_responder(&hs, local_index);
+
+                        // Store the session
+                        sessions.insert(local_index, transport_keys);
+                        println!("  ✓ Transport keys derived and session stored");
+                        println!("    Local index: {}", local_index);
+                        println!("    Peer index: {}", hs.sender_index);
+
                         resp
                     }
                     Err(e) => {
@@ -463,9 +479,41 @@ fn run_server(config: WgServerConfig) -> Result<(), Box<dyn Error>> {
                 println!("  Receiver Index: {}", cookie.receiver_index.value());
             } else if let Some(data) = decoded_stack.get_layer(WGTRANSPORTDATA!()) {
                 println!("Type: Transport Data");
-                println!("  Receiver Index: {}", data.receiver_index.value());
-                println!("  Counter: {}", data.counter.value());
+                let receiver_index = data.receiver_index.value();
+                let counter = data.counter.value();
+                println!("  Receiver Index: {}", receiver_index);
+                println!("  Counter: {}", counter);
                 println!("  Encrypted Payload Size: {} bytes", data.encrypted_encapsulated_packet.len());
+
+                // Try to decrypt if we have a session for this receiver_index
+                if let Some(transport_keys) = sessions.get(&receiver_index) {
+                    match transport_keys.decrypt_transport_data(counter, &data.encrypted_encapsulated_packet) {
+                        Ok(plaintext) => {
+                            println!("  ✓ Successfully decrypted payload");
+                            println!("    Plaintext length: {} bytes", plaintext.len());
+                            if plaintext.is_empty() {
+                                println!("    (Empty payload - this is a keepalive packet)");
+                            } else {
+                                println!("    Plaintext (hex): {}", hex::encode(&plaintext));
+                                // Try to interpret as IPv4/IPv6 packet
+                                if plaintext.len() >= 1 {
+                                    let version = (plaintext[0] >> 4) & 0x0F;
+                                    match version {
+                                        4 => println!("    Looks like IPv4 packet"),
+                                        6 => println!("    Looks like IPv6 packet"),
+                                        _ => println!("    Unknown protocol"),
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            println!("  ✗ Failed to decrypt payload: {}", e);
+                        }
+                    }
+                } else {
+                    println!("  ⚠ No session found for receiver_index {}", receiver_index);
+                    println!("    Available sessions: {:?}", sessions.keys().collect::<Vec<_>>());
+                }
             } else {
                 println!("Unknown WireGuard message type");
                 println!("Decoded stack: {:#?}", decoded_stack);
@@ -478,7 +526,7 @@ fn run_server(config: WgServerConfig) -> Result<(), Box<dyn Error>> {
         println!();
 
         // Stop after 10 packets for demo purposes
-        if packet_count >= 10 {
+        if packet_count >= 1000 {
             println!("Demo complete (processed 10 packets)");
             break;
         }
