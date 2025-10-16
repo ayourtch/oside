@@ -1,8 +1,14 @@
 use crate::*;
 use serde::{Deserialize, Serialize};
+use blake2::{Blake2s256, Blake2sMac, Digest};
+use blake2::digest::{Update, Mac, KeyInit, consts::U16};
 
 // WireGuard uses UDP port 51820 by default
 // WireGuard protocol specification: https://www.wireguard.com/papers/wireguard.pdf
+
+// WireGuard constants for MAC calculation
+const LABEL_MAC1: &[u8] = b"mac1----"; // 8 bytes
+const LABEL_COOKIE: &[u8] = b"cookie--"; // 8 bytes
 
 /// WireGuard Message Type identifier
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -294,4 +300,74 @@ fn decode_wg_48bytes<D: Decoder>(
     } else {
         None
     }
+}
+
+// ============================================================================
+// WireGuard Cryptographic Functions
+// ============================================================================
+
+/// Calculate MAC1 for a WireGuard message
+/// MAC1 = MAC(HASH(LABEL_MAC1 || responder_public_key), message_bytes_before_mac1)
+///
+/// # Arguments
+/// * `responder_public_key` - The 32-byte Curve25519 public key of the responder
+/// * `message_bytes` - All bytes of the message up to (but not including) the mac1 field
+///
+/// # Returns
+/// A 16-byte MAC1 value
+pub fn calculate_mac1(responder_public_key: &[u8; 32], message_bytes: &[u8]) -> [u8; 16] {
+    // Step 1: HASH(LABEL_MAC1 || responder_public_key)
+    // HASH = Blake2s(input, 32) returning 32 bytes
+    let mut hasher = <Blake2s256 as Digest>::new();
+    <Blake2s256 as Update>::update(&mut hasher, LABEL_MAC1);
+    <Blake2s256 as Update>::update(&mut hasher, responder_public_key);
+    let mac_key = hasher.finalize();
+
+    // Step 2: MAC(mac_key, message_bytes)
+    // MAC = Keyed-Blake2s(key, input, 16) returning 16 bytes
+    type Blake2sMac128 = Blake2sMac<U16>;
+    let mut mac = <Blake2sMac128 as KeyInit>::new_from_slice(&mac_key)
+        .expect("Blake2sMac should accept 32-byte key");
+    <Blake2sMac128 as Update>::update(&mut mac, message_bytes);
+
+    let result = <Blake2sMac128 as Mac>::finalize(mac);
+    let code_bytes = result.into_bytes();
+    let mut output = [0u8; 16];
+    output.copy_from_slice(&code_bytes);
+    output
+}
+
+/// Calculate MAC2 for a WireGuard message using a cookie
+/// MAC2 = MAC(cookie, message_bytes_before_mac2)
+///
+/// # Arguments
+/// * `cookie` - The 16-byte cookie received from the responder
+/// * `message_bytes` - All bytes of the message up to (but not including) the mac2 field
+///
+/// # Returns
+/// A 16-byte MAC2 value
+pub fn calculate_mac2(cookie: &[u8; 16], message_bytes: &[u8]) -> [u8; 16] {
+    // MAC = Keyed-Blake2s(key, input, 16) returning 16 bytes
+    type Blake2sMac128 = Blake2sMac<U16>;
+    let mut mac = <Blake2sMac128 as KeyInit>::new_from_slice(cookie)
+        .expect("Blake2sMac should accept 16-byte key");
+    <Blake2sMac128 as Update>::update(&mut mac, message_bytes);
+
+    let result = <Blake2sMac128 as Mac>::finalize(mac);
+    let code_bytes = result.into_bytes();
+    let mut output = [0u8; 16];
+    output.copy_from_slice(&code_bytes);
+    output
+}
+
+/// Helper function to calculate MAC1 for a complete message buffer
+/// Assumes the message buffer has the mac1 field at the correct offset
+pub fn calculate_mac1_for_message(responder_public_key: &[u8; 32], message: &[u8], mac1_offset: usize) -> [u8; 16] {
+    calculate_mac1(responder_public_key, &message[..mac1_offset])
+}
+
+/// Helper function to calculate MAC2 for a complete message buffer
+/// Assumes the message buffer has the mac2 field at the correct offset
+pub fn calculate_mac2_for_message(cookie: &[u8; 16], message: &[u8], mac2_offset: usize) -> [u8; 16] {
+    calculate_mac2(cookie, &message[..mac2_offset])
 }

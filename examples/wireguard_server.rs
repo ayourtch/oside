@@ -2,24 +2,54 @@ use oside::*;
 use oside::protocols::all::*;
 use std::net::UdpSocket;
 use std::error::Error;
+use std::env;
 
 /// Simple WireGuard server example
 /// This demonstrates:
 /// 1. Creating WireGuard packet structures
 /// 2. Parsing incoming WireGuard messages
-/// 3. Responding to handshake attempts
+/// 3. Responding to handshake attempts with proper MAC1
+///
+/// Usage: wireguard_server [initiator_public_key_hex]
+/// If initiator_public_key is provided, MAC1 will be calculated correctly for responses
 fn main() -> Result<(), Box<dyn Error>> {
     println!("WireGuard Protocol Implementation Demo");
     println!("=======================================\n");
+
+    // Parse command line arguments
+    let args: Vec<String> = env::args().collect();
+    let initiator_pubkey = if args.len() > 1 {
+        match hex::decode(&args[1]) {
+            Ok(key) if key.len() == 32 => {
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(&key);
+                println!("Using initiator public key: {}", args[1]);
+                Some(arr)
+            }
+            _ => {
+                eprintln!("Warning: Invalid public key provided (must be 32 bytes hex)");
+                None
+            }
+        }
+    } else {
+        println!("No initiator public key provided - MAC1 will be zeros");
+        println!("Usage: {} <initiator_public_key_hex>", args[0]);
+        None
+    };
+    println!();
 
     // Create example WireGuard packets
     demonstrate_packet_construction();
 
     // Start a simple UDP server on WireGuard's default port
     println!("\nStarting simple WireGuard server on port 51820...");
-    println!("(Note: This is a demonstration server that parses messages but doesn't perform cryptography)\n");
+    if initiator_pubkey.is_some() {
+        println!("(Server will calculate proper MAC1 values)\n");
+    } else {
+        println!("(Note: This is a demonstration server that parses messages but doesn't perform full cryptography)\n");
+    }
 
-    run_server()?;
+    run_server(initiator_pubkey)?;
 
     Ok(())
 }
@@ -135,7 +165,7 @@ fn demonstrate_packet_construction() {
 }
 
 /// Run a simple UDP server that listens for WireGuard messages
-fn run_server() -> Result<(), Box<dyn Error>> {
+fn run_server(initiator_pubkey: Option<[u8; 32]>) -> Result<(), Box<dyn Error>> {
     let socket = UdpSocket::bind("0.0.0.0:51820")?;
     println!("Server listening on 0.0.0.0:51820");
     println!("Waiting for WireGuard messages...\n");
@@ -184,12 +214,26 @@ fn run_server() -> Result<(), Box<dyn Error>> {
                     receiver_index: init.sender_index.clone(),  // Their index
                     unencrypted_ephemeral: vec![0xf0; 32],
                     encrypted_nothing: vec![0xf1; 16],
-                    mac1: vec![0xf2; 16],
-                    mac2: vec![0xf3; 16],
+                    mac1: vec![0; 16],  // Will be calculated
+                    mac2: vec![0; 16],  // No cookie, so zeros
                 };
 
                 let response_stack = LayerStack::new() / response_msg / response;
-                let response_bytes = response_stack.lencode();
+                let mut response_bytes = response_stack.lencode();
+
+                // Calculate MAC1 if we have the initiator's public key
+                if let Some(pubkey) = initiator_pubkey {
+                    // MAC1 offset for Handshake Response:
+                    // 4 bytes (WgMessage header) + 4 (sender_index) + 4 (receiver_index) + 32 (ephemeral) + 16 (encrypted_nothing)
+                    // = 60 bytes
+                    let mac1_offset = 60;
+                    let mac1 = calculate_mac1_for_message(&pubkey, &response_bytes, mac1_offset);
+                    response_bytes[mac1_offset..mac1_offset+16].copy_from_slice(&mac1);
+                    println!("  Calculated MAC1: {:02x?}", &mac1[..8]);
+                } else {
+                    println!("  MAC1: [zeros - no initiator public key provided]");
+                }
+
                 socket.send_to(&response_bytes, src)?;
                 println!("  Sent Handshake Response ({} bytes)", response_bytes.len());
             } else if let Some(resp) = decoded_stack.get_layer(WGHANDSHAKERESPONSE!()) {
