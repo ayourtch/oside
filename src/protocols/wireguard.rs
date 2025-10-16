@@ -6,16 +6,25 @@ use serde::{Deserialize, Serialize};
 
 /// WireGuard Message Type identifier
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[repr(u8)]
 pub enum WgMessageType {
     HandshakeInitiation = 1,
     HandshakeResponse = 2,
     CookieReply = 3,
     TransportData = 4,
+    WgArbitrary(u8)
 }
 
 impl Encode for WgMessageType {
     fn encode<E: Encoder>(&self) -> Vec<u8> {
-        (self.clone() as u8).encode::<E>()
+        let val: u8 = match self {
+          WgMessageType::HandshakeInitiation => 1,
+          WgMessageType::HandshakeResponse => 2,
+          WgMessageType::CookieReply => 3,
+          WgMessageType::TransportData => 4,
+          WgMessageType::WgArbitrary(x) => *x,
+        };
+        val.encode::<E>()
     }
 }
 
@@ -27,7 +36,7 @@ impl Decode for WgMessageType {
             2 => WgMessageType::HandshakeResponse,
             3 => WgMessageType::CookieReply,
             4 => WgMessageType::TransportData,
-            _ => return None,
+            x => WgMessageType::WgArbitrary(x),
         };
         Some((msg_type, size))
     }
