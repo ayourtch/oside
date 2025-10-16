@@ -22,11 +22,15 @@ impl TransportKeys {
         hs: &HandshakeState,
         local_index: u32,
     ) -> Self {
+        eprintln!("    [DEBUG] Deriving transport keys from chaining_key: {}", hex::encode(&hs.noise.chaining_key));
+
         // temp1 = HMAC(chaining_key, [empty])
         let temp1 = hmac_blake2s(&hs.noise.chaining_key, &[]);
+        eprintln!("    [DEBUG] temp1 = HMAC(ck, []) = {}", hex::encode(&temp1));
 
         // temp2 = HMAC(temp1, 0x1)
         let temp2 = hmac_blake2s(&temp1, &[0x01]);
+        eprintln!("    [DEBUG] temp2 = HMAC(temp1, 0x01) = {}", hex::encode(&temp2));
 
         // temp3 = HMAC(temp1, temp2 || 0x2)
         let temp3 = {
@@ -35,11 +39,14 @@ impl TransportKeys {
             data.push(0x02);
             hmac_blake2s(&temp1, &data)
         };
+        eprintln!("    [DEBUG] temp3 = HMAC(temp1, temp2 || 0x02) = {}", hex::encode(&temp3));
 
-        // For responder: send with T1, receive with T2
+        // For responder: receive with temp2 (initiator sends with temp2)
+        //                send with temp3 (initiator receives with temp3)
+        eprintln!("    [DEBUG] Responder: sending_key = temp3, receiving_key = temp2");
         TransportKeys {
-            sending_key: temp2,
-            receiving_key: temp3,
+            sending_key: temp3,
+            receiving_key: temp2,
             local_index,
             peer_index: hs.sender_index,
         }
@@ -52,8 +59,15 @@ impl TransportKeys {
         counter: u64,
         encrypted_payload: &[u8],
     ) -> Result<Vec<u8>, String> {
+        eprintln!("    [DEBUG] Decrypting with receiving_key: {}", hex::encode(&self.receiving_key));
+        eprintln!("    [DEBUG] Counter (nonce): {}", counter);
+        eprintln!("    [DEBUG] Encrypted payload: {}", hex::encode(encrypted_payload));
         // WireGuard uses the counter directly as the nonce
-        aead_decrypt(&self.receiving_key, counter, encrypted_payload, &[])
+        let result = aead_decrypt(&self.receiving_key, counter, encrypted_payload, &[]);
+        if let Err(ref e) = result {
+            eprintln!("    [DEBUG] Decryption failed: {}", e);
+        }
+        result
     }
 
     /// Encrypt data for a transport data packet
