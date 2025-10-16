@@ -14,69 +14,172 @@ pub struct HandshakeState {
 }
 
 /// Process a handshake initiation message (responder side)
-/// This implements the Noise IKpsk2 pattern: <- e, es, s, ss
+/// This implements WireGuard's handshake (based on Noise IKpsk2 but with custom KDF)
 pub fn process_handshake_initiation(
     init: &WgHandshakeInit,
     responder_private: &[u8; 32],
     responder_public: &[u8; 32],
     _psk: Option<&[u8; 32]>,  // PSK support can be added later
 ) -> Result<HandshakeState, String> {
-    // 1. Initialize Noise state
-    let mut noise = NoiseState::initialize(CONSTRUCTION);
+    use blake2::{Blake2s256, Digest};
+    use blake2::digest::Update;
 
-    // 2. MixHash(IDENTIFIER)
-    noise.mix_hash(IDENTIFIER);
+    // initiator.chaining_key = HASH(CONSTRUCTION)
+    let mut chaining_key = {
+        let mut hasher = <Blake2s256 as Digest>::new();
+        <Blake2s256 as Update>::update(&mut hasher, CONSTRUCTION);
+        let result = hasher.finalize();
+        let mut ck = [0u8; 32];
+        ck.copy_from_slice(&result);
+        ck
+    };
 
-    // 3. MixHash(responder.static_public)
-    noise.mix_hash(responder_public);
+    // initiator.hash = HASH(HASH(initiator.chaining_key || IDENTIFIER) || responder.static_public)
+    let mut hash = {
+        let mut hasher = <Blake2s256 as Digest>::new();
+        <Blake2s256 as Update>::update(&mut hasher, &chaining_key);
+        <Blake2s256 as Update>::update(&mut hasher, IDENTIFIER);
+        let result = hasher.finalize();
+        let mut h = [0u8; 32];
+        h.copy_from_slice(&result);
+        h
+    };
+    hash = {
+        let mut hasher = <Blake2s256 as Digest>::new();
+        <Blake2s256 as Update>::update(&mut hasher, &hash);
+        <Blake2s256 as Update>::update(&mut hasher, responder_public);
+        let result = hasher.finalize();
+        let mut h = [0u8; 32];
+        h.copy_from_slice(&result);
+        h
+    };
 
-    // 4. MixHash(initiator.ephemeral_public) - the 'e' token
+    eprintln!("    [DEBUG] After init: ck={}, h={}", hex::encode(&chaining_key), hex::encode(&hash));
+
+    // Parse initiator's ephemeral public key
     if init.unencrypted_ephemeral.len() != 32 {
         return Err(format!("Invalid ephemeral key length: {}", init.unencrypted_ephemeral.len()));
     }
     let mut initiator_ephemeral = [0u8; 32];
     initiator_ephemeral.copy_from_slice(&init.unencrypted_ephemeral);
-    noise.mix_hash(&initiator_ephemeral);
 
-    // 5. MixKey(DH(responder_private, initiator_ephemeral)) - the 'es' token
+    // initiator.hash = HASH(initiator.hash || msg.unencrypted_ephemeral)
+    hash = {
+        let mut hasher = <Blake2s256 as Digest>::new();
+        <Blake2s256 as Update>::update(&mut hasher, &hash);
+        <Blake2s256 as Update>::update(&mut hasher, &initiator_ephemeral);
+        let result = hasher.finalize();
+        let mut h = [0u8; 32];
+        h.copy_from_slice(&result);
+        h
+    };
+
+    eprintln!("    [DEBUG] After MixHash(init_eph): h={}", hex::encode(&hash));
+
+    // temp = HMAC(initiator.chaining_key, msg.unencrypted_ephemeral)
+    // initiator.chaining_key = HMAC(temp, 0x1)
+    chaining_key = {
+        let temp = hmac_blake2s(&chaining_key, &initiator_ephemeral);
+        hmac_blake2s(&temp, &[0x01])
+    };
+
+    // temp = HMAC(initiator.chaining_key, DH(initiator.ephemeral_private, responder.static_public))
     let es = dh(responder_private, &initiator_ephemeral);
-    noise.mix_key(&es);
+    eprintln!("    [DEBUG] DH(resp_priv, init_eph) = {}", hex::encode(&es));
 
-    // 6. DecryptAndHash(initiator.encrypted_static) - the 's' token
+    let temp = hmac_blake2s(&chaining_key, &es);
+    // initiator.chaining_key = HMAC(temp, 0x1)
+    chaining_key = hmac_blake2s(&temp, &[0x01]);
+    // key = HMAC(temp, initiator.chaining_key || 0x2)
+    let key = {
+        let mut data = Vec::new();
+        data.extend_from_slice(&chaining_key);
+        data.push(0x02);
+        hmac_blake2s(&temp, &data)
+    };
+
+    eprintln!("    [DEBUG] After DH(es): ck={}, key={}", hex::encode(&chaining_key), hex::encode(&key));
+
+    // msg.encrypted_static = AEAD(key, 0, initiator.static_public, initiator.hash)
     if init.encrypted_static.len() != 48 {  // 32 bytes + 16 bytes auth tag
         return Err(format!("Invalid encrypted_static length: {}", init.encrypted_static.len()));
     }
-    let initiator_static_vec = noise.decrypt_and_hash(&init.encrypted_static)?;
+    eprintln!("    [DEBUG] Attempting to decrypt encrypted_static: {}", hex::encode(&init.encrypted_static));
+    let initiator_static_vec = aead_decrypt(&key, 0, &init.encrypted_static, &hash)?;
     if initiator_static_vec.len() != 32 {
         return Err(format!("Decrypted static key has wrong length: {}", initiator_static_vec.len()));
     }
     let mut initiator_static = [0u8; 32];
     initiator_static.copy_from_slice(&initiator_static_vec);
 
-    // 7. MixKey(DH(responder_private, initiator_static)) - the 'ss' token
-    let ss = dh(responder_private, &initiator_static);
-    noise.mix_key(&ss);
+    eprintln!("    [DEBUG] Decrypted initiator static key: {}", hex::encode(&initiator_static));
 
-    // 8. DecryptAndHash(initiator.encrypted_timestamp)
+    // initiator.hash = HASH(initiator.hash || msg.encrypted_static)
+    hash = {
+        let mut hasher = <Blake2s256 as Digest>::new();
+        <Blake2s256 as Update>::update(&mut hasher, &hash);
+        <Blake2s256 as Update>::update(&mut hasher, &init.encrypted_static);
+        let result = hasher.finalize();
+        let mut h = [0u8; 32];
+        h.copy_from_slice(&result);
+        h
+    };
+
+    // temp = HMAC(initiator.chaining_key, DH(initiator.static_private, responder.static_public))
+    let ss = dh(responder_private, &initiator_static);
+    eprintln!("    [DEBUG] DH(resp_priv, init_static) = {}", hex::encode(&ss));
+
+    let temp = hmac_blake2s(&chaining_key, &ss);
+    // initiator.chaining_key = HMAC(temp, 0x1)
+    chaining_key = hmac_blake2s(&temp, &[0x01]);
+    // key = HMAC(temp, initiator.chaining_key || 0x2)
+    let key = {
+        let mut data = Vec::new();
+        data.extend_from_slice(&chaining_key);
+        data.push(0x02);
+        hmac_blake2s(&temp, &data)
+    };
+
+    // msg.encrypted_timestamp = AEAD(key, 0, TAI64N(), initiator.hash)
     if init.encrypted_timestamp.len() != 28 {  // 12 bytes + 16 bytes auth tag
         return Err(format!("Invalid encrypted_timestamp length: {}", init.encrypted_timestamp.len()));
     }
-    let timestamp = noise.decrypt_and_hash(&init.encrypted_timestamp)?;
-    if timestamp.len() != 12 {
-        return Err(format!("Decrypted timestamp has wrong length: {}", timestamp.len()));
+    let timestamp_vec = aead_decrypt(&key, 0, &init.encrypted_timestamp, &hash)?;
+    if timestamp_vec.len() != 12 {
+        return Err(format!("Decrypted timestamp has wrong length: {}", timestamp_vec.len()));
     }
+
+    eprintln!("    [DEBUG] Decrypted timestamp: {}", hex::encode(&timestamp_vec));
+
+    // initiator.hash = HASH(initiator.hash || msg.encrypted_timestamp)
+    hash = {
+        let mut hasher = <Blake2s256 as Digest>::new();
+        <Blake2s256 as Update>::update(&mut hasher, &hash);
+        <Blake2s256 as Update>::update(&mut hasher, &init.encrypted_timestamp);
+        let result = hasher.finalize();
+        let mut h = [0u8; 32];
+        h.copy_from_slice(&result);
+        h
+    };
 
     // Note: In real WireGuard, we would:
     // - Validate the timestamp (TAI64N format)
     // - Check for replay attacks
     // - Verify MAC1 was already checked
 
+    // Store the state for creating the response
+    // We'll create a minimal NoiseState to hold the chaining_key and hash
+    let mut noise = NoiseState::initialize(CONSTRUCTION);
+    // Manually set the internal state to match what we computed
+    noise.chaining_key = chaining_key;
+    noise.hash = hash;
+
     Ok(HandshakeState {
         noise,
         initiator_static,
         initiator_ephemeral,
         sender_index: init.sender_index.value(),
-        timestamp,
+        timestamp: timestamp_vec,
     })
 }
 
