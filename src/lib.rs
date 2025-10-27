@@ -504,6 +504,12 @@ impl Into<std::net::Ipv6Addr> for Ipv6Address {
     }
 }
 
+impl From<std::net::Ipv6Addr> for Ipv6Address {
+    fn from(x: std::net::Ipv6Addr) -> Self {
+        Self(x.octets())
+    }
+}
+
 impl fmt::Display for Ipv6Address {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&format!("{}", std::net::Ipv6Addr::from(self.0)))
