@@ -498,9 +498,15 @@ impl Ipv6Address {
     }
 }
 
+impl Into<std::net::Ipv6Addr> for Ipv6Address {
+    fn into(self) -> std::net::Ipv6Addr { 
+        std::net::Ipv6Addr::from(self.0)
+    }
+}
+
 impl fmt::Display for Ipv6Address {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&format!("FIXME {:?}", &self.0))
+        f.write_str(&format!("{}", std::net::Ipv6Addr::from(self.0)))
     }
 }
 
