@@ -671,6 +671,12 @@ impl From<std::net::Ipv4Addr> for Ipv4Address {
     }
 }
 
+impl Into<std::net::Ipv4Addr> for Ipv4Address {
+    fn into(self) -> std::net::Ipv4Addr {
+        self.0
+    }
+}
+
 impl From<&str> for Ipv4Address {
     fn from(s: &str) -> Self {
         let res = s.parse().unwrap();
