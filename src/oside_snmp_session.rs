@@ -575,7 +575,7 @@ impl OsideSnmpSession {
         let snmpv3 = SnmpV3 {
             _seq_tag_len_v3: Value::Auto,
             msg_id: Value::Set(self.msg_id),
-            msg_max_size: Value::Set(65507),
+            msg_max_size: Value::Set(1400),
             msg_flags: SnmpV3::flags(0x04), // Only reportable flag, no auth/priv
             msg_security_model: Value::Set(3), // USM
             msg_security_parameters: Value::Set(SnmpV3SecurityParameters::Usm(usm_params)),
@@ -798,7 +798,7 @@ impl OsideSnmpSession {
         let snmpv3 = SnmpV3 {
             _seq_tag_len_v3: Value::Auto,
             msg_id: Value::Set(self.msg_id),
-            msg_max_size: Value::Set(65507),
+            msg_max_size: Value::Set(1400),
             msg_flags: SnmpV3::flags(flags),
             msg_security_model: Value::Set(3), // USM
             msg_security_parameters: Value::Set(SnmpV3SecurityParameters::Usm(usm_params)),

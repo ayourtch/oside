@@ -7,6 +7,8 @@ use crate::*;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
+const MAX_SNMP_MSG_SIZE: u32 = 1400;
+
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Community(Vec<u8>);
 
@@ -1754,7 +1756,7 @@ impl SnmpV3 {
         Self {
             _seq_tag_len_v3: Value::Auto,
             msg_id: Value::Set(1),
-            msg_max_size: Value::Set(65507),
+            msg_max_size: Value::Set(MAX_SNMP_MSG_SIZE),
             msg_flags: SnmpV3::flags(4), // Reportable by default // Value::Set(0),          // No auth, no priv
             msg_security_model: Value::Set(3), // USM
             msg_security_parameters: SnmpV3::default_security(),
@@ -1978,7 +1980,7 @@ impl SnmpV3 {
         SnmpV3 {
             _seq_tag_len_v3: Value::Auto,
             msg_id: Value::Set(rand::random()),
-            msg_max_size: Value::Set(65507),
+            msg_max_size: Value::Set(MAX_SNMP_MSG_SIZE),
             msg_flags: SnmpV3::flags(0), // Value::Set(0),          // No auth, no priv
             msg_security_model: Value::Set(3), // USM
             msg_security_parameters: SnmpV3::default_security(),
@@ -2600,7 +2602,7 @@ impl Snmp {
             .push(SnmpV3 {
                 _seq_tag_len_v3: Value::Auto,
                 msg_id: Value::Set(rand::random::<u32>() & 0x7fffffff),
-                msg_max_size: Value::Set(65507),
+                msg_max_size: Value::Set(MAX_SNMP_MSG_SIZE),
                 msg_flags: SnmpV3::flags(0), // Value::Set(0),          // No auth, no priv
                 msg_security_model: Value::Auto, // Value::Set(0), // Clear
                 msg_security_parameters: SnmpV3::default_security(),
@@ -2640,7 +2642,7 @@ impl Snmp {
             .push(SnmpV3 {
                 _seq_tag_len_v3: Value::Auto,
                 msg_id: Value::Set(rand::random::<u32>() & 0x7fffffff),
-                msg_max_size: Value::Set(65507),
+                msg_max_size: Value::Set(MAX_SNMP_MSG_SIZE),
                 msg_flags: SnmpV3::flags(0), // Value::Set(0),          // No auth, no priv
                 msg_security_model: Value::Set(0),
                 msg_security_parameters: SnmpV3::default_security(),
@@ -2680,7 +2682,7 @@ impl Snmp {
                 SnmpV3 {
                     _seq_tag_len_v3: Value::Auto,
                     msg_id: Value::Set(rand::random::<u32>() & 0x7fffffff),
-                    msg_max_size: Value::Set(65507),
+                    msg_max_size: Value::Set(MAX_SNMP_MSG_SIZE),
                     msg_flags: SnmpV3::flags(1), // Value::Set(1),          // Auth, no priv
                     msg_security_model: Value::Auto,
                     msg_security_parameters: SnmpV3::default_security(),
@@ -2753,7 +2755,7 @@ impl Snmp {
         let snmpv3 = SnmpV3 {
             _seq_tag_len_v3: Value::Auto,
             msg_id: Value::Set(rand::random::<u32>() & 0x7fffffff),
-            msg_max_size: Value::Set(65507),
+            msg_max_size: Value::Set(MAX_SNMP_MSG_SIZE),
             msg_flags: SnmpV3::flags(flags),
             msg_security_model: Value::Set(3), // USM
             msg_security_parameters: Value::Set(usm_params),
@@ -2834,7 +2836,7 @@ impl Snmp {
         let snmpv3 = SnmpV3 {
             _seq_tag_len_v3: Value::Auto,
             msg_id: Value::Set(rand::random()),
-            msg_max_size: Value::Set(65507),
+            msg_max_size: Value::Set(MAX_SNMP_MSG_SIZE),
             msg_flags: SnmpV3::flags(flags),
             msg_security_model: Value::Set(3),
             msg_security_parameters: Value::Set(usm_params),
@@ -4464,7 +4466,7 @@ impl LayerStackUsmExt for LayerStack {
         let snmpv3 = SnmpV3 {
             _seq_tag_len_v3: Value::Auto,
             msg_id: Value::Set(rand::random::<u32>() & 0x7fffffff),
-            msg_max_size: Value::Set(65507),
+            msg_max_size: Value::Set(MAX_SNMP_MSG_SIZE),
             msg_flags: SnmpV3::flags(flags),
             msg_security_model: Value::Set(3), // USM
             msg_security_parameters: Value::Set(SnmpV3SecurityParameters::Usm(usm_params)),
