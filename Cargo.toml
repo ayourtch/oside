@@ -16,10 +16,10 @@ overflow-checks = true # !!!
 oside-derive = { path = "oside-derive" }
 mopa = "*"
 mac_address = "*"
-itertools = "*"
+itertools = "0.14"
 rand = "^0.8.5"
 linkme = "0.3"
-lazy_static = "*"
+lazy_static = "1.5"
 generic-array = { version = "^1.1.*", features = ["serde"] }
 typenum = "*"
 doc-comment = "*"
@@ -29,18 +29,18 @@ typetag = "*"
 md-5 = "*"
 sha1 = "*"
 hmac = "*"
-aes = "*"
+aes = "0.8"
 des = "*"
 cbc = "*"
-cipher = "*"
+cipher = "0.4"
 cfb-mode = "*"
 log = "*"
-env_logger = "*"
+env_logger = "0.11"
 
 [dev-dependencies]
 criterion = "0.3"
 pcap-parser = "0.14.*"
-hex = "*"
+hex = "0.4"
 serde_json = { version = "1.0" }
 
 
