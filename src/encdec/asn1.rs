@@ -585,6 +585,8 @@ impl Asn1Encoder {
                 // Convert to bytes ensuring proper sign handling
                 if val == 0 {
                     bytes.push(0);
+                } else if val == -1 {
+                    bytes.push(0xFF);
                 } else {
                     let is_negative = val < 0;
                     while val != 0 && val != -1 {
@@ -976,5 +978,45 @@ mod tests {
         let encoded = Asn1Encoder::encode_asn1_object(&obj);
         let (decoded, _) = Asn1Decoder::parse(&encoded, 0).unwrap();
         assert_eq!(obj, decoded);
+    }
+
+    #[test]
+    fn test_encode_integer_minus_one() {
+        let result = Asn1Encoder::encode_value(&Value::Integer(-1));
+        assert_eq!(result, vec![0xFF]);
+    }
+
+    #[test]
+    fn test_encode_integer_minus_128() {
+        // The correct ASN.1 DER encoding of -128 is [0x80].
+        // -128 is not affected by the same panic as -1 because the while loop
+        // runs one iteration (val goes from -128 to -1, pushing 0x80), so bytes
+        // is non-empty when bytes[0] is accessed.
+        let result = Asn1Encoder::encode_value(&Value::Integer(-128));
+        assert_eq!(result, vec![0x80]);
+    }
+
+    #[test]
+    fn test_encode_integer_minus_129() {
+        // -129 in two's complement is 0xFF7F, so DER encoding is [0xFF, 0x7F].
+        let result = Asn1Encoder::encode_value(&Value::Integer(-129));
+        assert_eq!(result, vec![0xFF, 0x7F]);
+    }
+
+    #[test]
+    fn test_encode_integer_positive_values() {
+        assert_eq!(Asn1Encoder::encode_value(&Value::Integer(1)), vec![0x01]);
+        assert_eq!(Asn1Encoder::encode_value(&Value::Integer(127)), vec![0x7F]);
+        // 128 has the high bit set, so a leading 0x00 is prepended to indicate positive.
+        assert_eq!(
+            Asn1Encoder::encode_value(&Value::Integer(128)),
+            vec![0x00, 0x80]
+        );
+    }
+
+    #[test]
+    fn test_encode_integer_zero() {
+        let result = Asn1Encoder::encode_value(&Value::Integer(0));
+        assert_eq!(result, vec![0x00]);
     }
 }
