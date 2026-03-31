@@ -83,6 +83,24 @@ mod test_vectors {
     ];
 }
 
+fn wrap_asn1_seq(data: &[u8]) -> Vec<u8> {
+    let mut result = Vec::with_capacity(2 + data.len());
+    result.push(0x30);
+    result.push(data.len() as u8);
+    result.extend_from_slice(data);
+    result
+}
+
+/// Pad data with PKCS#7 padding to the given block size.
+/// DES uses 8-byte blocks. The decrypt function returns raw decrypted bytes
+/// including the PKCS#7 padding, so expected values must be padded too.
+fn pkcs7_pad(data: &[u8], block_size: usize) -> Vec<u8> {
+    let pad_len = block_size - (data.len() % block_size);
+    let mut result = data.to_vec();
+    result.extend(std::iter::repeat(pad_len as u8).take(pad_len));
+    result
+}
+
 #[test]
 fn test_md5_key_derivation() {
     let auth_alg = AuthAlgorithm::HmacMd5;
@@ -240,8 +258,9 @@ fn test_des_encryption_decryption() {
     let auth_key = auth_alg.derive_key(password, engine_id).unwrap();
     let priv_key = priv_alg.derive_key(&auth_key).unwrap();
 
-    let plaintext =
-        b"This is a test message for DES encryption. It needs to be long enough to test padding.";
+    let plaintext = wrap_asn1_seq(
+        b"This is a test message for DES encryption. It needs to be long enough to test padding.",
+    );
     let engine_boots = 1u32;
     let counter = 12345u64;
 
@@ -256,7 +275,7 @@ fn test_des_encryption_decryption() {
     println!("DES test - Privacy key: {:02x?}", priv_key);
 
     // Encrypt
-    let ciphertext = priv_alg.encrypt(&priv_key, &iv, plaintext).unwrap();
+    let ciphertext = priv_alg.encrypt(&priv_key, &iv, &plaintext).unwrap();
     println!("DES test - Ciphertext length: {}", ciphertext.len());
     assert!(
         ciphertext.len() >= plaintext.len(),
@@ -272,9 +291,11 @@ fn test_des_encryption_decryption() {
     let decrypted = priv_alg.decrypt(&priv_key, &iv, &ciphertext).unwrap();
     println!("DES test - Decrypted length: {}", decrypted.len());
 
+    // DES decrypt returns raw decrypted bytes including PKCS#7 padding
+    let expected = pkcs7_pad(&plaintext, 8);
     assert_eq!(
-        decrypted, plaintext,
-        "DES decryption should restore original plaintext"
+        decrypted, expected,
+        "DES decryption should restore original plaintext (with PKCS#7 padding)"
     );
 }
 
@@ -667,23 +688,27 @@ fn test_encryption_corner_cases() {
     let key = vec![0x01; 16];
     let iv = vec![0x02; 8];
 
-    // Test empty plaintext
-    let empty_plaintext = b"";
-    let encrypted = priv_alg.encrypt(&key, &iv, empty_plaintext).unwrap();
-    let decrypted = priv_alg.decrypt(&key, &iv, &encrypted).unwrap();
-    assert_eq!(decrypted, empty_plaintext);
+    // DES decrypt returns raw decrypted bytes including PKCS#7 padding, so we
+    // compare against the PKCS#7-padded version of the plaintext.
 
-    // Test single byte
-    let single_byte = b"A";
-    let encrypted = priv_alg.encrypt(&key, &iv, single_byte).unwrap();
+    // Test empty plaintext wrapped in ASN.1 SEQUENCE -> [0x30, 0x00] (2 bytes)
+    let empty_plaintext = wrap_asn1_seq(b"");
+    let encrypted = priv_alg.encrypt(&key, &iv, &empty_plaintext).unwrap();
     let decrypted = priv_alg.decrypt(&key, &iv, &encrypted).unwrap();
-    assert_eq!(decrypted, single_byte);
+    assert_eq!(decrypted, pkcs7_pad(&empty_plaintext, 8));
 
-    // Test exactly one block (8 bytes for DES)
-    let one_block = b"12345678";
-    let encrypted = priv_alg.encrypt(&key, &iv, one_block).unwrap();
+    // Test single byte wrapped in ASN.1 SEQUENCE -> [0x30, 0x01, 0x41] (3 bytes)
+    let single_byte = wrap_asn1_seq(b"A");
+    let encrypted = priv_alg.encrypt(&key, &iv, &single_byte).unwrap();
     let decrypted = priv_alg.decrypt(&key, &iv, &encrypted).unwrap();
-    assert_eq!(decrypted, one_block);
+    assert_eq!(decrypted, pkcs7_pad(&single_byte, 8));
+
+    // Test exactly one block (8 bytes for DES): wrap_asn1_seq(b"123456") -> [0x30, 0x06, ...6 bytes] = 8 bytes
+    let one_block = wrap_asn1_seq(b"123456");
+    let encrypted = priv_alg.encrypt(&key, &iv, &one_block).unwrap();
+    let decrypted = priv_alg.decrypt(&key, &iv, &encrypted).unwrap();
+    // one_block is exactly 8 bytes, so PKCS#7 adds a full block of padding (8 bytes of 0x08)
+    assert_eq!(decrypted, pkcs7_pad(&one_block, 8));
 }
 
 // Test that demonstrates the complete SNMPv3 message flow
@@ -816,15 +841,21 @@ fn test_algorithm_combinations() {
         );
 
         // Test that encryption/decryption works
-        let plaintext = b"Test message for algorithm combination";
+        let plaintext = wrap_asn1_seq(b"Test message for algorithm combination");
         let salt = priv_alg.generate_salt(1, 12345);
         let iv = priv_alg.calculate_iv(&salt, &priv_key, 1, 12345).unwrap();
 
-        let encrypted = priv_alg.encrypt(&priv_key, &iv, plaintext).unwrap();
+        let encrypted = priv_alg.encrypt(&priv_key, &iv, &plaintext).unwrap();
         let decrypted = priv_alg.decrypt(&priv_key, &iv, &encrypted).unwrap();
 
+        // DES-CBC returns raw decrypted bytes including PKCS#7 padding;
+        // AES-128-CFB is a stream cipher and returns exact-length output.
+        let expected = match priv_alg {
+            PrivAlgorithm::DesCbc => pkcs7_pad(&plaintext, 8),
+            _ => plaintext.clone(),
+        };
         assert_eq!(
-            decrypted, plaintext,
+            decrypted, expected,
             "Encryption/decryption should work for {:?}/{:?}",
             auth_alg, priv_alg
         );
