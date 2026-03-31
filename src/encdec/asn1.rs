@@ -1,6 +1,6 @@
 use crate::asn1;
 use crate::{Decoder, Encoder};
-use log::{debug, error, info, warn};
+use tracing::{debug, error, info, warn};
 
 pub struct Asn1Decoder;
 

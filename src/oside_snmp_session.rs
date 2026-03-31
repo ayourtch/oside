@@ -1,7 +1,7 @@
-use log::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use std::error::Error;
-use std::net::UdpSocket;
+use std::net::{Ipv6Addr, UdpSocket};
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -69,6 +69,16 @@ impl Default for SnmpWalkConfig {
     }
 }
 
+/// Returns the appropriate local bind address for a given target host.
+/// IPv6 targets get `[::]:0`, everything else gets `0.0.0.0:0`.
+fn bind_addr_for_target(target_host: &str) -> &'static str {
+    if target_host.contains(':') || target_host.parse::<Ipv6Addr>().is_ok() {
+        "[::]:0"
+    } else {
+        "0.0.0.0:0"
+    }
+}
+
 pub struct OsideSnmpSession {
     config: SnmpWalkConfig,
     socket: UdpSocket,
@@ -78,7 +88,7 @@ pub struct OsideSnmpSession {
 
 impl OsideSnmpSession {
     pub fn new(config: SnmpWalkConfig) -> Result<Self, Box<dyn Error>> {
-        let socket = UdpSocket::bind("0.0.0.0:0")?;
+        let socket = UdpSocket::bind(bind_addr_for_target(&config.target_host))?;
         let target_addr = format!("{}:{}", config.target_host, config.port);
         socket.connect(&target_addr)?;
         socket.set_read_timeout(Some(config.timeout))?;
@@ -107,8 +117,7 @@ impl OsideSnmpSession {
         let mut results_count = 0;
         let mut results = vec![];
 
-        println!("Walking from OID: {}", current_oid);
-        println!("----------------------------------------");
+        debug!("Walking from OID: {}", current_oid);
 
         loop {
             let response = if self.config.use_getbulk {
@@ -137,8 +146,7 @@ impl OsideSnmpSession {
             }
         }
 
-        println!("----------------------------------------");
-        println!("Walk completed. Total results: {}", results_count);
+        debug!("Walk completed. Total results: {}", results_count);
         Ok(results)
     }
 
@@ -501,7 +509,7 @@ impl OsideSnmpSession {
             SnmpValue::Unknown(obj) => format!("Unknown: {:?}", obj),
         };
 
-        println!("RESULT: {} = {}", oid, value_str);
+        trace!("RESULT: {} = {}", oid, value_str);
     }
 
     fn create_usm_config(&self) -> Option<UsmConfig> {
@@ -1633,4 +1641,32 @@ fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack
         .windows(needle.len())
         .position(|window| window == needle)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn bind_addr_ipv4_dotted_decimal() {
+        assert_eq!(super::bind_addr_for_target("192.168.1.1"), "0.0.0.0:0");
+    }
+
+    #[test]
+    fn bind_addr_ipv6_full_address() {
+        assert_eq!(super::bind_addr_for_target("2001:db8::1"), "[::]:0");
+    }
+
+    #[test]
+    fn bind_addr_ipv6_loopback() {
+        assert_eq!(super::bind_addr_for_target("::1"), "[::]:0");
+    }
+
+    #[test]
+    fn bind_addr_hostname_defaults_to_ipv4() {
+        assert_eq!(super::bind_addr_for_target("router.example.com"), "0.0.0.0:0");
+    }
+
+    #[test]
+    fn bind_addr_ipv4_loopback() {
+        assert_eq!(super::bind_addr_for_target("127.0.0.1"), "0.0.0.0:0");
+    }
 }

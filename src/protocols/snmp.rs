@@ -1,4 +1,4 @@
-use log::{debug, error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::encdec::asn1::Asn1Decoder;
 use crate::encdec::asn1::Asn1Encoder;

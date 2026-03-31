@@ -7,7 +7,7 @@ use oside::protocols::snmp::usm_crypto::{AuthAlgorithm, PrivAlgorithm};
 use oside::oside_snmp_session::{OsideSnmpSession, SnmpVersion, SnmpWalkConfig};
 
 fn main() -> Result<(), Box<dyn Error>> {
-    env_logger::init();
+    tracing_subscriber::fmt::init();
     let args: Vec<String> = env::args().collect();
 
     let config = parse_args(&args)?;

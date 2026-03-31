@@ -8,7 +8,7 @@
     unused_parens
 )]
 use generic_array::{ArrayLength, GenericArray};
-// use log::trace;
+// use tracing::trace;
 use std::convert::TryFrom;
 use std::convert::TryInto;
 use std::fmt;
