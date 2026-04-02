@@ -672,7 +672,7 @@ impl OsideSnmpSession {
     }
 
     // Add this helper method to manually parse raw USM parameters
-    fn parse_raw_usm_params(&self, raw_data: &[u8]) -> Option<Vec<u8>> {
+    fn _parse_raw_usm_params(&self, raw_data: &[u8]) -> Option<Vec<u8>> {
         if raw_data.len() < 2 {
             return None;
         }
@@ -834,7 +834,7 @@ impl OsideSnmpSession {
     ) -> Result<(bool, String, Vec<SnmpVarBind>), Box<dyn Error>> {
         let mut found_next = false;
         let mut next_oid = String::new();
-        let mut results_count = 0;
+        let mut _results_count = 0;
         let mut results = vec![];
 
         // For SNMPv3, use the new decryption-aware processing
@@ -873,7 +873,7 @@ impl OsideSnmpSession {
 
                         // Print the result
                         self.print_result(&binding);
-                        results_count += 1;
+                        _results_count += 1;
                         results.push(binding.clone());
 
                         // Update for next iteration
@@ -889,40 +889,39 @@ impl OsideSnmpSession {
             _ => {
                 // Original SNMPv1/v2c processing
                 if let Some(snmp_response) = response.get_layer(SNMPGETRESPONSE!()) {
-                    if let SnmpGetResponse(resp) = snmp_response {
-                        if resp.error_status.value() != 0 {
-                            return Err(format!(
-                                "SNMP Error: {} (index: {})",
-                                resp.error_status.value(),
-                                resp.error_index.value()
-                            )
-                            .into());
+                    let SnmpGetResponse(resp) = snmp_response;
+                    if resp.error_status.value() != 0 {
+                        return Err(format!(
+                            "SNMP Error: {} (index: {})",
+                            resp.error_status.value(),
+                            resp.error_index.value()
+                        )
+                        .into());
+                    }
+
+                    for binding in &resp.var_bindings {
+                        let oid_str = format!("{}", binding.name.value());
+
+                        if !oid_str.starts_with(&self.config.starting_oid) {
+                            debug!("Reached end of subtree");
+                            return Ok((false, next_oid, results));
                         }
 
-                        for binding in &resp.var_bindings {
-                            let oid_str = format!("{}", binding.name.value());
-
-                            if !oid_str.starts_with(&self.config.starting_oid) {
-                                debug!("Reached end of subtree");
+                        match &binding.value.value() {
+                            SnmpValue::NoSuchObject
+                            | SnmpValue::NoSuchInstance
+                            | SnmpValue::EndOfMibView => {
+                                debug!("End of MIB view reached");
                                 return Ok((false, next_oid, results));
                             }
-
-                            match &binding.value.value() {
-                                SnmpValue::NoSuchObject
-                                | SnmpValue::NoSuchInstance
-                                | SnmpValue::EndOfMibView => {
-                                    debug!("End of MIB view reached");
-                                    return Ok((false, next_oid, results));
-                                }
-                                _ => {}
-                            }
-
-                            self.print_result(&binding);
-                            results_count += 1;
-                            results.push(binding.clone());
-                            next_oid = oid_str;
-                            found_next = true;
+                            _ => {}
                         }
+
+                        self.print_result(&binding);
+                        _results_count += 1;
+                        results.push(binding.clone());
+                        next_oid = oid_str;
+                        found_next = true;
                     }
                 } else {
                     return Err("No valid SNMP response received".into());
