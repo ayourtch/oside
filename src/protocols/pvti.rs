@@ -21,8 +21,7 @@ impl Decode for PVTIChunk {
 }
 impl Encode for PVTIChunk {
     fn encode<E: Encoder>(&self) -> Vec<u8> {
-        panic!("FIXME");
-        self.data.to_vec()
+        panic!("FIXME")
     }
 }
 
@@ -87,10 +86,5 @@ fn encode_pvti_chunks<E: Encoder>(
     my_index: usize,
     encoded_layers: &EncodingVecVec,
 ) -> Vec<u8> {
-    let mut result = Vec::new();
-    panic!("FIXME");
-    for chunk in &my_layer.chunks {
-        result.extend(chunk.encode::<E>());
-    }
-    result
+    panic!("FIXME")
 }
