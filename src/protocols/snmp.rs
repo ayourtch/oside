@@ -3363,7 +3363,7 @@ fn encode_generic_asn1_field<E: Encoder>(
 }
 
 // Custom decode function that parses all ASN.1 objects in the buffer
-fn decode_generic_asn1<D: Decoder>(
+fn _decode_generic_asn1<D: Decoder>(
     buf: &[u8],
     ci: usize,
     me: &mut GenericAsn1,
@@ -3391,7 +3391,7 @@ fn decode_generic_asn1<D: Decoder>(
 }
 
 // Custom encode function that encodes all ASN.1 objects
-fn encode_generic_asn1<E: Encoder>(
+fn _encode_generic_asn1<E: Encoder>(
     me: &GenericAsn1,
     stack: &LayerStack,
     my_index: usize,
