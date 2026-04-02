@@ -1785,28 +1785,28 @@ pub fn parse_reduced_neighbor_report(data: &[u8]) -> Option<ReducedNeighborRepor
 
         // Create a structure to track which fields are present
         let mut info_present = NeighborTBTTInfoPresent::default();
-        let mut field_length = 0;
+        let mut _field_length = 0;
 
         // TBTT Information Field Present field
         if tbtt_info_length > 0 {
             info_present.tbtt_offset = true;
-            field_length += 1;
+            _field_length += 1;
         }
         if tbtt_info_length > 1 {
             info_present.bssid = true;
-            field_length += 6;
+            _field_length += 6;
         }
         if tbtt_info_length > 7 {
             info_present.short_ssid = true;
-            field_length += 4;
+            _field_length += 4;
         }
         if tbtt_info_length > 11 {
             info_present.bss_parameters = true;
-            field_length += 1;
+            _field_length += 1;
         }
         if tbtt_info_length > 12 {
             info_present.psd_20mhz = true;
-            field_length += 1;
+            _field_length += 1;
         }
         if tbtt_info_length > 13 {
             info_present.mld_parameters = true;
@@ -2023,7 +2023,7 @@ pub struct Dot11 {
     // Optional addr4 field for frames with ToDS and FromDS set is handled in subclasses
 }
 
-fn encode_frame_control<E: Encoder>(
+fn _encode_frame_control<E: Encoder>(
     my_layer: &Dot11,
     stack: &LayerStack,
     my_index: usize,
@@ -2044,7 +2044,7 @@ fn decode_frame_control<D: Decoder>(
     Some((fc, delta))
 }
 
-fn encode_seq_control<E: Encoder>(
+fn _encode_seq_control<E: Encoder>(
     my_layer: &Dot11,
     stack: &LayerStack,
     my_index: usize,
@@ -2244,7 +2244,7 @@ pub mod radiotap_flags {
     pub const EXT: u32 = 1 << 31;
 }
 
-fn encode_radiotap_length<E: Encoder>(
+fn _encode_radiotap_length<E: Encoder>(
     my_layer: &Radiotap,
     stack: &LayerStack,
     my_index: usize,
@@ -2262,7 +2262,7 @@ fn decode_radiotap_length<D: Decoder>(
     u16::decode::<BinaryLittleEndian>(buf)
 }
 
-fn encode_radiotap_present<E: Encoder>(
+fn _encode_radiotap_present<E: Encoder>(
     my_layer: &Radiotap,
     stack: &LayerStack,
     my_index: usize,
@@ -2639,7 +2639,7 @@ pub fn decode_802_11_frame(buf: &[u8]) -> Option<(LayerStack, usize)> {
     // Next, decode the 802.11 header and appropriate frame type
     if let Some((dot11_decoded, dot11_offset)) = decode_dot11_frame(&buf[offset..data_end]) {
         stack.layers.extend(dot11_decoded.layers);
-        offset += dot11_offset;
+        // offset += dot11_offset; // offset not used after this point
     } else {
         println!("No 802.11 header");
         return None;
@@ -2786,7 +2786,7 @@ pub struct Dot11Data {
     pub payload: Vec<u8>,              // Data payload
 }
 
-fn encode_qos_control<E: Encoder>(
+fn _encode_qos_control<E: Encoder>(
     my_layer: &Dot11Data,
     stack: &LayerStack,
     my_index: usize,
@@ -2815,7 +2815,7 @@ fn decode_qos_control<D: Decoder>(
     Some((None, 0))
 }
 
-fn encode_ht_control<E: Encoder>(
+fn _encode_ht_control<E: Encoder>(
     my_layer: &Dot11Data,
     stack: &LayerStack,
     my_index: usize,
@@ -3320,7 +3320,7 @@ stray things:
 }
 */
 
-fn encode_capabilities<E: Encoder>(
+fn _encode_capabilities<E: Encoder>(
     my_layer: &Dot11Beacon,
     stack: &LayerStack,
     my_index: usize,
@@ -3893,10 +3893,6 @@ fn decode_elements<D: Decoder>(
                 // Extended Supported Rates
                 ParsedElement::ExtendedRates(element_data)
             }
-            127 => {
-                // Extended Capabilities
-                ParsedElement::ExtendedCapabilities(element_data)
-            }
             221 => {
                 // Vendor Specific
                 if element_data.len() >= 4 {
@@ -3981,20 +3977,6 @@ fn decode_elements<D: Decoder>(
                 })
             }
 
-            255 => {
-                // Extended Element ID
-                if element_data.len() >= 1 {
-                    let extended_id = element_data[0];
-                    let ext_data = element_data[1..].to_vec();
-
-                    match extended_id {
-                        // For now, just handle as unknown
-                        _ => ParsedElement::Unknown(Element::new(element_id, element_data)),
-                    }
-                } else {
-                    ParsedElement::Unknown(Element::new(element_id, element_data))
-                }
-            }
             _ => ParsedElement::Unknown(Element::new(element_id, element_data)),
         };
 
@@ -4196,12 +4178,6 @@ fn encode_elements<E: Encoder>(
                 out.extend_from_slice(&quiet.quiet_offset.to_le_bytes());
             }
 
-            ParsedElement::ExtendedCapabilities(ec) => {
-                out.push(127); // Extended Capabilities ID
-                out.push(ec.len() as u8); // Length
-                out.extend_from_slice(&ec);
-            }
-
             ParsedElement::SupportedOperatingClasses(soc) => {
                 out.push(59); // Supported Operating Classes ID
                 out.push((1 + soc.operating_classes.len()) as u8); // Length
@@ -4396,13 +4372,6 @@ fn encode_elements<E: Encoder>(
                 out.push(149); // Fine Timing Measurement ID
                 out.push(ftm.timing_capabilities.len() as u8); // Length
                 out.extend_from_slice(&ftm.timing_capabilities);
-            }
-
-            // Keep this final case for unknown elements
-            ParsedElement::Unknown(element) => {
-                out.push(element.id);
-                out.push(element.data.len() as u8);
-                out.extend_from_slice(&element.data);
             }
         }
     }
@@ -5062,7 +5031,7 @@ where
 }
 
 // Helper function for optional fields in Dot11Data
-fn decode_option_value<D: Decoder, T: Decode>(
+fn _decode_option_value<D: Decoder, T: Decode>(
     buf: &[u8],
     ci: usize,
 ) -> Option<(Option<Value<T>>, usize)> {
